@@ -1,0 +1,51 @@
+{
+  "schema": "DEPCarP2MultimodalDatasetAcceptanceV2",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "sample_schema": "StaticAckermannSampleV2",
+  "contract_revision": 2,
+  "timestamp_anchor": "lidar",
+  "formal_authority": {
+    "kind": "rosbag_reference",
+    "raw_lidar_embedded_in_npz": false,
+    "bag_sha256": "fe101d8715169a76b1d9c441c3498ff63d99cfa208c5dc2863f06cbd9d68a1c2",
+    "episode_duration_s": 25.732,
+    "episode_messages": 10229,
+    "episode_size_bytes": 520713000,
+    "reference_keys": ["topic", "message_index", "timestamp"]
+  },
+  "modalities": [
+    "metric_depth_32FC1", "depth_validity", "raw_lidar_rosbag_reference",
+    "lidar_bev_6x160x160", "imu_10d", "vehicle_route_state_9d",
+    "signed_route_gears", "gear_conditioned_signed_candidates",
+    "maneuver_mode", "timestamped_three_chain_tf", "map_uuid_hash_seed"
+  ],
+  "alignment": {
+    "depth": "nearest_with_0.05s_gate",
+    "odom": "linear+slerp bracket interpolation to lidar stamp",
+    "joint_state": "linear bracket interpolation to lidar stamp",
+    "imu": "linear+slerp bracket interpolation to lidar stamp",
+    "transforms": ["lidar_to_chassis", "camera_to_chassis", "chassis_to_map"]
+  },
+  "preprocessing": {
+    "schema": "LidarBEVPreprocessingV1",
+    "sha256": "89be32ba8f15fce9ff85332070c4da74668d4853a7419dd986a0d8bcafb3fb7b"
+  },
+  "offline_extraction": {
+    "status": "PASS",
+    "accepted_samples": 2,
+    "audit_failures": 0,
+    "raw_authority": "rosbag_reference",
+    "embedded_lidar_point_count": 0,
+    "skew_s_p99": {"candidates": 0.05588, "depth": 0.02582, "imu": 0.0, "joint_state": 0.0, "odom": 0.0}
+  },
+  "online_diagnostic": {
+    "status": "PASS",
+    "samples": 1,
+    "raw_authority": "embedded_diagnostic",
+    "embedded_lidar_points": 6771,
+    "maneuver_mode": "REVERSE_EXIT"
+  },
+  "bulk_generation_started": false,
+  "model_training_started": false
+}

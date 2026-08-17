@@ -1,0 +1,27 @@
+{
+  "status": "PASS",
+  "platform": {
+    "ubuntu": "20.04.6 LTS",
+    "ros": "Noetic",
+    "gazebo": "Gazebo Classic 11",
+    "ros_python": "3.8.10"
+  },
+  "catkin": {
+    "status": "PASS",
+    "packages": 16,
+    "workspace": "catkin_ws"
+  },
+  "launch_parse": "PASS",
+  "dep_v491_tests": {"status": "PASS", "count": 85},
+  "dep_car_tests": {"status": "PASS", "count": 27},
+  "checkpoint_transfer": {"status": "PASS", "transferred_parameter_tensors": 256},
+  "training_smoke": {"status": "PASS", "epochs": 1, "authority": "synthetic_2d_pilot_not_vlp16", "artifact_retained": false},
+  "actor_collision_plugin": {"status": "PASS", "commit": "eb2dc9de71f43669becc217f536951cf51d50a69"},
+  "map_smoke": {"status": "PASS", "pilot_maps": 12, "pilot_samples": 9},
+  "full_gazebo_closed_loop": {
+    "status": "PLATFORM_SMOKE_PASS",
+    "vehicle_scale": 0.3333333333333333,
+    "trained_model_loaded": false,
+    "details": "p1_scaled_urban_car_smoke.json"
+  }
+}

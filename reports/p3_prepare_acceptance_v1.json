@@ -1,0 +1,47 @@
+{
+  "schema": "DEPCarP3PrepareAcceptanceV1",
+  "status": "PASS",
+  "task_manifest_sha256": "c46190e4ddfcd5eb96739b51dfe832a8db885581375641186f9f3c7f7782f39c",
+  "checks": {
+    "task_manifest_content_sha256": true,
+    "task_manifest_config_sha256": true,
+    "task_ids_unique": true,
+    "task_manifest_partial": false,
+    "quota_deficits_empty": true,
+    "map_files_complete": true,
+    "map_occupancy_sha256": true,
+    "map_uuid_unique": true,
+    "map_seeds_contiguous_62000_62039": true,
+    "task_map_references_exist": true,
+    "declared_map_splits_valid": true
+  },
+  "generated_maps": 40,
+  "selected_maps": 30,
+  "selected_maps_by_split": {
+    "test": 3,
+    "train": 24,
+    "validation": 3
+  },
+  "tasks": 150,
+  "tasks_per_selected_map": 5,
+  "tasks_by_split": {
+    "test": 15,
+    "train": 120,
+    "validation": 15
+  },
+  "tasks_by_mode": {
+    "DEAD_END_ESCAPE": 16,
+    "NARROW_CORRIDOR": 22,
+    "NORMAL": 36,
+    "REVERSE_EXIT": 22,
+    "SHARP_TURN": 22,
+    "THREE_POINT_TURN": 16,
+    "U_TURN": 16
+  },
+  "timing_evidence": {
+    "map_files_completed_local": "2026-08-14T18:37:06+08:00",
+    "task_manifest_completed_local": "2026-08-14T22:01:16+08:00",
+    "dominant_cost": "single-process Hybrid A* task construction and classification"
+  },
+  "collection_started": false
+}

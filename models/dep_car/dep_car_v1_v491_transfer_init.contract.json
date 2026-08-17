@@ -1,0 +1,14 @@
+{
+  "architecture_id": "dep_car_lidar_v1_3x5_mobilenetv3_v483",
+  "checkpoint_sha256": "1b5dfc87f5ddd9ac5c21973f77c3b00e136bd1c628abbd74c969ac903833186f",
+  "lidar_shape": [
+    2,
+    16,
+    440
+  ],
+  "production_qualified": false,
+  "source_checkpoint_sha256": "22e5c63c273d751c15479d70c99d9b85ad615b7b4c62063946a5b1683776ac60",
+  "state_dim": 8,
+  "status": "INITIALIZATION_ONLY_RETRAINING_REQUIRED",
+  "transferred_parameter_tensors": 256
+}

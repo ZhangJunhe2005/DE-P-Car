@@ -1,0 +1,23 @@
+vehicle:
+  model: urban
+  linear_scale: 0.3333333333333333
+  wheelbase: 0.32666666666666666
+  length: 0.49666666666666665
+  width: 0.27666666666666667
+  height: 0.5166666666666667
+  front_track: 0.27666666666666667
+  rear_track: 0.25
+  wheel_radius: 0.06333333333333334
+  steering_wheel_joint_hard_limit_rad: 0.785398
+  steering_limit_rad: 0.6124077385268893
+  maximum_kinematic_curvature_per_m: 2.15053714069607
+  minimum_kinematic_turn_radius_m: 0.46500010675301695
+  calibrated_guaranteed_curvature_per_m: 1.8181818181818181
+  calibrated_minimum_turn_radius_m: 0.55
+  planner_rollout_effective_wheelbase_m: 0.3863798396117272
+  turning_contract_authority: low_and_medium_speed_left_right_gazebo_calibration
+  steering_rate_limit_rad_s: 0.75
+  forward_speed_limit_mps: 2.5
+  reverse_speed_limit_mps: 0.5
+  command_timeout_s: 0.35
+  steering_convention: rep103_positive_left

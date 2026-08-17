@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(dep_car_local_planner)
+find_package(catkin REQUIRED COMPONENTS rospy geometry_msgs nav_msgs sensor_msgs dep_car_core dep_car_msgs)
+catkin_package(CATKIN_DEPENDS rospy geometry_msgs nav_msgs sensor_msgs dep_car_core dep_car_msgs)
+catkin_install_python(PROGRAMS scripts/local_planner_node.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(DIRECTORY launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

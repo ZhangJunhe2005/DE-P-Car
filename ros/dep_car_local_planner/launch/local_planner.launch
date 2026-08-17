@@ -1,0 +1,12 @@
+<launch>
+  <arg name="goal_topic" default="/dep_car/local_subgoal"/>
+  <arg name="checkpoint" default=""/><arg name="checkpoint_contract" default=""/>
+  <node pkg="dep_car_local_planner" type="local_planner_node.py" name="dep_car_local_planner" output="screen">
+    <param name="goal_topic" value="$(arg goal_topic)"/>
+    <param name="control_rate" value="10.0"/>
+    <param name="reverse_distance" value="0.6"/>
+    <param name="mission_goal_tolerance" value="0.22"/>
+    <param name="mission_heading_tolerance" value="0.35"/>
+    <param name="checkpoint" value="$(arg checkpoint)"/><param name="checkpoint_contract" value="$(arg checkpoint_contract)"/>
+  </node>
+</launch>

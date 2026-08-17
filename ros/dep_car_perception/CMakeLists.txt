@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(dep_car_perception)
+find_package(catkin REQUIRED COMPONENTS rospy sensor_msgs nav_msgs geometry_msgs tf2_ros dep_car_core)
+catkin_package(CATKIN_DEPENDS rospy sensor_msgs nav_msgs geometry_msgs tf2_ros dep_car_core)
+catkin_install_python(PROGRAMS scripts/lidar_preprocessor.py scripts/lidar_dynamic_observations.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(DIRECTORY launch config DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

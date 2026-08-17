@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(dep_car_vehicle)
+find_package(catkin REQUIRED COMPONENTS rospy std_msgs nav_msgs geometry_msgs tf2_ros trajectory_msgs dep_car_core dep_car_msgs)
+catkin_package(CATKIN_DEPENDS rospy std_msgs nav_msgs geometry_msgs tf2_ros trajectory_msgs dep_car_core dep_car_msgs)
+catkin_install_python(PROGRAMS scripts/urban_car_adapter.py scripts/render_scaled_urban_urdf.py scripts/odometry_tf_broadcaster.py scripts/calibrate_ackermann_turning.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(DIRECTORY launch config DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

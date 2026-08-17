@@ -1,0 +1,112 @@
+schema: DEPCarTrainingContractV1
+phase: P4_ACCEPTED_P5_AUTHORIZED_NOT_STARTED
+dataset:
+  root: data/p3_v3/bundle_v2_curated/samples
+  maps: data/p3_pilot/maps
+  index: data/p3_v3/bundle_v2_curated/training_index.json
+  content_aggregate_sha256: 58bf8d95e3fc5268a3e583979f73392732b3dae8aa8d07502bbf5d870294063b
+  map_contract_aggregate_sha256: dde82b4f82849eeb7b2ceaeab9914ad6f97510cefa4d3975fcaca879e6e17a43
+  schema: StaticAckermannSampleV2
+  contract_revision: 2
+  task_manifest_sha256: c46190e4ddfcd5eb96739b51dfe832a8db885581375641186f9f3c7f7782f39c
+  required_sensor_authority: urban_car_depth_vlp16_sim
+  lidar_bev_preprocessing_sha256: 89be32ba8f15fce9ff85332070c4da74668d4853a7419dd986a0d8bcafb3fb7b
+  split_authority: map_uuid
+  workers: 8
+model:
+  architecture_id: dep_car_multimodal_v1_ackermann_3x5
+  depth_input: [2, 96, 160]
+  lidar_bev_input: [6, 160, 160]
+  state_dim: 9
+  requested_gear_authority: deterministic_GearSupervisor
+  network_may_predict_gear: false
+  candidate_order: speed_major_3x5_steering_minor
+  residuals: [steering_mid, steering_end, speed_end, duration]
+  reflection_equivariance: true
+training:
+  default_stage: candidate_capacity
+  stages: [candidate_capacity, score_calibration]
+  modalities: [depth_only, lidar_only, fusion]
+  epochs: 40
+  batch_size: 16
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  seed: 49105
+  torch_threads: 8
+  candidate_capacity:
+    train: [depth_encoder, lidar_encoder, state_encoder, gear_embedding, speed_embedding, steering_embedding, depth_missing_token, lidar_missing_token, candidate_tower, candidate_head]
+    freeze: [score_geometry_encoder, score_tower, score_head]
+  score_calibration:
+    train: [score_geometry_encoder, score_tower, score_head]
+    freeze: [depth_encoder, lidar_encoder, state_encoder, gear_embedding, speed_embedding, steering_embedding, depth_missing_token, lidar_missing_token, candidate_tower, candidate_head]
+loss:
+  objective_id: dep_car_objective_v3_signed_sdf_cvar_continuous_swept_route_capacity_score
+  objective_revision: 3
+  sdf_schema: SignedDistanceFieldV1KnownFreePositiveUnknownUnsafe
+  footprint_schema: FiveCircleContinuousSweptFootprintV3
+  sweep_interpolation_schema: PiecewiseLinearSE2SubstepsV1
+  sweep_substeps_per_source_segment: 16
+  runtime_grid_allowance: half_cell_diagonal
+  differentiable_sdf_allowance: one_cell_diagonal
+  bev_extent_m: 8.0
+  safety_temperature_m: 0.04
+  safety_cvar_fraction: 0.10
+  safety_mean_weight: 0.20
+  safety_cvar_weight: 0.30
+  safety_worst_weight: 0.50
+  guidance_heading_weight: 0.25
+  guidance_progress_weight: 0.50
+  guidance_endpoint_weight: 0.20
+  capacity_top_k: 3
+  minimum_normalized_terminal_separation: 0.12
+  forward_diversity_scales: [0.8, 0.3, 1.0]
+  reverse_diversity_scales: [0.5, 0.1, 0.5]
+  maximum_lateral_acceleration_mps2: 3.0
+  score_temperature: 0.25
+  weights:
+    safety: 2.0
+    guidance: 1.0
+    kinematic: 0.5
+    comfort: 0.05
+    diversity: 0.20
+    anchor: 0.01
+    score: 1.0
+qualification:
+  p4_smoke_only: true
+  corrected_footprint_p3_reaudit: reports/p3_development_reaudit_v3.json
+  corrected_footprint_p3_status: PASS
+  p5_formal_training_allowed: true
+  blocked_gates: []
+  p3_pilot_maps_total_including_sealed_test: 30
+  p5_development_maps: 36
+  p5_validation_maps: 5
+  # Dataset expansion is a P8 qualification requirement, not a P5 training
+  # bypass.  P5 is authorized by the audited P3 and coverage gates above.
+  p8_formal_minimum_maps: 80
+  p8_minimum_formal_validation_maps: 10
+  production_qualified_by_training: false
+  test_split_sealed_during_p4: true
+  candidate_acceptance:
+    minimum_completed_epochs: 40
+    minimum_global_steps: 10000
+    maximum_validation_total_loss: 10.0
+    maximum_validation_zero_feasible_rate: 0.10
+    minimum_validation_mean_feasible_candidates: 2.0
+    maximum_validation_kinematic_violation_rate: 0.05
+    minimum_validation_geometry_valid_fraction: 0.80
+    minimum_validation_frames_per_maneuver: 50
+    minimum_validation_frames_per_requested_gear: 100
+    minimum_validation_frames_per_candidate_context: 20
+    required_maneuvers:
+      - NORMAL
+      - SHARP_TURN
+      - NARROW_CORRIDOR
+      - U_TURN
+      - DEAD_END_ESCAPE
+      - REVERSE_EXIT
+      - THREE_POINT_TURN
+    required_requested_gears: [FORWARD, REVERSE]
+    required_candidate_contexts: [MISSION, RECOVERY]

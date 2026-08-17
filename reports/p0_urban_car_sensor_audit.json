@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "vlp16": {
+    "topic": "/velodyne_points",
+    "frame": "velodyne",
+    "mount_parent": "chassis",
+    "mount_xyz_m": [0.0, 0.0, 0.5833333333333334],
+    "scan_plane_z_m": 0.5959,
+    "body_height_m": 0.5166666666666667,
+    "scan_plane_above_body": true,
+    "channels": 16,
+    "azimuth_samples": 440,
+    "rate_hz": 10,
+    "ray_minimum_m": 0.15,
+    "valid_minimum_m": 0.2,
+    "planning_maximum_m": 40.0,
+    "configured_noise_stddev_m": 0.008
+  },
+  "imu": {"topic": "/imu/data", "frame": "imu_link", "rate_hz": 100},
+  "d435": {"enabled_in_dep_car_launch": true, "encoding": "32FC1", "rate_hz": 15, "range_m": [0.2, 10.0], "role": "multimodal training and visualization"},
+  "frame_adapter": "measurement-stamped velodyne->chassis TF before occupancy/BEV",
+  "self_filter": "physical chassis box plus 0.03 m; raw points retained in V2 samples",
+  "joint_states": {"actual_topic": "/urban_model/joint_states", "upstream_robot_state_publisher_remap_missing": true, "dep_car_launch_remap_added": true}
+}

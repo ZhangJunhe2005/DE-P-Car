@@ -1,0 +1,21 @@
+urban_model:
+  gazebo_ros_control:
+    pid_gains:
+      front_left_steer_joint: {p: 1.2345679012, i: 0.0001234568, d: 0.1234567901}
+      front_right_steer_joint: {p: 1.2345679012, i: 0.0001234568, d: 0.1234567901}
+  joint_state_controller:
+    type: joint_state_controller/JointStateController
+    publish_rate: 30
+  steer_controller:
+    type: position_controllers/JointTrajectoryController
+    joints: [front_left_steer_joint, front_right_steer_joint]
+    gains:
+      front_left_steer_joint: {p: 1.2345679012, i: 0.0001234568, d: 0.1234567901}
+      front_right_steer_joint: {p: 1.2345679012, i: 0.0001234568, d: 0.1234567901}
+    constraints: {stopped_velocity_tolerance: 0.01, goal_time: 0.5}
+  left_motor_controller:
+    type: effort_controllers/JointEffortController
+    joint: rear_left_wheel_joint
+  right_motor_controller:
+    type: effort_controllers/JointEffortController
+    joint: rear_right_wheel_joint

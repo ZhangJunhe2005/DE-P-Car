@@ -1,0 +1,36 @@
+{
+  "schema": "DEPCarP1BidirectionalAckermannAcceptanceV2",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "gear_contract": {
+    "schema": "GearModeV1",
+    "authority": "deterministic GearSupervisor",
+    "network_may_select_gear": false,
+    "network_is_conditioned_by_requested_gear": true,
+    "modes": ["NEUTRAL", "FORWARD", "BRAKE_TO_REVERSE", "REVERSE", "BRAKE_TO_FORWARD"],
+    "one_constant_gear_per_candidate_bank": true,
+    "stop_before_shift_speed_mps": 0.03,
+    "shift_hold_s": 0.2
+  },
+  "planner": {
+    "global_state": ["x", "y", "yaw", "gear"],
+    "route_pose_fields": ["x", "y", "yaw", "gear", "steering"],
+    "planner_rollout_effective_wheelbase_m": 0.3863798396117272,
+    "continuous_swept_footprint_collision_check": true
+  },
+  "acceptance_matrix": {
+    "forward_straight_left_right": "PASS",
+    "reverse_straight_left_right": "PASS",
+    "forward_to_reverse_stop_hold": "PASS",
+    "reverse_to_forward_stop_hold": "PASS",
+    "heading_reversal_three_point_sequence": {"status": "PASS", "gears": [1, -1, 1]},
+    "dead_end_reverse_exit": "PASS",
+    "left_right_rollout_equivariance": "PASS",
+    "illegal_shift_count": 0
+  },
+  "gazebo_evidence": {
+    "forward_goal_stop": "PASS",
+    "reverse_motion_after_stop_hold": "PASS",
+    "revision2_online_reverse_sample": "PASS"
+  }
+}

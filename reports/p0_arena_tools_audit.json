@@ -1,0 +1,18 @@
+{
+  "status": "PASS_WITH_WRAPPER",
+  "commit": "664b950d88c91b34e3cdce62512c8864b574b9d4",
+  "map_types": ["indoor corridor tree", "outdoor random obstacles"],
+  "bulk_generation": true,
+  "native_cli": false,
+  "native_explicit_seed": false,
+  "random_source": "numpy.random global state",
+  "native_outputs": ["PNG", "map.yaml", "map.world.yaml for Flatland"],
+  "native_gazebo_conversion": "manual Inkscape + Blender mesh workflow",
+  "dep_car_wrapper": {
+    "seed_contract": "sets numpy seed per map and records UUID/hash",
+    "headless": true,
+    "automatic_gazebo_conversion": "occupied row runs converted to static SDF boxes",
+    "outputs": ["map.png", "map.yaml", "model.sdf", "model.config", "map.world", "manifest.json"]
+  }
+}
+

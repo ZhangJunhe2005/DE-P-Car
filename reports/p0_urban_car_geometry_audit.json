@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "superseded_by": "p0_vehicle_sensor_contract_v3.json",
+  "source": "spawn_car/model/urban/urdf/vehicle_properties.urdf.xacro",
+  "wheelbase_m": 0.98,
+  "length_m": 1.49,
+  "width_m": 0.83,
+  "height_m": 1.55,
+  "front_overhang_m": 0.22,
+  "rear_overhang_m": 0.28,
+  "front_track_m": 0.83,
+  "rear_track_m": 0.75,
+  "wheel_radius_m": 0.19,
+  "urdf_joint_steering_limit_rad": 0.785398,
+  "planner_operating_steering_limit_rad": 0.6124077385268893,
+  "steering_joint_velocity_limit_urdf": 250,
+  "steering_rate_physical_authority": "URDF does not specify a usable center rate; DE-P-Car freezes a conservative 0.75 rad/s software rate",
+  "collision_geometry": "Car_body_transformed.stl mesh",
+  "deterministic_safety_approximation": "five swept circles, radius 0.535 m including 0.12 m margin"
+}

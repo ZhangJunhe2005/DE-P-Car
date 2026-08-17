@@ -1,0 +1,34 @@
+schema: DEPCarP3V3IncrementalConfigV1
+wave:
+  id: smoke_wave
+  task_seed: 64999
+  workers: 2
+  selected_split_maps:
+    train: 3
+    validation: 3
+  maximum_tasks_per_map: 1
+  proposal_attempts_per_map_mode: 40
+  proposals_per_map_mode: 1
+  hybrid_astar_maximum_expansions: 60000
+  task_quotas:
+    train:
+      NARROW_CORRIDOR: 1
+    validation:
+      NARROW_CORRIDOR: 1
+  preflight:
+    schema: P3V3CanonicalLatticeContinuousSweepPreflightV1
+    route_checkpoints: 3
+    minimum_feasible_candidates_per_probe: 2
+    forward_speed_probes_mps: [0.0, 0.6]
+    reverse_speed_probes_mps: [0.0, -0.2]
+    require_every_probe: true
+collection:
+  ros_master_port: 11521
+  gazebo_master_port: 11551
+  startup_timeout_s: 90
+  episode_timeout_s: 22
+  shutdown_timeout_s: 30
+  extraction_stride: 1
+  minimum_samples_per_episode: 20
+  minimum_free_disk_gb: 20
+  keep_bags: true

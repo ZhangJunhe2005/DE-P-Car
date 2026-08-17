@@ -1,0 +1,6 @@
+<launch>
+  <rosparam command="load" file="$(find dep_car_perception)/config/lidar.yaml" ns="dep_car_lidar"/>
+  <node pkg="dep_car_perception" type="lidar_preprocessor.py" name="dep_car_lidar" output="screen"/>
+  <node pkg="dep_car_perception" type="lidar_dynamic_observations.py" name="dep_car_lidar_dynamic_observations" output="screen"/>
+</launch>
+

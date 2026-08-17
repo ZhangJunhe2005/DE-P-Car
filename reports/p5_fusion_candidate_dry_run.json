@@ -1,0 +1,176 @@
+{
+  "amp_enabled": true,
+  "amp_requested": true,
+  "architecture_id": "dep_car_multimodal_v1_ackermann_3x5",
+  "bounded_smoke_authorized": false,
+  "dataset_authority_gate": {
+    "actual_content_aggregate_sha256": "58bf8d95e3fc5268a3e583979f73392732b3dae8aa8d07502bbf5d870294063b",
+    "actual_map_contract_aggregate_sha256": "dde82b4f82849eeb7b2ceaeab9914ad6f97510cefa4d3975fcaca879e6e17a43",
+    "actual_paths": {
+      "index": "/home/zjh/DE-P-Car/data/p3_v3/bundle_v2_curated/training_index.json",
+      "maps": "/home/zjh/DE-P-Car/data/p3_pilot/maps",
+      "root": "/home/zjh/DE-P-Car/data/p3_v3/bundle_v2_curated/samples"
+    },
+    "configured_paths": {
+      "index": "/home/zjh/DE-P-Car/data/p3_v3/bundle_v2_curated/training_index.json",
+      "maps": "/home/zjh/DE-P-Car/data/p3_pilot/maps",
+      "root": "/home/zjh/DE-P-Car/data/p3_v3/bundle_v2_curated/samples"
+    },
+    "errors": [],
+    "expected_content_aggregate_sha256": "58bf8d95e3fc5268a3e583979f73392732b3dae8aa8d07502bbf5d870294063b",
+    "expected_map_contract_aggregate_sha256": "dde82b4f82849eeb7b2ceaeab9914ad6f97510cefa4d3975fcaca879e6e17a43",
+    "map_count": 36,
+    "passed": true,
+    "path_overrides": []
+  },
+  "device": "cuda",
+  "epochs": 40,
+  "formal_training_authorized": true,
+  "index_content_gate": {
+    "content_aggregate_sha256": "58bf8d95e3fc5268a3e583979f73392732b3dae8aa8d07502bbf5d870294063b",
+    "entries": 20018,
+    "entries_with_content_sha256": 20018,
+    "errors": [],
+    "passed": true
+  },
+  "max_steps": null,
+  "modality": "fusion",
+  "output": "/home/zjh/DE-P-Car/models/dep_car/p5/fusion_candidate_capacity.pth",
+  "p3_footprint_gate": {
+    "errors": [],
+    "geometry_sha256": "e7b35a60cf31655f0695cefd9d2fe85cdc3bbba7414145bddc327ae3e8395418",
+    "overall_median_feasible_candidates": 14.0,
+    "overall_zero_feasible_rate": 0.0652412828454391,
+    "passed": true,
+    "path": "/home/zjh/DE-P-Car/reports/p3_development_reaudit_v3.json",
+    "report_sha256": "aba7f5803fa0e159b1f9f411e9425c732b1410431904d521be8931a89aab05b0",
+    "rollout_sha256": "5fba67c43e04bfab3f8ec25e4086159b83c2a58ec6e337248b56807efd60264c",
+    "samples_audited": 20018,
+    "schema": "DEPCarP3DevelopmentReauditV3",
+    "sharp_turn_zero_feasible_rate": 0.15969436485195798,
+    "status": "PASS"
+  },
+  "permanent_smoke": false,
+  "qualification_status": "UNQUALIFIED",
+  "samples": {
+    "train": 16394,
+    "validation": 3624
+  },
+  "sealed_test_split": true,
+  "smoke_reasons": [],
+  "source": "/home/zjh/DE-P-Car/models/dep_car/dep_car_net_v1_depth_v483_init.pth",
+  "source_kind": "formal_depth_v483_initialization",
+  "splits": [
+    "train",
+    "validation"
+  ],
+  "stage": "candidate_capacity",
+  "status": "DRY_RUN_READY",
+  "torch_threads": 8,
+  "trainer_sha256": "0ec39f0e3f951673d34c088f99fc94dc061284fca7211aa9b8d02ba20eda0562",
+  "training_config": {
+    "file_sha256": "383ffbdb4eb6714b5819f671688d2a65f0ffe67a85a7efd3fd29590f8cd157f5",
+    "loss_config_sha256": "20a8ce55afaa870c00bf5c8ac19b8b6584e7145b6a62e96e0cb1bba541c9913a",
+    "path": "/home/zjh/DE-P-Car/dep_car/config/training.yaml",
+    "semantic_sha256": "0ce9cedcdbcc2054c6223dda29c47913c664a19c3369457b653670b1eee7abf5"
+  },
+  "training_yaml_qualification_gate": {
+    "blocked_gates": [],
+    "corrected_footprint_p3_status": "PASS",
+    "errors": [],
+    "p5_formal_training_allowed": true,
+    "passed": true
+  },
+  "validation_coverage_gate": {
+    "candidate_context": {
+      "counts": {
+        "MISSION": 3364,
+        "RECOVERY": 260
+      },
+      "required": {
+        "MISSION": {
+          "frames": 3364,
+          "minimum_frames": 20,
+          "passed": true
+        },
+        "RECOVERY": {
+          "frames": 260,
+          "minimum_frames": 20,
+          "passed": true
+        }
+      },
+      "unexpected": {}
+    },
+    "errors": [],
+    "maneuver": {
+      "counts": {
+        "DEAD_END_ESCAPE": 291,
+        "NARROW_CORRIDOR": 569,
+        "NORMAL": 291,
+        "REVERSE_EXIT": 118,
+        "SHARP_TURN": 1077,
+        "THREE_POINT_TURN": 1137,
+        "U_TURN": 141
+      },
+      "required": {
+        "DEAD_END_ESCAPE": {
+          "frames": 291,
+          "minimum_frames": 50,
+          "passed": true
+        },
+        "NARROW_CORRIDOR": {
+          "frames": 569,
+          "minimum_frames": 50,
+          "passed": true
+        },
+        "NORMAL": {
+          "frames": 291,
+          "minimum_frames": 50,
+          "passed": true
+        },
+        "REVERSE_EXIT": {
+          "frames": 118,
+          "minimum_frames": 50,
+          "passed": true
+        },
+        "SHARP_TURN": {
+          "frames": 1077,
+          "minimum_frames": 50,
+          "passed": true
+        },
+        "THREE_POINT_TURN": {
+          "frames": 1137,
+          "minimum_frames": 50,
+          "passed": true
+        },
+        "U_TURN": {
+          "frames": 141,
+          "minimum_frames": 50,
+          "passed": true
+        }
+      }
+    },
+    "passed": true,
+    "requested_gear": {
+      "counts": {},
+      "indexed_frames": 0,
+      "required": {
+        "FORWARD": {
+          "frames": 0,
+          "minimum_frames": 100,
+          "passed": null
+        },
+        "REVERSE": {
+          "frames": 0,
+          "minimum_frames": 100,
+          "passed": null
+        }
+      },
+      "status": "DEFERRED_TO_LOADER_AND_CANDIDATE_ACCEPTANCE"
+    },
+    "schema": "DEPCarP5ValidationCoverageGateV1",
+    "test_samples_opened": false,
+    "validation_frames": 3624
+  },
+  "workers": 8
+}

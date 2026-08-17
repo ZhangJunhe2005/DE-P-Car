@@ -1,0 +1,37 @@
+{
+  "schema": "DEPCarP0VehicleSensorAcceptanceV2",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "superseded_by": "p0_vehicle_sensor_contract_v3.json",
+  "platform": "Ubuntu 20.04 / ROS Noetic / Gazebo Classic 11",
+  "vehicle": {
+    "linear_scale": 0.3333333333333333,
+    "length_m": 0.49666666666666665,
+    "width_m": 0.27666666666666667,
+    "height_m": 0.5166666666666667,
+    "wheelbase_m": 0.32666666666666666
+  },
+  "depth": {
+    "topic": "/camera/depth/image_raw",
+    "encoding": "32FC1",
+    "measured_rate_hz": 15.0,
+    "range_m": [0.2, 10.0]
+  },
+  "lidar": {
+    "topic": "/velodyne_points",
+    "measured_rate_hz": 10.0,
+    "ray_minimum_m": 0.15,
+    "valid_range_m": [0.2, 40.0],
+    "mount_xyz_chassis_m": [0.0, 0.0, 0.5833333333333334],
+    "scan_plane_z_chassis_m": 0.5959,
+    "rear_returns_runtime_minimum_m": 1.2368755340576172,
+    "rear_free_costmap_verified_to_m": 1.95
+  },
+  "processing": {
+    "transform": "velodyne to chassis at measurement stamp",
+    "raw_points_retained": true,
+    "self_filter": "physical chassis box plus 0.03 m",
+    "obstacle_height_band_chassis_m": [0.05, 1.3],
+    "unknown_space_policy": "occupied except observed rays and current ego footprint"
+  }
+}

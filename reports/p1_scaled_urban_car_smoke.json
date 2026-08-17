@@ -1,0 +1,31 @@
+{
+  "schema": "ScaledUrbanCarGazeboSmokeV1",
+  "date": "2026-08-14",
+  "linear_scale": 0.3333333333333333,
+  "headless_gazebo_spawn": "PASS",
+  "full_ros_stack_start": "PASS",
+  "controllers_started": [
+    "joint_state_controller",
+    "steer_controller",
+    "left_motor_controller",
+    "right_motor_controller"
+  ],
+  "topics_observed": [
+    "/base_pose_ground_truth",
+    "/map",
+    "/urban_model/joint_states",
+    "/velodyne_points"
+  ],
+  "vlp16_rate_hz": 10.0,
+  "control_smoke": {
+    "command_duration_s": 3.0,
+    "command_speed_mps": 0.5,
+    "command_steering_rad": 0.2,
+    "start_xy_m": [0.0604805921, 0.0025428669],
+    "end_xy_m": [0.8882746762, 0.2781548891],
+    "approximate_displacement_m": 0.8725,
+    "result": "PASS"
+  },
+  "trained_model_loaded": false,
+  "planner_mode": "deterministic_lattice_fallback"
+}

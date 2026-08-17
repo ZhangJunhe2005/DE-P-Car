@@ -1,0 +1,41 @@
+{
+  "schema": "DEPCarP2MultimodalDatasetAcceptanceV1",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "superseded_by": "p2_multimodal_dataset_acceptance_v2.json",
+  "sample_schema": "StaticAckermannSampleV2",
+  "modalities": [
+    "metric_depth_32FC1",
+    "depth_validity",
+    "raw_lidar_points_xyzir",
+    "lidar_bev_6x160x160",
+    "vehicle_route_state_9d",
+    "signed_route_gears",
+    "signed_candidates",
+    "timestamps_and_skews",
+    "lidar_to_chassis_transform",
+    "map_uuid_hash_seed"
+  ],
+  "online_capture": {
+    "status": "PASS",
+    "samples": 2,
+    "requested_gear_counts": {"-1": 1, "1": 1},
+    "lidar_point_count_range": [6861, 6862],
+    "skew_s_p99": {"candidates": 0.07598, "depth": 0.03, "joint_state": 0.0, "odom": 0.002}
+  },
+  "raw_episode": {
+    "status": "PASS",
+    "duration_s": 20.9,
+    "messages": 6264,
+    "size_mb": 402.6
+  },
+  "offline_extraction": {
+    "status": "PASS",
+    "accepted_samples": 2,
+    "rejected_missing_candidate_at_stride": 9,
+    "audit_failures": 0,
+    "split_overlap": []
+  },
+  "bulk_generation_started": false,
+  "model_training_started": false
+}

@@ -1,0 +1,35 @@
+{
+  "schema": "DEPCarP1BidirectionalAckermannAcceptanceV1",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "superseded_by": "p1_bidirectional_ackermann_acceptance_v2.json",
+  "planner": {
+    "global": "gear-aware Hybrid A*",
+    "local": "signed 3x5 Ackermann lattice",
+    "forward_speed_anchors_mps": [0.6, 1.2, 2.0],
+    "reverse_speed_anchors_mps": [0.2, 0.35, 0.5],
+    "stop_before_shift_speed_mps": 0.03,
+    "shift_hold_s": 0.2,
+    "mission_goal_tolerance_m": 0.22
+  },
+  "gazebo_forward_goal": {
+    "target_x_m": 1.5,
+    "start_x_m": 0.06066242791413908,
+    "stopped_x_m": 1.3104917985592772,
+    "goal_stop_source_seen": true,
+    "result": "PASS"
+  },
+  "gazebo_reverse_shift": {
+    "reverse_start_x_m": 1.3189525830220707,
+    "observed_end_x_m": 1.0467375560120762,
+    "minimum_signed_speed_mps": -0.3366355088670087,
+    "command_sequence": ["NEUTRAL_STOPPING", "NEUTRAL_SHIFT_HOLD", "REVERSE_DRIVE"],
+    "shift_hold_observed_s": 0.2718487,
+    "result": "PASS"
+  },
+  "three_point_turn": {
+    "narrow_corridor_test_gears": [1, -1, 1],
+    "continuous_primitive_collision_check": true,
+    "result": "PASS"
+  }
+}

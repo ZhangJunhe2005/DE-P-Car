@@ -1,0 +1,22 @@
+{
+  "schema": "ScaledUrbanCarGeometryV1",
+  "source": "hifzhil/car-simulator Urban Car",
+  "linear_scale": 0.3333333333333333,
+  "mass_scale": 0.037037037037037035,
+  "inertia_scale": 0.004115226337448559,
+  "effort_scale": 0.012345679012345678,
+  "dimensions_m": {
+    "length": 0.49666666666666665,
+    "width": 0.27666666666666667,
+    "height": 0.5166666666666667,
+    "wheelbase": 0.32666666666666666,
+    "front_track": 0.27666666666666667,
+    "rear_track": 0.25,
+    "wheel_radius": 0.06333333333333334,
+    "vlp16_mount_x": 0.0,
+    "vlp16_mount_z": 0.5833333333333334,
+    "vlp16_scan_plane_z": 0.5959
+  },
+  "sensor_measurement_ranges_scaled": false,
+  "dataset_impact": "All samples captured with the upstream-scale vehicle are invalid for final training and must be regenerated."
+}

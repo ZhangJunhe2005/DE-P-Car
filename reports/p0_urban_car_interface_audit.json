@@ -1,0 +1,34 @@
+{
+  "status": "PASS_WITH_UPSTREAM_LIMITATIONS",
+  "command": {
+    "actual_topic": "/car_command",
+    "readme_or_reference_topic": "/carCMD",
+    "message_type": "car_msgs/carCMD",
+    "fields": ["std_msgs/Header header", "float64 throttle", "float64 steer", "float64 brake"],
+    "steer_unit": "radian",
+    "upstream_steer_clamp_rad": 0.78,
+    "upstream_sign": "positive_right_by_source_comment",
+    "throttle_semantics": "rear wheel joint effort forwarded without speed regulation",
+    "reverse_support": "negative effort accepted; stable limit not specified upstream",
+    "brake_behavior": "field is ignored by upstream nodelet",
+    "upstream_max_speed_constant": "10 (declared but unused)"
+  },
+  "dep_car_adapter": {
+    "input": "/dep_car/cmd_ackermann (dep_car_msgs/AckermannCommand)",
+    "outputs": [
+      "/urban_model/steer_controller/command",
+      "/urban_model/left_motor_controller/command",
+      "/urban_model/right_motor_controller/command"
+    ],
+    "features": ["REP-103 positive-left conversion", "Ackermann inner/outer steering", "closed-loop speed effort PI", "0.35 s stale-command watchdog", "brake-to-zero-effort"]
+  },
+  "odometry": {
+    "selected_topic": "/base_pose_ground_truth",
+    "selected_type": "nav_msgs/Odometry",
+    "frame": "map",
+    "rate_hz": 100,
+    "upstream_Odometry_topic": "/Odometry",
+    "upstream_Odometry_status": "publisher source is incomplete and never publishes"
+  }
+}
+

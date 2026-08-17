@@ -1,0 +1,9 @@
+<launch>
+  <rosparam command="load" file="$(find dep_car_vehicle)/config/urban_adapter.yaml" ns="urban_car_adapter"/>
+  <node pkg="dep_car_vehicle" type="urban_car_adapter.py" name="urban_car_adapter" output="screen"/>
+  <node pkg="dep_car_vehicle" type="odometry_tf_broadcaster.py" name="dep_car_odometry_tf" output="screen">
+    <param name="odometry_topic" value="/base_pose_ground_truth"/>
+    <param name="parent_frame" value="map"/>
+    <param name="child_frame" value="dummy"/>
+  </node>
+</launch>

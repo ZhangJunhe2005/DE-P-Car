@@ -1,0 +1,45 @@
+{
+  "schema": "DEPCarP3PilotAcceptanceV1",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "task_manifest_sha256": "c46190e4ddfcd5eb96739b51dfe832a8db885581375641186f9f3c7f7782f39c",
+  "collection": {
+    "parallel_workers": 8,
+    "episodes_complete": 150,
+    "episodes_failed": 0,
+    "episodes_interrupted": 0,
+    "illegal_shift_count": 0,
+    "authoritative_bags": 150,
+    "authoritative_bag_bytes": 24344527618,
+    "bag_sha256_verified": true
+  },
+  "dataset": {
+    "samples": 10252,
+    "maps": 30,
+    "map_counts_by_split": {
+      "train": 24,
+      "validation": 3,
+      "test": 3
+    },
+    "samples_by_mode": {
+      "NORMAL": 2536,
+      "SHARP_TURN": 1678,
+      "NARROW_CORRIDOR": 1112,
+      "U_TURN": 1145,
+      "DEAD_END_ESCAPE": 1155,
+      "REVERSE_EXIT": 1601,
+      "THREE_POINT_TURN": 1025
+    },
+    "reverse_sample_fraction": 0.44596176355833006,
+    "preprocessing_sha256": "89be32ba8f15fce9ff85332070c4da74668d4853a7419dd986a0d8bcafb3fb7b"
+  },
+  "candidate_expressiveness": {
+    "zero_feasible_rate": 0.06262192742879438,
+    "feasible_candidates_median": 15.0,
+    "oracle_route_error_p90_m": 0.8061391699096461,
+    "maximum_per_mode_zero_feasible_rate": 0.21871275327771156
+  },
+  "authority_report": "data/p3_pilot/run/p3_pilot_audit.json",
+  "authority_report_sha256": "a6f980c588cfee5c1c48155d461235455e349f7f3701be8e98071ee8a22bf763",
+  "qualification_scope": "P3 data qualification only; P6 closed-loop policy qualification is not claimed"
+}

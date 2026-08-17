@@ -1,0 +1,1005 @@
+{
+  "P3_provenance": {
+    "acceptance_path": "/home/zjh/DE-P-Car/reports/p3_pilot_acceptance.json",
+    "acceptance_sha256": "67074d5022c6abf62dd6b9905760c5bc5c2538c48b8a66426041672f7409d7bf",
+    "authority_report_hash_verified": true,
+    "legacy_metric_reproduction": {
+      "expected_feasible_candidates_median": 15.0,
+      "expected_maximum_per_mode_zero_feasible_rate": 0.21871275327771156,
+      "expected_zero_feasible_rate": 0.06262192742879438,
+      "observed_feasible_candidates_median": 15.0,
+      "observed_maximum_per_mode_zero_feasible_rate": 0.21871275327771156,
+      "observed_zero_feasible_rate": 0.06262192742879438,
+      "status": "PASS"
+    },
+    "task_manifest_path": "/home/zjh/DE-P-Car/data/p3_pilot/task_manifest.json",
+    "task_manifest_sha256": "c46190e4ddfcd5eb96739b51dfe832a8db885581375641186f9f3c7f7782f39c"
+  },
+  "audit_implementation": {
+    "occupancy_implementation": "/home/zjh/DE-P-Car/dep_car/src/dep_car/core/occupancy.py",
+    "occupancy_implementation_sha256": "a0323f9d5726eb40d8d59f8968ab132a332498597c8c6ea8760c41b80ce24f82",
+    "tool": "/home/zjh/DE-P-Car/tools/audit_p3_footprint_upgrade.py",
+    "tool_sha256": "a90be0b1165dd3b58f5a2697388be902f294b3bdadfa7d5e689cece985073466"
+  },
+  "errors": [
+    "mode_zero_feasible_rate_SHARP_TURN",
+    "overall_zero_feasible_rate_lt_0_10"
+  ],
+  "gates": {
+    "overall_median_feasible_candidates_ge_2": {
+      "observed": 15.0,
+      "operator": ">=",
+      "status": "PASS",
+      "threshold": 2.0
+    },
+    "overall_zero_feasible_rate_lt_0_10": {
+      "observed": 0.10807647288333984,
+      "operator": "<",
+      "status": "FAIL",
+      "threshold": 0.1
+    },
+    "per_mode_zero_feasible_rate_lt_0_25": {
+      "DEAD_END_ESCAPE": {
+        "observed": 0.21731601731601732,
+        "operator": "<",
+        "status": "PASS",
+        "threshold": 0.25
+      },
+      "NARROW_CORRIDOR": {
+        "observed": 0.16097122302158273,
+        "operator": "<",
+        "status": "PASS",
+        "threshold": 0.25
+      },
+      "NORMAL": {
+        "observed": 0.0,
+        "operator": "<",
+        "status": "PASS",
+        "threshold": 0.25
+      },
+      "REVERSE_EXIT": {
+        "observed": 0.04871955028107433,
+        "operator": "<",
+        "status": "PASS",
+        "threshold": 0.25
+      },
+      "SHARP_TURN": {
+        "observed": 0.2723480333730632,
+        "operator": "<",
+        "status": "FAIL",
+        "threshold": 0.25
+      },
+      "THREE_POINT_TURN": {
+        "observed": 0.13951219512195123,
+        "operator": "<",
+        "status": "PASS",
+        "threshold": 0.25
+      },
+      "U_TURN": {
+        "observed": 0.0,
+        "operator": "<",
+        "status": "PASS",
+        "threshold": 0.25
+      }
+    }
+  },
+  "generated_at_utc": "2026-08-16T02:30:54.495104+00:00",
+  "geometry_contract": {
+    "circle_count": 5,
+    "circle_radius_m": 0.26697921243798006,
+    "collision_rule": "minimum_clearance_strictly_greater_than_zero",
+    "evaluator": "OccupancyGrid2D.swept_footprint_clearance",
+    "grid_distance_allowance": "half_cell_diagonal",
+    "length_m": 0.49666666666666665,
+    "longitudinal_offsets_m": [
+      -0.19866666666666666,
+      -0.09933333333333333,
+      0.0,
+      0.09933333333333333,
+      0.19866666666666666
+    ],
+    "safety_margin_m": 0.12,
+    "schema": "FiveCircleSweptFootprintV2",
+    "sha256": "0d344fb9da3ba8e1803fa7659da5440648ab5c8972c4cf715cab3f8e08871d37",
+    "width_m": 0.2766666666666666
+  },
+  "immutable_map_authority": {
+    "aggregate_sha256": "27e561fc7261618decd2ba9be268652ef8049729a2fcb545714a577b309519c1",
+    "maps": 30,
+    "maps_by_split": {
+      "test": 3,
+      "train": 24,
+      "validation": 3
+    },
+    "occupancy_sha256_by_map_uuid": {
+      "07218659-7265-5154-9022-7a493709930e": "4d85f4b86da8f8caf338955c135311aae613e6c2fe6fd282ba269bffc1f1e95f",
+      "216ca0a3-dcdd-57f6-9289-c5969a838fc5": "e4203d547380b15918fd795be71dc07e9619ce2bda18b683cf473a2f69eb9bc0",
+      "22045c1d-2f20-582f-8a87-f7e06ac565e9": "4ef4ac4fbb4bcf2567ff47585acfb463b06d816d8d922d46c3d2d87195125059",
+      "3c13e629-9975-509f-af04-48b086d506a3": "521ac9828c8b51fb5b4aa01671c85e03a11018d2707f35f29e25caa44d2e51f9",
+      "47b0c8c3-ab2f-59d1-83be-e4388ce99e36": "e258f10721db54a9f1a3c1f411ca440894df070acf68e97de605313ddf46b1cc",
+      "4b5d966a-238d-57a3-b9d9-8c3141ed98ee": "ee9a81f3e20bff1cc496eb7f498996dcbf18d9055fe12c0b6bfe0e48fe180bac",
+      "5fc2177f-439b-5fe2-9a68-d7540d5c0f38": "787472178cd3615ced189fb0e51645b0c7ebfc0b3e939f3e1ca28a241320f885",
+      "6123f39b-bc4c-5cee-94f7-6b89ce8eff8a": "e4d347182cd1d6d426e78690a04f41d8b2b52d2a0ff612596c3a75f28c6ae605",
+      "627c2761-fc3e-576a-a64f-68a6f397e489": "fef4f99fd9a2f911c43687081426dc70d4becd4b29557776ebc85fc735fb9c58",
+      "6a34f89f-dadc-5894-9153-92ac051e8cf1": "b7c57166f03e138cf0aa3cc3c677264a9ff96b72560ea5a7e97a60b798ad18bb",
+      "6c8e6d4a-0206-5f49-aa2b-11a19af1a842": "d6e2e2694e60a4d315e96834099540f13f2c260ee97efabbe9939819f2ac1259",
+      "70602fcd-7835-5df6-b799-65eef77c62cb": "eb72e3884513a8b82deb8b5cb3c9d26ee4132f4927aed4c455bd3cefff5bae82",
+      "73544710-6048-5bb8-9d97-b9fc8070501c": "07372cb8a2cef0de53719ba1c71cc674014fe4b8d9595fd5d689e9d0ad8a561f",
+      "8bb48692-45f5-5e29-bd26-66b8443a2400": "54f1cc5b493aa8ce0fbe42c2ab6d71035047620eef2b9704f47500608f92462c",
+      "8c9cce34-9416-52f6-bf42-e9393b2f8a55": "1f9aae0219ebf2bcdda5c49ca300f1cb9ade74857ac7fe463a1f3dd303cf0ae5",
+      "9104aec2-117b-5f87-ba0f-a94e720a9a12": "f4da4d0a052942fd73cc2af32ca5ad35312dfd1bfcf75e1d174701394d18aa3f",
+      "9721d322-4c74-5c71-a90e-58a602c07e0c": "79756e7bf553822705596b73f72df556019e8400561c3d68b591a6c2ebb0aeda",
+      "9ced5e1e-b414-5f1f-8a75-32b7cdb20d41": "1f9cd0f2f87faa49b8e96ba909a433332a2b45d0da12c4d70d195cd6c09a4366",
+      "c7a2def9-f4c7-516e-bca2-675793a118ac": "9084cf46e433d3a86c87e6cc5a583bea3c14d29674fe60816f51df98a3cefae1",
+      "c90e2202-feb4-5cad-9128-5770684bc5ec": "96f54430ef663232a8b54fb7ab826c83346251aeed83e1704026178d4e5b2fb7",
+      "cbd29ffa-2bc5-57b8-bc89-2a6c588bf729": "de6f2e195198420aa59b82fa3fcaccfe21dfadedda0895976b4bd59d3962e599",
+      "cc621e6b-0538-532e-9f63-c519ec56a9c7": "9e00ff527842133ee57861db8dc62220ec89d718a2fa87fef8a12ac289cc5124",
+      "d96d1888-fc22-5bc7-b655-6e0ea2456248": "0767162f0764c3772f0b974b0b8e5b7ba5c6e16dec3a79d83a419792e9d1a955",
+      "e0f0390a-0ffb-5ea9-85fc-49c19e18917c": "d579b5ead8c6de8dd64204560ddb77aaa016b6410d143814329ba5690c0a2235",
+      "e26fe991-133b-58a0-bb6a-fe80fced3f6b": "2e52bcaaf8240b4391bc4f0218280daaf0532111cc8fd9752d79a0d342aa87ec",
+      "e84cebbf-0754-5677-9d5d-a3fee8f03759": "9cb8a0741b07e25031d505de3e38d0f1828d1c2651ec994fcd68fedf5c3db855",
+      "f4ba9974-6ac2-50d2-8377-cabc498ffd27": "b5fa00871032fe66db3a29fc050f85abb4d4898c82b378c9464b582e66579ff4",
+      "f5ab96d3-03f7-5309-a118-59fffd78388a": "e829e3e77a0f4d085c4efd17f6fb019eee1ab507b237d731eb5e78ceac7fcc6a",
+      "f987f374-125b-5356-a99b-e5a379d61555": "9a85290f7378607a01bbbb6440a30bd8919a764b715f247da5c02ee7e3f158aa",
+      "fb96930c-1500-5f96-94ce-a61baaa0d10d": "61f3f690fa584793fcffe31e3b513b6354bb567d17298f88c79479ca7fe59ccf"
+    }
+  },
+  "parallel_workers": 8,
+  "sample_failures": {},
+  "sample_files_audited": 10252,
+  "sample_files_discovered": 10252,
+  "schema": "DEPCarP3FootprintV2ReauditV1",
+  "scope": {
+    "geometry_or_gate_cli_overrides_available": false,
+    "not_hyperparameter_tuning": true,
+    "not_training": true,
+    "npz_files_modified": false,
+    "purpose": "fixed_geometry_posthoc_consistency_audit",
+    "test_policy": "one fixed contract is applied identically to train, validation, and test",
+    "test_split_used_for_tuning": false
+  },
+  "statistics": {
+    "by_mode": {
+      "DEAD_END_ESCAPE": {
+        "candidate_label_changed_count": 2903,
+        "candidate_label_changed_rate": 0.16756132756132755,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 12658,
+          "legacy_feasible__new_infeasible": 2901,
+          "legacy_infeasible__new_feasible": 2,
+          "legacy_infeasible__new_infeasible": 1764
+        },
+        "candidates": 17325,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 17325,
+            "maximum": 1.1768555641174316,
+            "mean": 0.3370233662078133,
+            "median": 0.30631136894226074,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.712541937828064
+          },
+          "legacy_feasible_candidates": {
+            "count": 15559,
+            "maximum": 1.1768555641174316,
+            "mean": 0.3752766771354435,
+            "median": 0.338766872882843,
+            "minimum": 0.006311345845460892,
+            "p10": 0.05986471846699715,
+            "p90": 0.7358744144439697
+          },
+          "new_all_candidates": {
+            "count": 17325,
+            "maximum": 1.162310242652893,
+            "mean": 0.25691213433833693,
+            "median": 0.17221203446388245,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.5842645764350891
+          },
+          "new_feasible_candidates": {
+            "count": 12660,
+            "maximum": 1.162310242652893,
+            "mean": 0.351579994266326,
+            "median": 0.302622526884079,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 0.6623101234436035
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 17325,
+            "maximum": 0.1040785014629364,
+            "mean": -0.08011123186947636,
+            "median": -0.07250646501779556,
+            "minimum": -0.27871939539909363,
+            "p10": -0.18251768499612808,
+            "p90": 0.0
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 13.470995670995672,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.06493506493506493,
+          "zero_feasible_samples": 75
+        },
+        "new": {
+          "feasible_candidates_mean": 10.96103896103896,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.21731601731601732,
+          "zero_feasible_samples": 251
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 904,
+          "legacy_nonzero__new_zero": 176,
+          "legacy_zero__new_zero": 75
+        },
+        "samples": 1155
+      },
+      "NARROW_CORRIDOR": {
+        "candidate_label_changed_count": 1594,
+        "candidate_label_changed_rate": 0.09556354916067146,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 9994,
+          "legacy_feasible__new_infeasible": 1434,
+          "legacy_infeasible__new_feasible": 160,
+          "legacy_infeasible__new_infeasible": 5092
+        },
+        "candidates": 16680,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 16680,
+            "maximum": 0.9563113451004028,
+            "mean": 0.09470246498912965,
+            "median": 0.026467550545930862,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.2915463447570801
+          },
+          "legacy_feasible_candidates": {
+            "count": 11428,
+            "maximum": 0.9563113451004028,
+            "mean": 0.1382251589095802,
+            "median": 0.08709998428821564,
+            "minimum": 0.006311345845460892,
+            "p10": 0.006311345845460892,
+            "p90": 0.37713176012039185
+          },
+          "new_all_candidates": {
+            "count": 16680,
+            "maximum": 0.9351023435592651,
+            "mean": 0.08694368282810962,
+            "median": 0.0623101070523262,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.24540528655052185
+          },
+          "new_feasible_candidates": {
+            "count": 10154,
+            "maximum": 0.9351023435592651,
+            "mean": 0.14282259499437347,
+            "median": 0.07462067157030106,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 0.302622526884079
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 16680,
+            "maximum": 0.08026279881596565,
+            "mean": -0.007758782161020046,
+            "median": 0.0,
+            "minimum": -0.2563113570213318,
+            "p10": -0.08709998428821564,
+            "p90": 0.05599876120686531
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 10.276978417266188,
+          "feasible_candidates_median": 11.0,
+          "zero_feasible_rate": 0.11151079136690648,
+          "zero_feasible_samples": 124
+        },
+        "new": {
+          "feasible_candidates_mean": 9.131294964028777,
+          "feasible_candidates_median": 9.0,
+          "zero_feasible_rate": 0.16097122302158273,
+          "zero_feasible_samples": 179
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 924,
+          "legacy_nonzero__new_zero": 64,
+          "legacy_zero__new_nonzero": 9,
+          "legacy_zero__new_zero": 115
+        },
+        "samples": 1112
+      },
+      "NORMAL": {
+        "candidate_label_changed_count": 2272,
+        "candidate_label_changed_rate": 0.059726603575184015,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 32665,
+          "legacy_feasible__new_infeasible": 2147,
+          "legacy_infeasible__new_feasible": 125,
+          "legacy_infeasible__new_infeasible": 3103
+        },
+        "candidates": 38040,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 38040,
+            "maximum": 1.9651830196380615,
+            "mean": 0.4560862153069313,
+            "median": 0.4063113331794739,
+            "minimum": 0.0,
+            "p10": 0.02253909781575203,
+            "p90": 0.9603049755096436
+          },
+          "legacy_feasible_candidates": {
+            "count": 34812,
+            "maximum": 1.9651830196380615,
+            "mean": 0.4983775603319449,
+            "median": 0.4222024083137512,
+            "minimum": 0.006311345845460892,
+            "p10": 0.1335114985704422,
+            "p90": 0.9879119396209717
+          },
+          "new_all_candidates": {
+            "count": 38040,
+            "maximum": 1.8983783721923828,
+            "mean": 0.40593825350686924,
+            "median": 0.3623100817203522,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.8829658031463623
+          },
+          "new_feasible_candidates": {
+            "count": 32790,
+            "maximum": 1.8983783721923828,
+            "mean": 0.47093294185426365,
+            "median": 0.39032110571861267,
+            "minimum": 0.02286524325609207,
+            "p10": 0.16231009364128113,
+            "p90": 0.9623101949691772
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 38040,
+            "maximum": 0.7139726877212524,
+            "mean": -0.05014796180006207,
+            "median": -0.04042068123817444,
+            "minimum": -0.34562280774116516,
+            "p10": -0.15552827715873718,
+            "p90": 0.035515868663787815
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 13.727129337539433,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.0,
+          "zero_feasible_samples": 0
+        },
+        "new": {
+          "feasible_candidates_mean": 12.92981072555205,
+          "feasible_candidates_median": 14.0,
+          "zero_feasible_rate": 0.0,
+          "zero_feasible_samples": 0
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 2536
+        },
+        "samples": 2536
+      },
+      "REVERSE_EXIT": {
+        "candidate_label_changed_count": 1035,
+        "candidate_label_changed_rate": 0.043098063710181135,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 21686,
+          "legacy_feasible__new_infeasible": 1035,
+          "legacy_infeasible__new_infeasible": 1294
+        },
+        "candidates": 24015,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 24015,
+            "maximum": 1.756311297416687,
+            "mean": 0.5525713716964225,
+            "median": 0.5140860676765442,
+            "minimum": 0.0,
+            "p10": 0.10942421853542328,
+            "p90": 0.9810662269592285
+          },
+          "legacy_feasible_candidates": {
+            "count": 22721,
+            "maximum": 1.756311297416687,
+            "mean": 0.584041261004779,
+            "median": 0.5384771823883057,
+            "minimum": 0.006311345845460892,
+            "p10": 0.17801038920879364,
+            "p90": 1.0043869018554688
+          },
+          "new_all_candidates": {
+            "count": 24015,
+            "maximum": 1.5623100996017456,
+            "mean": 0.46871044907269815,
+            "median": 0.4623101055622101,
+            "minimum": 0.0,
+            "p10": 0.02286524325609207,
+            "p90": 0.8623101711273193
+          },
+          "new_feasible_candidates": {
+            "count": 21686,
+            "maximum": 1.5623100996017456,
+            "mean": 0.5190483000313957,
+            "median": 0.4623101055622101,
+            "minimum": 0.02286524325609207,
+            "p10": 0.16231009364128113,
+            "p90": 0.870614767074585
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 24015,
+            "maximum": 0.10622459650039673,
+            "mean": -0.08386092262372434,
+            "median": -0.08251769840717316,
+            "minimum": -0.29084521532058716,
+            "p10": -0.18431368470191956,
+            "p90": 0.005998760461807251
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 14.191755153029357,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.022485946283572766,
+          "zero_feasible_samples": 36
+        },
+        "new": {
+          "feasible_candidates_mean": 13.54528419737664,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.04871955028107433,
+          "zero_feasible_samples": 78
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 1523,
+          "legacy_nonzero__new_zero": 42,
+          "legacy_zero__new_zero": 36
+        },
+        "samples": 1601
+      },
+      "SHARP_TURN": {
+        "candidate_label_changed_count": 2139,
+        "candidate_label_changed_rate": 0.08498212157330155,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 14499,
+          "legacy_feasible__new_infeasible": 2074,
+          "legacy_infeasible__new_feasible": 65,
+          "legacy_infeasible__new_infeasible": 8532
+        },
+        "candidates": 25170,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 25170,
+            "maximum": 1.8771408796310425,
+            "mean": 0.28008007625629255,
+            "median": 0.17801038920879364,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.6962608695030212
+          },
+          "legacy_feasible_candidates": {
+            "count": 16573,
+            "maximum": 1.8771408796310425,
+            "mean": 0.42536749649254113,
+            "median": 0.38638490438461304,
+            "minimum": 0.006311345845460892,
+            "p10": 0.09682382643222809,
+            "p90": 0.8108474016189575
+          },
+          "new_all_candidates": {
+            "count": 25170,
+            "maximum": 1.6871559619903564,
+            "mean": 0.23077326488366998,
+            "median": 0.07462067157030106,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.6623101234436035
+          },
+          "new_feasible_candidates": {
+            "count": 14564,
+            "maximum": 1.6871559619903564,
+            "mean": 0.3988302030432555,
+            "median": 0.3623100817203522,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 0.7803442478179932
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 25170,
+            "maximum": 0.5824811458587646,
+            "mean": -0.04930681137262259,
+            "median": -0.01695418357849121,
+            "minimum": -0.3159657418727875,
+            "p10": -0.15459516048431396,
+            "p90": 0.005998760461807251
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 9.87663885578069,
+          "feasible_candidates_median": 13.0,
+          "zero_feasible_rate": 0.21871275327771156,
+          "zero_feasible_samples": 367
+        },
+        "new": {
+          "feasible_candidates_mean": 8.679380214541121,
+          "feasible_candidates_median": 11.0,
+          "zero_feasible_rate": 0.2723480333730632,
+          "zero_feasible_samples": 457
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 1217,
+          "legacy_nonzero__new_zero": 94,
+          "legacy_zero__new_nonzero": 4,
+          "legacy_zero__new_zero": 363
+        },
+        "samples": 1678
+      },
+      "THREE_POINT_TURN": {
+        "candidate_label_changed_count": 2767,
+        "candidate_label_changed_rate": 0.17996747967479676,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 10927,
+          "legacy_feasible__new_infeasible": 2420,
+          "legacy_infeasible__new_feasible": 347,
+          "legacy_infeasible__new_infeasible": 1681
+        },
+        "candidates": 15375,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 15375,
+            "maximum": 0.6076991558074951,
+            "mean": 0.1867290852474488,
+            "median": 0.16728855669498444,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.41341811418533325
+          },
+          "legacy_feasible_candidates": {
+            "count": 13347,
+            "maximum": 0.6076991558074951,
+            "mean": 0.21510149739113846,
+            "median": 0.1987542361021042,
+            "minimum": 0.006311345845460892,
+            "p10": 0.041721541434526443,
+            "p90": 0.444552481174469
+          },
+          "new_all_candidates": {
+            "count": 15375,
+            "maximum": 0.5623101592063904,
+            "mean": 0.13249390389182703,
+            "median": 0.0623101070523262,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.3623100817203522
+          },
+          "new_feasible_candidates": {
+            "count": 11274,
+            "maximum": 0.5623101592063904,
+            "mean": 0.18068953098606003,
+            "median": 0.16231009364128113,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 0.4238874614238739
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 15375,
+            "maximum": 0.10244537517428398,
+            "mean": -0.054235181355621755,
+            "median": -0.047114111483097076,
+            "minimum": -0.2502270042896271,
+            "p10": -0.14608100056648254,
+            "p90": 0.02286524325609207
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 13.021463414634146,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.03804878048780488,
+          "zero_feasible_samples": 39
+        },
+        "new": {
+          "feasible_candidates_mean": 10.999024390243903,
+          "feasible_candidates_median": 14.0,
+          "zero_feasible_rate": 0.13951219512195123,
+          "zero_feasible_samples": 143
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 858,
+          "legacy_nonzero__new_zero": 128,
+          "legacy_zero__new_nonzero": 24,
+          "legacy_zero__new_zero": 15
+        },
+        "samples": 1025
+      },
+      "U_TURN": {
+        "candidate_label_changed_count": 251,
+        "candidate_label_changed_rate": 0.014614264919941776,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 16580,
+          "legacy_feasible__new_infeasible": 233,
+          "legacy_infeasible__new_feasible": 18,
+          "legacy_infeasible__new_infeasible": 344
+        },
+        "candidates": 17175,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 17175,
+            "maximum": 1.6537456512451172,
+            "mean": 0.7366096840696911,
+            "median": 0.7467440366744995,
+            "minimum": 0.0,
+            "p10": 0.17801038920879364,
+            "p90": 1.1563113927841187
+          },
+          "legacy_feasible_candidates": {
+            "count": 16813,
+            "maximum": 1.6537456512451172,
+            "mean": 0.7524695963776211,
+            "median": 0.7503420114517212,
+            "minimum": 0.006311345845460892,
+            "p10": 0.22109286487102509,
+            "p90": 1.1571731567382812
+          },
+          "new_all_candidates": {
+            "count": 17175,
+            "maximum": 1.5832475423812866,
+            "mean": 0.6691743269888074,
+            "median": 0.6623101234436035,
+            "minimum": 0.0,
+            "p10": 0.0623101070523262,
+            "p90": 1.076523780822754
+          },
+          "new_feasible_candidates": {
+            "count": 16598,
+            "maximum": 1.5832475423812866,
+            "mean": 0.6924369843374363,
+            "median": 0.6623101234436035,
+            "minimum": 0.02286524325609207,
+            "p10": 0.16231009364128113,
+            "p90": 1.0940922498703003
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 17175,
+            "maximum": 0.6759253144264221,
+            "mean": -0.06743535708088368,
+            "median": -0.06566333770751953,
+            "minimum": -0.2940012738108635,
+            "p10": -0.16201989650726317,
+            "p90": 0.009839296340942383
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 14.683842794759824,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.0008733624454148472,
+          "zero_feasible_samples": 1
+        },
+        "new": {
+          "feasible_candidates_mean": 14.496069868995633,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.0,
+          "zero_feasible_samples": 0
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 1144,
+          "legacy_zero__new_nonzero": 1
+        },
+        "samples": 1145
+      }
+    },
+    "by_split": {
+      "test": {
+        "candidate_label_changed_count": 1096,
+        "candidate_label_changed_rate": 0.07595287595287595,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 10712,
+          "legacy_feasible__new_infeasible": 1071,
+          "legacy_infeasible__new_feasible": 25,
+          "legacy_infeasible__new_infeasible": 2622
+        },
+        "candidates": 14430,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 14430,
+            "maximum": 1.9651830196380615,
+            "mean": 0.4576767970870455,
+            "median": 0.27639907598495483,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 1.362360954284668
+          },
+          "legacy_feasible_candidates": {
+            "count": 11783,
+            "maximum": 1.9651830196380615,
+            "mean": 0.5604919105462163,
+            "median": 0.38638490438461304,
+            "minimum": 0.006311345845460892,
+            "p10": 0.08709998428821564,
+            "p90": 1.467702865600586
+          },
+          "new_all_candidates": {
+            "count": 14430,
+            "maximum": 1.8983783721923828,
+            "mean": 0.41025926565966997,
+            "median": 0.22799554467201233,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 1.3024321794509888
+          },
+          "new_feasible_candidates": {
+            "count": 10737,
+            "maximum": 1.8983783721923828,
+            "mean": 0.5513682782405736,
+            "median": 0.36941686272621155,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 1.3711107969284058
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 14430,
+            "maximum": 0.562170147895813,
+            "mean": -0.047417531427375495,
+            "median": -0.03238260746002197,
+            "minimum": -0.334136962890625,
+            "p10": -0.15285977721214292,
+            "p90": 0.02473941445350647
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 12.248440748440748,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.10395010395010396,
+          "zero_feasible_samples": 100
+        },
+        "new": {
+          "feasible_candidates_mean": 11.161122661122661,
+          "feasible_candidates_median": 14.0,
+          "zero_feasible_rate": 0.14241164241164242,
+          "zero_feasible_samples": 137
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 825,
+          "legacy_nonzero__new_zero": 37,
+          "legacy_zero__new_zero": 100
+        },
+        "samples": 962
+      },
+      "train": {
+        "candidate_label_changed_count": 10340,
+        "candidate_label_changed_rate": 0.08337364941138527,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 96421,
+          "legacy_feasible__new_infeasible": 9676,
+          "legacy_infeasible__new_feasible": 664,
+          "legacy_infeasible__new_infeasible": 17259
+        },
+        "candidates": 124020,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 124020,
+            "maximum": 1.6671785116195679,
+            "mean": 0.3775515483112859,
+            "median": 0.338766872882843,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.8563113212585449
+          },
+          "legacy_feasible_candidates": {
+            "count": 106097,
+            "maximum": 1.6671785116195679,
+            "mean": 0.4413314516109379,
+            "median": 0.4063113331794739,
+            "minimum": 0.006311345845460892,
+            "p10": 0.05986471846699715,
+            "p90": 0.9063113927841187
+          },
+          "new_all_candidates": {
+            "count": 124020,
+            "maximum": 1.5623100996017456,
+            "mean": 0.32124485646042156,
+            "median": 0.26231011748313904,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 0.7623101472854614
+          },
+          "new_feasible_candidates": {
+            "count": 97085,
+            "maximum": 1.5623100996017456,
+            "mean": 0.4103701611806302,
+            "median": 0.36231014132499695,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 0.8623101711273193
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 124020,
+            "maximum": 0.7139726877212524,
+            "mean": -0.056306691850864336,
+            "median": -0.04400122910737991,
+            "minimum": -0.34562280774116516,
+            "p10": -0.1610436737537384,
+            "p90": 0.02286524325609207
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 12.832244799225931,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.0582970488630866,
+          "zero_feasible_samples": 482
+        },
+        "new": {
+          "feasible_candidates_mean": 11.74225931301403,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.10208030962747944,
+          "zero_feasible_samples": 844
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 7386,
+          "legacy_nonzero__new_zero": 400,
+          "legacy_zero__new_nonzero": 38,
+          "legacy_zero__new_zero": 444
+        },
+        "samples": 8268
+      },
+      "validation": {
+        "candidate_label_changed_count": 1525,
+        "candidate_label_changed_rate": 0.0994781474233529,
+        "candidate_label_transitions": {
+          "legacy_feasible__new_feasible": 11876,
+          "legacy_feasible__new_infeasible": 1497,
+          "legacy_infeasible__new_feasible": 28,
+          "legacy_infeasible__new_infeasible": 1929
+        },
+        "candidates": 15330,
+        "clearance_m": {
+          "legacy_all_candidates": {
+            "count": 15330,
+            "maximum": 1.756311297416687,
+            "mean": 0.4684745846412206,
+            "median": 0.3563113808631897,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 1.1380934715270996
+          },
+          "legacy_feasible_candidates": {
+            "count": 13373,
+            "maximum": 1.756311297416687,
+            "mean": 0.5370309865063869,
+            "median": 0.4063113331794739,
+            "minimum": 0.006311345845460892,
+            "p10": 0.07031683623790741,
+            "p90": 1.1597555875778198
+          },
+          "new_all_candidates": {
+            "count": 15330,
+            "maximum": 1.5623100996017456,
+            "mean": 0.402941524374936,
+            "median": 0.26231011748313904,
+            "minimum": 0.0,
+            "p10": 0.0,
+            "p90": 1.022457242012024
+          },
+          "new_feasible_candidates": {
+            "count": 11904,
+            "maximum": 1.5623100996017456,
+            "mean": 0.5189090699485693,
+            "median": 0.4238874018192291,
+            "minimum": 0.02286524325609207,
+            "p10": 0.0623101070523262,
+            "p90": 1.0940922498703003
+          },
+          "new_minus_legacy_all_candidates": {
+            "count": 15330,
+            "maximum": 0.4438554048538208,
+            "mean": -0.06553306026628455,
+            "median": -0.05631132796406746,
+            "minimum": -0.2940012738108635,
+            "p10": -0.17253422737121582,
+            "p90": 0.009839296340942383
+          }
+        },
+        "legacy": {
+          "feasible_candidates_mean": 13.085127201565557,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.05870841487279843,
+          "zero_feasible_samples": 60
+        },
+        "new": {
+          "feasible_candidates_mean": 11.647749510763209,
+          "feasible_candidates_median": 15.0,
+          "zero_feasible_rate": 0.12426614481409001,
+          "zero_feasible_samples": 127
+        },
+        "sample_zero_transitions": {
+          "legacy_nonzero__new_nonzero": 895,
+          "legacy_nonzero__new_zero": 67,
+          "legacy_zero__new_zero": 60
+        },
+        "samples": 1022
+      }
+    },
+    "overall": {
+      "candidate_label_changed_count": 12961,
+      "candidate_label_changed_rate": 0.08428274157887891,
+      "candidate_label_transitions": {
+        "legacy_feasible__new_feasible": 119009,
+        "legacy_feasible__new_infeasible": 12244,
+        "legacy_infeasible__new_feasible": 717,
+        "legacy_infeasible__new_infeasible": 21810
+      },
+      "candidates": 153780,
+      "clearance_m": {
+        "legacy_all_candidates": {
+          "count": 153780,
+          "maximum": 1.9651830196380615,
+          "mean": 0.39413405245208516,
+          "median": 0.33280956745147705,
+          "minimum": 0.0,
+          "p10": 0.0,
+          "p90": 0.9238909482955933
+        },
+        "legacy_feasible_candidates": {
+          "count": 131253,
+          "maximum": 1.9651830196380615,
+          "mean": 0.461779422840481,
+          "median": 0.4063113331794739,
+          "minimum": 0.006311345845460892,
+          "p10": 0.05986471846699715,
+          "p90": 0.9603049755096436
+        },
+        "new_all_candidates": {
+          "count": 153780,
+          "maximum": 1.8983783721923828,
+          "mean": 0.33774172109740075,
+          "median": 0.26231011748313904,
+          "minimum": 0.0,
+          "p10": 0.0,
+          "p90": 0.8623101711273193
+        },
+        "new_feasible_candidates": {
+          "count": 119726,
+          "maximum": 1.8983783721923828,
+          "mean": 0.43380654052050754,
+          "median": 0.36231014132499695,
+          "minimum": 0.02286524325609207,
+          "p10": 0.0623101070523262,
+          "p90": 0.9272211790084839
+        },
+        "new_minus_legacy_all_candidates": {
+          "count": 153780,
+          "maximum": 0.7139726877212524,
+          "mean": -0.05639233135468439,
+          "median": -0.04400122910737991,
+          "minimum": -0.34562280774116516,
+          "p10": -0.16158080101013184,
+          "p90": 0.02276882529258728
+        }
+      },
+      "legacy": {
+        "feasible_candidates_mean": 12.802672649239172,
+        "feasible_candidates_median": 15.0,
+        "zero_feasible_rate": 0.06262192742879438,
+        "zero_feasible_samples": 642
+      },
+      "new": {
+        "feasible_candidates_mean": 11.678306671868903,
+        "feasible_candidates_median": 15.0,
+        "zero_feasible_rate": 0.10807647288333984,
+        "zero_feasible_samples": 1108
+      },
+      "sample_zero_transitions": {
+        "legacy_nonzero__new_nonzero": 9106,
+        "legacy_nonzero__new_zero": 504,
+        "legacy_zero__new_nonzero": 38,
+        "legacy_zero__new_zero": 604
+      },
+      "samples": 10252
+    }
+  },
+  "status": "FAIL"
+}

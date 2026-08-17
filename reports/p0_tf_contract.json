@@ -1,0 +1,11 @@
+{
+  "global_frame": "map",
+  "vehicle_body_frame": "chassis",
+  "lidar_frame": "velodyne",
+  "imu_frame": "imu_link",
+  "urban_model_root_urdf_link": "dummy",
+  "odometry_source": "/base_pose_ground_truth",
+  "local_costmap_frame": "chassis",
+  "known_limit": "Upstream p3d supplies a map-frame pose but not a complete map->odom->chassis TF localization chain; DE-P-Car nodes use odometry pose directly until robot_localization is calibrated."
+}
+

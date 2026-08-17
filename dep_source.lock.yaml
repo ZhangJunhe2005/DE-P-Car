@@ -1,0 +1,20 @@
+schema: dep_car_source_lock_v1
+repository: https://github.com/ZhangJunhe2005/DE-P.git
+branch: feature/route-a-v4-9-recovery-subgoal
+commit: cbcc61d466b803dd5f32d7fa893e18793f2aa5ec
+commit_time: "2026-08-14T10:39:55+08:00"
+reference_document_commit: b930856010ef234388cb3aaae2d1f7f2c87fa36f
+release_contract:
+  declared_tag: route-a-v4.9.1-recovery-subgoal-v6
+  tag_present_on_remote_at_lock_time: false
+  runtime_profile: v4_9_1_recovery_temporary_subgoal
+  runtime_behavior_version: v4_9_1_long_escape_slow_handoff_rearmable_lifecycle_v6
+static_policy:
+  role: frozen_v4_8_3_candidate_only_static_policy
+  relative_path: DE-P/runs/route_a_static_yopo_v4_8_3_candidate_only_shakedown/20260813T050742Z-13178/checkpoints/best.pth
+  sha256: 22e5c63c273d751c15479d70c99d9b85ad615b7b4c62063946a5b1683776ac60
+verification:
+  command: bash third_party/DE-P/DE-P/scripts/verify_route_a_v4_9_1_checkout.sh
+  result: PASS
+  tests_passed: 85
+

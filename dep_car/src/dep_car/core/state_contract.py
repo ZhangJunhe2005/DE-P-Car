@@ -1,0 +1,54 @@
+"""Single physical/normalization authority for the formal 9D policy state."""
+
+from dep_car.core.vehicle import (
+    CALIBRATED_GUARANTEED_CURVATURE_PER_M,
+    STEERING_OPERATING_LIMIT_RAD,
+)
+
+
+STATE_FIELDS = (
+    "signed_speed",
+    "longitudinal_acceleration",
+    "steering",
+    "yaw_rate",
+    "subgoal_x",
+    "subgoal_y",
+    "sin_heading_error",
+    "cos_heading_error",
+    "reference_curvature",
+)
+
+FORWARD_SPEED_LIMIT_MPS = 2.5
+REVERSE_SPEED_LIMIT_MPS = 0.5
+ACCELERATION_LIMIT_MPS2 = 1.5
+DECELERATION_LIMIT_MPS2 = 2.0
+ACCELERATION_ABSOLUTE_SCALE_MPS2 = 2.0
+SUBGOAL_SCALE_M = 4.0
+YAW_RATE_SCALE_RADPS = (
+    FORWARD_SPEED_LIMIT_MPS * CALIBRATED_GUARANTEED_CURVATURE_PER_M
+)
+
+STATE_NORMALIZATION_SCALE = (
+    FORWARD_SPEED_LIMIT_MPS,
+    ACCELERATION_ABSOLUTE_SCALE_MPS2,
+    STEERING_OPERATING_LIMIT_RAD,
+    YAW_RATE_SCALE_RADPS,
+    SUBGOAL_SCALE_M,
+    SUBGOAL_SCALE_M,
+    1.0,
+    1.0,
+    CALIBRATED_GUARANTEED_CURVATURE_PER_M,
+)
+
+
+__all__ = [
+    "ACCELERATION_ABSOLUTE_SCALE_MPS2",
+    "ACCELERATION_LIMIT_MPS2",
+    "DECELERATION_LIMIT_MPS2",
+    "FORWARD_SPEED_LIMIT_MPS",
+    "REVERSE_SPEED_LIMIT_MPS",
+    "STATE_FIELDS",
+    "STATE_NORMALIZATION_SCALE",
+    "SUBGOAL_SCALE_M",
+    "YAW_RATE_SCALE_RADPS",
+]

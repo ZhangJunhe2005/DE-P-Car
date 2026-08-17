@@ -1,0 +1,15 @@
+{
+  "status": "PASS_WITH_ADAPTER",
+  "commit": "634bcb091a90b362087cdba5a9cd3856466d493c",
+  "maintenance": "upstream repository redirects to a newer project and has not been actively developed since 2023",
+  "platform": "ROS Noetic, Ubuntu 20.04, Gazebo Classic 11",
+  "task_modes": ["scenario", "random", "manual", "staged", "scenario_staged"],
+  "dynamic_modes": ["Gazebo scripted actors for scenario", "Pedsim for random/staged when external dependencies are installed"],
+  "map_server_representation": "nav_msgs/OccupancyGrid from map.yaml",
+  "reset_services": ["/gazebo/set_model_state", "/gazebo/pause_physics", "/gazebo/unpause_physics"],
+  "upstream_robot_constraint": "RobotManager hardcodes model name turtlebot3 and always spawns it",
+  "integration_decision": "Do not run upstream RobotManager. DE-P-Car owns Urban Car spawn/control; Arena-compatible JSON and actor worlds own only world/task/actors.",
+  "random_generated_pedsim_limit": "upstream source explicitly marks arena_generated Pedsim support TODO",
+  "ground_truth_policy": "Gazebo/Pedsim GT may be consumed only by dep_car_evaluation"
+}
+

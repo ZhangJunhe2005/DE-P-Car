@@ -1,0 +1,13 @@
+uint8 candidate_id
+int8 gear
+float64 speed_anchor
+float64 steering_anchor
+float64 duration
+float64 retime_factor
+float64 learned_score
+float64 guidance_cost
+float64 static_clearance
+float64 dynamic_clearance
+bool feasible
+string veto_reason
+nav_msgs/Path path

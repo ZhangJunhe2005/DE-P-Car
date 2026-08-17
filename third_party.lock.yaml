@@ -1,0 +1,24 @@
+schema: dep_car_third_party_lock_v1
+locked_at: "2026-08-14T11:00:00+08:00"
+repositories:
+  actor_collisions_plugin:
+    repository: https://github.com/ignc-research/ActorCollisionsPlugin.git
+    commit: eb2dc9de71f43669becc217f536951cf51d50a69
+    role: Gazebo collision geometry for Arena scripted actors
+    modified: false
+    local_build: third_party/ActorCollisionsPlugin/build/libActorCollisionsPlugin.so
+  car_simulator:
+    repository: https://github.com/hifzhil/car-simulator.git
+    commit: b113e3b0cd942585f54f444a8cde25154fcee360
+    role: Urban Car URDF, Gazebo physics, sensors and ros_control interfaces
+    modified: false
+  arena_rosnav_3d:
+    repository: https://github.com/ignc-research/arena-rosnav-3D.git
+    commit: 634bcb091a90b362087cdba5a9cd3856466d493c
+    role: Arena world/scenario schemas and dynamic actor test assets
+    modified: false
+  arena_tools:
+    repository: https://github.com/ignc-research/arena-tools.git
+    commit: 664b950d88c91b34e3cdce62512c8864b574b9d4
+    role: indoor/outdoor random occupancy-map generator
+    modified: false

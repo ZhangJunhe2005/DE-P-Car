@@ -1,0 +1,16 @@
+contract:
+  schema: GearModeV1
+  authority: deterministic_gear_supervisor
+  network_role: conditioned_by_mode_never_selects_mode
+  modes: [NEUTRAL, FORWARD, BRAKE_TO_REVERSE, REVERSE, BRAKE_TO_FORWARD]
+  stop_before_shift:
+    speed_tolerance_mps: 0.03
+    stationary_hold_s: 0.20
+candidate_contract:
+  one_discrete_gear_per_candidate: true
+  gear_must_remain_constant_over_candidate_horizon: true
+  permitted_drive_gears: [-1, 1]
+  neutral_candidate_permitted: false
+route_contract:
+  hybrid_astar_state: [x, y, yaw, gear]
+  per_pose_fields: [x, y, yaw, gear, steering]

@@ -1,0 +1,35 @@
+<launch>
+  <arg name="world" default="$(find spawn_car)/world/example.world"/>
+  <arg name="map_yaml" default=""/>
+  <arg name="gazebo_model_path" default="$(find dep_car_bringup)/../../../data/arena_maps"/>
+  <arg name="gui" default="true"/><arg name="paused" default="false"/>
+  <arg name="enable_depth_camera" default="true"/>
+  <arg name="x" default="0.0"/><arg name="y" default="0.0"/><arg name="z" default="0.0833333333"/><arg name="yaw" default="0.0"/>
+  <arg name="enable_stack" default="true"/><arg name="enable_rviz" default="false"/>
+  <env name="GAZEBO_MODEL_PATH" value="$(arg gazebo_model_path):$(optenv GAZEBO_MODEL_PATH)"/>
+  <arg unless="$(arg paused)" name="pause_arg" value=""/>
+  <arg if="$(arg paused)" name="pause_arg" value="-u"/>
+  <param name="/use_sim_time" value="true"/>
+  <param name="gazebo/enable_ros_network" value="true"/>
+  <node pkg="dep_car_bringup" type="gzserver_exec.sh" name="gazebo" output="screen" required="true"
+        args="$(arg pause_arg) -e ode $(arg world)"/>
+  <node pkg="dep_car_bringup" type="gzclient_exec.sh" name="gazebo_gui" output="screen" if="$(arg gui)"/>
+  <param name="robot_description" command="/usr/bin/python3 $(find dep_car_vehicle)/scripts/render_scaled_urban_urdf.py --scale 0.3333333333333333 --source '$(find spawn_car)/model/urban/urdf/urban_description.urdf.xacro' enable_velodyne:=true enable_camera:=$(arg enable_depth_camera) enable_imu:=true enable_gps:=false gpu:=false organize_cloud:=true"/>
+  <node pkg="gazebo_ros" type="spawn_model" name="spawn_urban_car" output="screen" launch-prefix="/usr/bin/python3"
+        args="-urdf -param robot_description -model urban_model -x $(arg x) -y $(arg y) -z $(arg z) -Y $(arg yaw)"/>
+  <rosparam command="load" file="$(find dep_car_bringup)/config/urban_controllers.yaml"/>
+  <node pkg="controller_manager" type="spawner" name="urban_controllers" ns="/urban_model" output="screen" launch-prefix="/usr/bin/python3"
+        args="joint_state_controller steer_controller left_motor_controller right_motor_controller"/>
+  <node pkg="robot_state_publisher" type="robot_state_publisher" name="urban_robot_state_publisher" output="screen">
+    <remap from="joint_states" to="/urban_model/joint_states"/>
+  </node>
+  <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_yaml)" unless="$(eval arg('map_yaml') == '')"/>
+  <group if="$(arg enable_stack)">
+    <include file="$(find dep_car_vehicle)/launch/urban_adapter.launch"/>
+    <include file="$(find dep_car_perception)/launch/lidar.launch"/>
+    <node pkg="dep_car_dynamic" type="dynamic_tracker_node.py" name="dep_car_dynamic_tracker" output="screen"/>
+    <node pkg="dep_car_global_planner" type="hybrid_astar_node.py" name="dep_car_hybrid_astar" output="screen"/>
+    <include file="$(find dep_car_local_planner)/launch/local_planner.launch"/>
+  </group>
+  <node pkg="dep_car_bringup" type="rviz_exec.sh" name="rviz" args="-d $(find dep_car_bringup)/rviz/dep_car.rviz" if="$(arg enable_rviz)"/>
+</launch>

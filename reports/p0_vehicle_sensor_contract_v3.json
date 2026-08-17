@@ -1,0 +1,47 @@
+{
+  "schema": "DEPCarP0VehicleSensorAcceptanceV3",
+  "date": "2026-08-14",
+  "status": "PASS",
+  "platform": "Ubuntu 20.04 / ROS Noetic / Gazebo Classic 11",
+  "vehicle": {
+    "linear_scale": 0.3333333333333333,
+    "length_m": 0.49666666666666665,
+    "width_m": 0.27666666666666667,
+    "wheelbase_m": 0.32666666666666666,
+    "front_track_m": 0.27666666666666667,
+    "steering_wheel_joint_hard_limit_rad": 0.785398,
+    "bicycle_center_steering_limit_rad": 0.6124077385268893,
+    "ideal_kinematic_minimum_radius_m": 0.46500010675301695,
+    "calibrated_planner_minimum_radius_m": 0.55,
+    "calibrated_guaranteed_curvature_per_m": 1.8181818181818181,
+    "planner_rollout_effective_wheelbase_m": 0.3863798396117272
+  },
+  "turning_calibration": {
+    "world": "/usr/share/gazebo-11/worlds/empty.world",
+    "center_steering_command_rad": 0.6124077385268893,
+    "cases": [
+      {"command_speed_mps": 0.25, "side": "left", "position_speed_mps": 0.15683706407363115, "radius_m": 0.5084503390569564, "curvature_per_m": 1.966760415293932, "fit_rms_m": 0.00014589239004834622},
+      {"command_speed_mps": 0.25, "side": "right", "position_speed_mps": 0.17001751878638838, "radius_m": 0.5152856918858784, "curvature_per_m": -1.940671002022452, "fit_rms_m": 0.0005232796478548144},
+      {"command_speed_mps": 0.50, "side": "left", "position_speed_mps": 0.35843214427755105, "radius_m": 0.535414350736841, "curvature_per_m": 1.867712358893244, "fit_rms_m": 0.0010390963575185256},
+      {"command_speed_mps": 0.50, "side": "right", "position_speed_mps": 0.36026125738677156, "radius_m": 0.5487929563638139, "curvature_per_m": -1.8221808213898893, "fit_rms_m": 0.0006763124282406291}
+    ],
+    "conservative_rounding": "largest measured radius 0.548793 m rounded outward to 0.55 m",
+    "velocity_contract_fix": "gazebo p3d world-axis velocity is projected onto vehicle heading before PI control and dataset state construction"
+  },
+  "depth": {
+    "topic": "/camera/depth/image_raw",
+    "encoding": "32FC1",
+    "rate_hz": 15.0,
+    "range_m": [0.2, 10.0]
+  },
+  "lidar": {
+    "topic": "/velodyne_points",
+    "rate_hz": 10.0,
+    "scan_period_s": 0.1,
+    "point_fields": ["x", "y", "z", "intensity", "ring", "time"],
+    "observed_point_time_range_s": [0.0, 0.0],
+    "simulator_scan_model": "gazebo_ray_instantaneous_snapshot",
+    "gazebo_deskew_required": false,
+    "real_sensor_policy": "per-point timing and a motion-distortion audit are mandatory before transfer"
+  }
+}

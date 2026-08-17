@@ -1,0 +1,20 @@
+azimuth_bins: 440
+channels: 16
+minimum_range: 0.20
+maximum_range: 40.0
+body_frame: chassis
+self_filter_length: 0.49666666666666665
+self_filter_width: 0.27666666666666667
+self_filter_padding: 0.03
+unknown_ego_clearance_radius: 0.45
+local_map_range: 10.0
+# The 0.10 m pilot map raster introduced up to 0.141 m of combined endpoint
+# cell quantisation and conservative footprint allowance.  A 0.05 m rolling
+# grid keeps that bound aligned with the 0.10 m static-map/SDF contract.
+local_map_resolution: 0.05
+obstacle_min_height: 0.05
+obstacle_max_height: 1.30
+# Static hard-safety applies the authoritative 0.12 m footprint margin during
+# swept-footprint evaluation.  Keep the sensor occupancy raw here so the same
+# clearance is not charged a second time.
+inflation_radius: 0.0

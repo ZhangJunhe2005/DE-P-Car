@@ -1,0 +1,11 @@
+wheelbase: 0.32666666666666666
+front_track: 0.27666666666666667
+wheel_radius: 0.06333333333333334
+steering_limit: 0.6124077385268893
+effort_limit: 1.4814814814814814
+speed_kp: 0.8024691358024691
+speed_ki: 0.09876543209876543
+command_timeout: 0.35
+simulator_positive_right: true
+command_topic: /dep_car/cmd_ackermann
+odometry_topic: /base_pose_ground_truth

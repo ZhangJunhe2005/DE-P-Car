@@ -1,0 +1,11 @@
+{
+  "vehicle_inputs": ["/base_pose_ground_truth", "/urban_model/joint_states"],
+  "vehicle_command": "/dep_car/cmd_ackermann",
+  "sensors": ["/velodyne_points", "/imu/data", "/camera/*"],
+  "perception": ["/dep_car/lidar/range_image", "/dep_car/lidar/validity_mask", "/dep_car/local_costmap", "/dep_car/dynamic/observations"],
+  "dynamic": ["/dep_car/dynamic/tracks"],
+  "mission": ["/move_base_simple/goal", "/dep_car/global_path", "/dep_car/local_subgoal"],
+  "planner": ["/dep_car/candidates", "/dep_car/planner_state"],
+  "forbidden_runtime_input": ["/pedsim_simulator/simulated_agents", "/gazebo/model_states"]
+}
+

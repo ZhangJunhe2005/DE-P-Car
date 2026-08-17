@@ -1,0 +1,324 @@
+{
+  "architecture_id": "dep_car_multimodal_v1_ackermann_3x5",
+  "checkpoint_sha256": "3c570d5ed3715ab019dacfc29b0ae6e0e405d0dc7d27cd861b625877f7f43c6c",
+  "checkpoint_version": "dep_car_p4_depth_transfer_initialization_v1",
+  "contract_version": 2,
+  "dataset_provenance": {
+    "p3_acceptance_schema": "DEPCarP3PilotAcceptanceV1",
+    "p3_acceptance_sha256": "67074d5022c6abf62dd6b9905760c5bc5c2538c48b8a66426041672f7409d7bf",
+    "p3_authority_report_sha256": "a6f980c588cfee5c1c48155d461235455e349f7f3701be8e98071ee8a22bf763",
+    "p3_preprocessing_sha256": "89be32ba8f15fce9ff85332070c4da74668d4853a7419dd986a0d8bcafb3fb7b",
+    "p3_task_manifest_sha256": "c46190e4ddfcd5eb96739b51dfe832a8db885581375641186f9f3c7f7782f39c",
+    "qualification_scope": "P3 data qualification only; P6 closed-loop policy qualification is not claimed"
+  },
+  "footprint_contract": {
+    "allowance_schema": "FixedGridCellDiagonalAllowanceV1",
+    "circle_count": 5,
+    "circle_radius_m": 0.26697921243798006,
+    "differentiable_training_grid_allowance": "one_cell_diagonal",
+    "length_m": 0.49666666666666665,
+    "longitudinal_offsets_m": [
+      -0.19866666666666666,
+      -0.09933333333333333,
+      0.0,
+      0.09933333333333333,
+      0.19866666666666666
+    ],
+    "runtime_allowance_multiplier": 0.5,
+    "runtime_grid_allowance": "half_cell_diagonal",
+    "safety_margin_m": 0.12,
+    "safety_query_rows": 161,
+    "schema": "FiveCircleContinuousSweptFootprintV3",
+    "source_trajectory_rows": 11,
+    "sweep_interpolation_schema": "PiecewiseLinearSE2SubstepsV1",
+    "sweep_substeps_per_source_segment": 16,
+    "training_allowance_multiplier": 1.0,
+    "width_m": 0.2766666666666666
+  },
+  "gear_contract": {
+    "allowed_values": [
+      -1,
+      1
+    ],
+    "authority": "deterministic GearSupervisor",
+    "input": "requested_gear",
+    "network_predicts_gear": false,
+    "one_constant_gear_per_candidate_bank": true
+  },
+  "implementation_contract": {
+    "aggregate_sha256": "c040cee4f7bd0ba43b19731e3721d3fe8d3344407fbacff9c299b5c985807077",
+    "files": {
+      "dep_car/src/dep_car/core/lattice.py": "b52a98f06cc7c93e6af7890695ee7d9eb3158479a8923ad4cafc71c82b22588c",
+      "dep_car/src/dep_car/core/occupancy.py": "4e71546be4d44809f42d7e93dfcbf716187428f2575ebd5640d80039a86ef742",
+      "dep_car/src/dep_car/core/state_contract.py": "e283939c1bb40b43c6c428bf88ccd09e0ad28b59dcbb0b514e2654ce0f5d1680",
+      "dep_car/src/dep_car/core/types.py": "1d975c3832b02a2e2e25dc39f96019724d2e31f625368931117d3bab1c3ccda0",
+      "dep_car/src/dep_car/core/vehicle.py": "9873351fe39a90e9328e7a4c50b51230e1835eaa0e720e4103cd83a1a9f98ec5",
+      "dep_car/src/dep_car/model/ackermann_rollout.py": "aa2e145d1b586b743964c3b84bd7a9db80b5d2d7f909eeff6676ff7cd47ab7a6",
+      "dep_car/src/dep_car/model/checkpoint.py": "a4da1af5be813ae432326020c71ed6f98dda19d3a49eb8d8a2bdc18cb7976292",
+      "dep_car/src/dep_car/model/dep_car_net.py": "0559cd05e53ebe17a37f2b194b047932702e9c5122365ab8bf4babe3feddcd21",
+      "dep_car/src/dep_car/model/implementation_contract.py": "15bb95a4e3699a9f1af4e83a015b1e0a05f20e2b3df6e38e8d0d6d51f3b32935",
+      "dep_car/src/dep_car/model/lidar_dep.py": "2da50340d2b33921972a3ddb3c399f066736c27294011f660dfa2f871fa61b5c",
+      "dep_car/src/dep_car/model/symmetry.py": "4ac6ef629e1ec18dddd6a7f02ca712a49d7ecc1aa9a78d1c59b24c4d7e39fc53",
+      "dep_car/src/dep_car/training/dataset.py": "0dc476aa6fa4cfe1246db39e2c70bb43a5fbeba57e86d1e182cf050e5a48fe4c",
+      "dep_car/src/dep_car/training/losses.py": "a497e33f9a2fbdb2eacc7d046e61c9b25e961370a7e98654fbec5f5fb185ede6",
+      "dep_car/src/dep_car/training/metrics.py": "9b9507a13f9b88ebebead7c343dcbda62ddcff163f5a9f50de0ca5c4229fd14f",
+      "dep_car/src/dep_car/training/p4_dataset.py": "ca3593703aebcd11d9e7b4005614a2798cbfdf1cc2e9438f57d97d1cca0a3fff",
+      "dep_car/src/dep_car/training/stages.py": "94f17ed03b0af50859524dd2d9a5e9f2b4c8c0163e0da1d35fab545cc16abe27",
+      "third_party/DE-P/DE-P/policy/backbone_variant.py": "45249f2c46d44d806dff5e80062c67b863c063308f1a1eb3343102f6431fd733",
+      "third_party/DE-P/DE-P/policy/models/MobileNetV3.py": "f0c5475ec1b3135ea59e2a334ad25c47c9a2de6109ac2ea050ab51f93578950f",
+      "third_party/DE-P/DE-P/policy/models/backbone.py": "626e71bc34b9877b818889bb9f39f09b7c5599b9ad0f6304ce4d39ec41595cba"
+    },
+    "schema": "DEPCarP4ImplementationAggregateV1"
+  },
+  "initialization_seed": 49101,
+  "input_contract": {
+    "depth_backbone_input_shape": [
+      1,
+      96,
+      160
+    ],
+    "depth_fields": [
+      "metric_depth_normalized_by_10m",
+      "validity"
+    ],
+    "depth_metric_and_validity_shape": [
+      2,
+      480,
+      640
+    ],
+    "depth_network_input_shape": [
+      2,
+      96,
+      160
+    ],
+    "depth_normalization_divisor_m": 10.0,
+    "depth_valid_range_m": [
+      0.2,
+      10.0
+    ],
+    "invalid_depth_fill_normalized": 1.0,
+    "lidar_bev_channels": [
+      "occupancy",
+      "log_density",
+      "minimum_height",
+      "maximum_height",
+      "nearest_range",
+      "observed"
+    ],
+    "lidar_bev_extent_m": 8.0,
+    "lidar_bev_shape": [
+      6,
+      160,
+      160
+    ],
+    "modality_mask_order": [
+      "depth",
+      "lidar"
+    ],
+    "modality_mask_shape": [
+      2
+    ],
+    "validity_fusion": "independent_learned_encoder_added_to_depth_backbone_feature"
+  },
+  "lattice_contract": {
+    "candidate_count": 15,
+    "forward_speed_anchors_mps": [
+      0.6,
+      1.2,
+      2.0
+    ],
+    "order": "speed_major_3x5_steering_minor",
+    "reverse_speed_anchors_mps": [
+      0.2,
+      0.35,
+      0.5
+    ],
+    "steering_anchors_rad": [
+      -0.52,
+      -0.26,
+      0.0,
+      0.26,
+      0.52
+    ]
+  },
+  "output_contract": {
+    "candidate_count": 15,
+    "control_fields": [
+      "steering_mid",
+      "steering_end",
+      "signed_speed_end",
+      "duration"
+    ],
+    "controls_shape": [
+      15,
+      4
+    ],
+    "raw_residuals_shape": [
+      15,
+      4
+    ],
+    "residual_fields": [
+      "steering_mid",
+      "steering_end",
+      "speed_end",
+      "duration"
+    ],
+    "residuals_shape": [
+      15,
+      4
+    ],
+    "scores_nonnegative": true,
+    "scores_shape": [
+      15
+    ],
+    "trajectory_fields": [
+      "t",
+      "x",
+      "y",
+      "yaw",
+      "signed_speed",
+      "steering"
+    ],
+    "trajectory_shape": [
+      15,
+      11,
+      6
+    ]
+  },
+  "production_qualified": false,
+  "rollout_contract": {
+    "config": {
+      "acceleration_limit_mps2": 1.5,
+      "deceleration_limit_mps2": 2.0,
+      "duration_residual_s": 0.25,
+      "forward_speed_anchors_mps": [
+        0.6,
+        1.2,
+        2.0
+      ],
+      "forward_speed_limit_mps": 2.5,
+      "horizon_s": 1.0,
+      "opposite_motion_reject_mps": 0.03,
+      "reverse_speed_anchors_mps": [
+        0.2,
+        0.35,
+        0.5
+      ],
+      "reverse_speed_limit_mps": 0.5,
+      "steering_anchors_rad": [
+        -0.52,
+        -0.26,
+        0.0,
+        0.26,
+        0.52
+      ],
+      "steering_limit_rad": 0.6124077385268893,
+      "steering_rate_limit_rad_s": 0.75,
+      "steering_residual_rad": 0.08,
+      "steps": 11,
+      "wheelbase_m": 0.38637983961172717
+    },
+    "differentiable": true,
+    "directed_acceleration_definition": "requested_gear * signed_dv_dt",
+    "gear_conditioned": true,
+    "longitudinal_limits_frame": "requested_gear",
+    "schema": "AckermannRolloutV2GearAlignedLongitudinalLimits"
+  },
+  "schema": "DEPCarCheckpointContractV2",
+  "source": {
+    "backbone_source": {
+      "aggregate_sha256": "dad83da418a3f7c6048b175718b22bfefb106307c3bab5e7940890a5bcbf3b8e",
+      "files": {
+        "policy/backbone_variant.py": "45249f2c46d44d806dff5e80062c67b863c063308f1a1eb3343102f6431fd733",
+        "policy/models/MobileNetV3.py": "f0c5475ec1b3135ea59e2a334ad25c47c9a2de6109ac2ea050ab51f93578950f",
+        "policy/models/backbone.py": "626e71bc34b9877b818889bb9f39f09b7c5599b9ad0f6304ce4d39ec41595cba"
+      }
+    },
+    "checkpoint_git_commit": "33ca673df4c4df3154d5de57c79ec659fb81e7ea",
+    "checkpoint_path": "third_party/DE-P/DE-P/runs/route_a_static_yopo_v4_8_3_candidate_only_shakedown/20260813T050742Z-13178/checkpoints/best.pth",
+    "checkpoint_sha256": "22e5c63c273d751c15479d70c99d9b85ad615b7b4c62063946a5b1683776ac60",
+    "checkpoint_version": "mixed_scene_static_yopo_checkpoint_v1",
+    "network_weights_modified_by_v4_9_1": false,
+    "runtime_lineage": "route-a-v4.9.1-recovery-subgoal-v6",
+    "weight_release": "route-a-v4.8.3-candidate-only"
+  },
+  "state_contract": {
+    "dimension": 9,
+    "fields": [
+      "signed_speed",
+      "longitudinal_acceleration",
+      "steering",
+      "yaw_rate",
+      "subgoal_x",
+      "subgoal_y",
+      "sin_heading_error",
+      "cos_heading_error",
+      "reference_curvature"
+    ],
+    "normalization_scale": [
+      2.5,
+      2.0,
+      0.6124077385268893,
+      4.545454545454545,
+      4.0,
+      4.0,
+      1.0,
+      1.0,
+      1.8181818181818181
+    ]
+  },
+  "status": "INITIALIZATION_ONLY_RETRAINING_REQUIRED",
+  "training_contract": {
+    "loss_config": {
+      "bev_extent_m": 8.0,
+      "capacity_top_k": 3,
+      "forward_diversity_scales": [
+        0.8,
+        0.3,
+        1.0
+      ],
+      "guidance_endpoint_weight": 0.2,
+      "guidance_heading_weight": 0.25,
+      "guidance_progress_weight": 0.5,
+      "maximum_lateral_acceleration_mps2": 3.0,
+      "minimum_normalized_terminal_separation": 0.12,
+      "reverse_diversity_scales": [
+        0.5,
+        0.1,
+        0.5
+      ],
+      "safety_cvar_fraction": 0.1,
+      "safety_cvar_weight": 0.3,
+      "safety_mean_weight": 0.2,
+      "safety_temperature_m": 0.04,
+      "safety_worst_weight": 0.5,
+      "score_temperature": 0.25,
+      "weights": {
+        "anchor": 0.01,
+        "comfort": 0.05,
+        "diversity": 0.2,
+        "guidance": 1.0,
+        "kinematic": 0.5,
+        "safety": 2.0,
+        "score": 1.0
+      }
+    },
+    "loss_config_sha256": "20a8ce55afaa870c00bf5c8ac19b8b6584e7145b6a62e96e0cb1bba541c9913a",
+    "objective_id": "dep_car_objective_v3_signed_sdf_cvar_continuous_swept_route_capacity_score",
+    "objective_revision": 3,
+    "sdf_schema": "SignedDistanceFieldV1KnownFreePositiveUnknownUnsafe",
+    "stage_order": [
+      "candidate_capacity",
+      "score_calibration"
+    ]
+  },
+  "transfer": {
+    "head_transfer_allowed": false,
+    "manifest_sha256": "5703ef1255d4b7a4b43b7f2f46a72f2f74fc4096d35e637e5b76f7879227ab2b",
+    "mode": "exact_depth_backbone_only",
+    "partial_transfer_allowed": false,
+    "source_prefix": "network.image_backbone.",
+    "target_prefix": "depth_encoder.image_backbone.",
+    "tensor_count": 246
+  }
+}

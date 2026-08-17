@@ -1,0 +1,13 @@
+{
+  "status": "PASS",
+  "repository": "https://github.com/ZhangJunhe2005/DE-P.git",
+  "branch": "feature/route-a-v4-9-recovery-subgoal",
+  "actual_commit": "cbcc61d466b803dd5f32d7fa893e18793f2aa5ec",
+  "reference_document_commit": "b930856010ef234388cb3aaae2d1f7f2c87fa36f",
+  "declared_release_tag": "route-a-v4.9.1-recovery-subgoal-v6",
+  "declared_tag_present_on_remote": false,
+  "checkpoint_sha256": "22e5c63c273d751c15479d70c99d9b85ad615b7b4c62063946a5b1683776ac60",
+  "algorithm_verification_tests": 85,
+  "algorithm_verification_result": "PASS"
+}
+

@@ -1,0 +1,9 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>dep_car_vehicle</name><version>0.1.0</version>
+  <description>Urban Car controller adapter and watchdog.</description>
+  <maintainer email="zhangjunhe2005@users.noreply.github.com">DE-P-Car maintainers</maintainer><license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend><depend>std_msgs</depend><depend>nav_msgs</depend><depend>geometry_msgs</depend><depend>tf2_ros</depend><depend>trajectory_msgs</depend><depend>dep_car_core</depend><depend>dep_car_msgs</depend>
+  <exec_depend>xacro</exec_depend>
+</package>
