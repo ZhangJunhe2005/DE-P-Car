@@ -43,6 +43,7 @@ P6_RUNTIME_FILES = (
     "ros/dep_car_bringup/launch/p6_static.launch",
     "ros/dep_car_evaluation/scripts/run_p6_static_episode.py",
     "tools/audit_p6_shadow.py",
+    "tools/audit_p5_route_v2_score.py",
     "tools/prepare_p6_static_scenarios.py",
     "tools/run_p6_static.py",
 )

@@ -18,6 +18,8 @@
   <arg name="rviz_start_delay_s" default="6.0"/>
   <arg name="policy_python" default="$(optenv DEP_CAR_POLICY_PYTHON /home/zjh/miniconda3/envs/yopo/bin/python)"/>
   <arg name="active_fallback_to_baseline" default="false"/>
+  <arg name="learned_route_authority" default="false"/>
+  <arg name="require_goal_heading" default="true"/>
 
   <include file="$(find dep_car_bringup)/launch/urban_sim.launch">
     <arg name="world" value="$(arg world)"/>
@@ -39,5 +41,7 @@
     <arg name="fusion_sensor_mode" value="$(arg fusion_sensor_mode)"/>
     <arg name="policy_python" value="$(arg policy_python)"/>
     <arg name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
+    <arg name="learned_route_authority" value="$(arg learned_route_authority)"/>
+    <arg name="require_goal_heading" value="$(arg require_goal_heading)"/>
   </include>
 </launch>

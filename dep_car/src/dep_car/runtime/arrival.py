@@ -54,6 +54,8 @@ class GoalArrivalController:
         distance_m: float,
         heading_error_rad: float,
         signed_speed_mps: float,
+        *,
+        heading_required: bool = True,
     ) -> ArrivalDecision:
         cfg = self.config
         distance = max(0.0, float(distance_m))
@@ -65,9 +67,8 @@ class GoalArrivalController:
             if speed <= cfg.settled_speed_mps:
                 self.state = ArrivalState.HOLD
             return ArrivalDecision(self.state, 0.0)
-        if (
-            distance <= cfg.position_tolerance_m
-            and heading <= cfg.heading_tolerance_rad
+        if distance <= cfg.position_tolerance_m and (
+            not heading_required or heading <= cfg.heading_tolerance_rad
         ):
             self.state = (
                 ArrivalState.HOLD
@@ -82,7 +83,7 @@ class GoalArrivalController:
             2.0 * cfg.comfortable_deceleration_mps2 * remaining
         )
         limit = min(cfg.maximum_approach_speed_mps, limit)
-        if heading > cfg.heading_tolerance_rad:
+        if heading_required and heading > cfg.heading_tolerance_rad:
             limit = min(limit, cfg.alignment_speed_mps)
         limit = max(cfg.minimum_tracking_speed_mps, limit)
         return ArrivalDecision(self.state, limit)

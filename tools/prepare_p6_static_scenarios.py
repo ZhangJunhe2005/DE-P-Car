@@ -60,15 +60,75 @@ def validate_config(config):
     }
     if set(quotas) != required:
         raise ValueError("P6 scenario config must cover all seven maneuvers")
+    enabled = config.get(
+        "enabled_modalities", ["depth_only", "lidar_only", "fusion"]
+    )
+    if (
+        not isinstance(enabled, list)
+        or not enabled
+        or len(enabled) != len(set(enabled))
+        or any(value not in ("depth_only", "lidar_only", "fusion") for value in enabled)
+    ):
+        raise ValueError("enabled_modalities is invalid")
+    if set(config.get("checkpoints", {})) != set(enabled):
+        raise ValueError("checkpoint matrix must exactly match enabled_modalities")
     return config
 
 
 def checkpoint_matrix(config):
     output = {}
-    for modality in ("depth_only", "lidar_only", "fusion"):
+    enabled = config.get(
+        "enabled_modalities", ["depth_only", "lidar_only", "fusion"]
+    )
+    for modality in enabled:
         row = config["checkpoints"][modality]
         checkpoint, contract = resolve(row["checkpoint"]), resolve(row["contract"])
-        verified = verify_checkpoint(checkpoint, contract, allow_untrained=True)
+        contract_document = json.loads(contract.read_text(encoding="utf-8"))
+        if contract_document.get("architecture_id") == "dep_car_multimodal_v2_route_ackermann_3x5":
+            payload = __import__("torch").load(
+                checkpoint, map_location="cpu", weights_only=True
+            )
+            verified = dict(contract_document)
+            if (
+                verified.get("schema") != "DEPCarRouteV2ArtifactContractV1"
+                or verified.get("checkpoint_sha256") != sha256_file(checkpoint)
+                or payload.get("architecture_id") != verified.get("architecture_id")
+                or payload.get("completed_epochs", 0) < 40
+                or payload.get("partial_epoch") is not False
+                or payload.get("run_completed") is not True
+                or contract_document.get("run_completed") is not True
+            ):
+                raise ValueError("%s V2 checkpoint identity is invalid" % modality)
+            acceptance = resolve(
+                row.get(
+                    "shadow_entry_acceptance",
+                    checkpoint.with_suffix(".score_shadow_acceptance.json"),
+                )
+            )
+            evidence = json.loads(acceptance.read_text(encoding="utf-8"))
+            acceptance_tool = resolve(evidence.get("acceptance_tool", ""))
+            expected_acceptance_tool = (
+                ROOT / "tools/audit_p5_route_v2_score.py"
+            ).resolve()
+            if (
+                evidence.get("schema")
+                != "DEPCarRouteV2ScoreShadowAcceptanceV1"
+                or evidence.get("status") != "PASS"
+                or evidence.get("gate_passed") is not True
+                or evidence.get("scope") != "P6_SHADOW_ONLY"
+                or evidence.get("active_control_authorized") is not False
+                or evidence.get("production_qualified") is not False
+                or evidence.get("test_split_accessed") is not False
+                or evidence.get("checkpoint_sha256") != sha256_file(checkpoint)
+                or evidence.get("checkpoint_contract_sha256")
+                != sha256_file(contract)
+                or evidence.get("acceptance_tool_sha256")
+                != sha256_file(acceptance_tool)
+                or acceptance_tool != expected_acceptance_tool
+            ):
+                raise ValueError("%s Score shadow acceptance is invalid" % modality)
+        else:
+            verified = verify_checkpoint(checkpoint, contract, allow_untrained=True)
         expected = {
             "training_stage": "score_calibration",
             "artifact_role": "best",
@@ -84,7 +144,13 @@ def checkpoint_matrix(config):
             "checkpoint_sha256": sha256_file(checkpoint),
             "contract": relative(contract),
             "contract_sha256": sha256_file(contract),
+            "architecture_id": verified.get("architecture_id"),
         }
+        if verified.get("architecture_id") == "dep_car_multimodal_v2_route_ackermann_3x5":
+            output[modality].update({
+                "shadow_entry_acceptance": relative(acceptance),
+                "shadow_entry_acceptance_sha256": sha256_file(acceptance),
+            })
     return output
 
 
@@ -227,6 +293,63 @@ def verify_manifest(path, config, require_start_audit=True):
     return manifest
 
 
+def rebind_manifest(path, config_path, config):
+    """Bind frozen scenarios to a new checkpoint matrix without regenerating maps."""
+
+    original_bytes = path.read_bytes()
+    manifest = json.loads(original_bytes.decode("utf-8"))
+    content = dict(manifest)
+    old_hash = content.pop("scenario_manifest_sha256", "")
+    if manifest.get("schema") != SCHEMA or canonical_sha256(content) != old_hash:
+        raise ValueError("P6 scenario manifest identity mismatch before rebind")
+    old_scenarios_sha256 = canonical_sha256(manifest.get("scenarios", []))
+    source_path = resolve(manifest.get("source_task_manifest", ""))
+    source = json.loads(source_path.read_text(encoding="utf-8"))
+    if source.get("task_manifest_sha256") != manifest.get(
+        "source_task_manifest_sha256"
+    ):
+        raise ValueError("P6 source task manifest changed before rebind")
+
+    # Verify every frozen world/map identity before changing authority fields.
+    for scenario in manifest.get("scenarios", []):
+        for key, hash_key in (("world", "world_sha256"), ("map_yaml", "map_yaml_sha256")):
+            if sha256_file(resolve(scenario[key])) != scenario[hash_key]:
+                raise ValueError("scenario file changed before rebind: " + scenario["scenario_id"])
+    backup = path.with_name("scenario_manifest.legacy_%s.json" % old_hash[:12])
+    if backup.exists() and backup.read_bytes() != original_bytes:
+        raise ValueError("P6 legacy manifest backup path contains different bytes")
+    if not backup.exists():
+        backup.write_bytes(original_bytes)
+
+    manifest["config"] = relative(config_path)
+    manifest["config_semantic_sha256"] = canonical_sha256(config)
+    manifest["enabled_modalities"] = list(config.get(
+        "enabled_modalities", ["depth_only", "lidar_only", "fusion"]
+    ))
+    manifest["checkpoints"] = checkpoint_matrix(config)
+    if canonical_sha256(manifest.get("scenarios", [])) != old_scenarios_sha256:
+        raise RuntimeError("scenario payload changed during checkpoint rebind")
+    manifest.pop("scenario_manifest_sha256", None)
+    manifest["scenario_manifest_sha256"] = canonical_sha256(manifest)
+    temporary = path.with_suffix(".json.tmp")
+    temporary.write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
+    temporary.replace(path)
+    verify_manifest(path, config)
+    return {
+        "schema": "DEPCarP6ManifestRebindV1",
+        "status": "PASS",
+        "old_scenario_manifest_sha256": old_hash,
+        "scenario_manifest_sha256": manifest["scenario_manifest_sha256"],
+        "scenarios_sha256": old_scenarios_sha256,
+        "scenarios": len(manifest.get("scenarios", [])),
+        "enabled_modalities": manifest["enabled_modalities"],
+        "legacy_manifest": str(backup),
+        "manifest": str(path),
+    }
+
+
 def reaudit_starts(path, config):
     manifest = verify_manifest(path, config, require_start_audit=False)
     old_hash = manifest["scenario_manifest_sha256"]
@@ -280,6 +403,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--reaudit-starts", action="store_true")
+    parser.add_argument("--rebind-checkpoints", action="store_true")
     args = parser.parse_args()
     if args.workers < 1:
         raise ValueError("workers must be positive")
@@ -304,6 +428,12 @@ def main():
             "scenarios": len(manifest["scenarios"]),
             "scenario_manifest_sha256": manifest["scenario_manifest_sha256"],
         }, indent=2, sort_keys=True))
+        return
+    if args.rebind_checkpoints:
+        report = rebind_manifest(
+            root / "scenario_manifest.json", config_path, config
+        )
+        print(json.dumps(report, indent=2, sort_keys=True))
         return
     if args.reaudit_starts:
         report, output = reaudit_starts(root / "scenario_manifest.json", config)

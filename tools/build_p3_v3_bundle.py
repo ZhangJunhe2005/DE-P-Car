@@ -41,6 +41,8 @@ ALLOWED_CONTEXTS = ("MISSION", "RECOVERY")
 CURATION_SCHEMA = "P3V3InitialPoseFeasibilityCurationV1"
 CURATION_POLICY = "exclude_initial_pose_infeasible"
 CURATION_EVALUATOR = "production_signed_SDF_training_footprint_at_t0"
+EXCLUSION_SCHEMA = "DEPCarP3CollectionExclusionAuthorityV1"
+EXCLUDED_TASK_STATUS = "EXCLUDED_INVALID_GOAL"
 
 
 def resolve(value):
@@ -99,6 +101,48 @@ def verify_internal_manifest(path):
     return payload, hashlib.sha256(raw).hexdigest()
 
 
+def verify_collection_exclusions(authority_path, authority, manifest, excluded_ids):
+    exclusion_path = authority_path.parent / "collection_exclusion_authority.json"
+    if not exclusion_path.is_file():
+        raise RuntimeError("collection exclusion authority is missing")
+    raw = exclusion_path.read_bytes()
+    payload = json.loads(raw.decode("utf-8"))
+    claimed = payload.get("exclusion_authority_sha256", "")
+    content = dict(payload)
+    content.pop("exclusion_authority_sha256", None)
+    entries = payload.get("entries", ())
+    entry_ids = {row.get("task_id") for row in entries}
+    if (
+        payload.get("schema") != EXCLUSION_SCHEMA
+        or payload.get("status") != "PASS"
+        or claimed != canonical_sha256(content)
+        or payload.get("task_manifest_sha256") != manifest["task_manifest_sha256"]
+        or entry_ids != set(excluded_ids)
+        or any(
+            row.get("reason") != "GOAL_FOOTPRINT_COLLISION"
+            or row.get("runtime_goal_rejection_observed") is not True
+            or row.get("test_map_opened") is not False
+            for row in entries
+        )
+        or any(
+            authority.get("tasks", {}).get(task_id, {}).get(
+                "exclusion_authority_sha256"
+            ) != claimed
+            for task_id in excluded_ids
+        )
+    ):
+        raise RuntimeError("collection exclusion authority is invalid")
+    return {
+        "schema": EXCLUSION_SCHEMA,
+        "status": "PASS",
+        "authority": str(exclusion_path.resolve()),
+        "authority_file_sha256": hashlib.sha256(raw).hexdigest(),
+        "exclusion_authority_sha256": claimed,
+        "excluded_tasks": len(excluded_ids),
+        "task_ids": sorted(excluded_ids),
+    }
+
+
 def validate_source(source):
     name = str(source.get("name", "")).strip()
     sample_root = resolve(source["samples"])
@@ -126,9 +170,15 @@ def validate_source(source):
             row["task_id"] for row in manifest.get("tasks", ())
             if row.get("map_split") in ALLOWED_SPLITS
         }
+        excluded = sorted(
+            task_id for task_id in task_ids
+            if authority.get("tasks", {}).get(task_id, {}).get("status")
+            == EXCLUDED_TASK_STATUS
+        )
         incomplete = sorted(
             task_id for task_id in task_ids
-            if authority.get("tasks", {}).get(task_id, {}).get("status") != "COMPLETE"
+            if authority.get("tasks", {}).get(task_id, {}).get("status")
+            not in ("COMPLETE", EXCLUDED_TASK_STATUS)
         )
         if incomplete:
             raise RuntimeError(
@@ -136,12 +186,22 @@ def validate_source(source):
                 + ",".join(incomplete[:5])
                 + "; repair them with --stage collect --retry-failed before bundling"
             )
+        exclusion_evidence = (
+            verify_collection_exclusions(
+                authority_path, authority, manifest, excluded
+            )
+            if excluded else None
+        )
         evidence.update({
             "task_manifest": str(task_manifest_path),
             "task_manifest_file_sha256": manifest_file_hash,
             "task_manifest_sha256": manifest["task_manifest_sha256"],
-            "complete_development_tasks": len(task_ids),
+            "manifest_development_tasks": len(task_ids),
+            "complete_development_tasks": len(task_ids) - len(excluded),
+            "excluded_invalid_manifest_tasks": len(excluded),
         })
+        if exclusion_evidence is not None:
+            evidence["collection_exclusion"] = exclusion_evidence
     return sample_root, evidence
 
 

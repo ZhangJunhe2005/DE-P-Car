@@ -231,14 +231,28 @@ def apply_runtime_route_preference(
     corridor_weight: float = 2.0,
     desired_future_clearance_m: float = 0.15,
     clearance_weight: float = 1.5,
+    corner_corridor_minimum_scale: float = 0.25,
 ):
-    """Re-rank an already hard-vetoed bank using route and clearance costs."""
+    """Re-rank a hard-vetoed bank without forcing an Ackermann car onto an L.
+
+    A topology path owns connectivity, not the exact centre-line geometry of
+    a turn.  Its weight is therefore relaxed continuously near a strong bend,
+    allowing the local planner to take a wider feasible arc around the inner
+    wall while retaining full route guidance on straight segments.
+    """
 
     if result is None or not result.executable:
         return result
     reference = np.asarray(reference_path, dtype=float)
     if reference.ndim != 2 or reference.shape[1] != 2 or len(reference) < 2:
         return result
+    minimum_scale = float(corner_corridor_minimum_scale)
+    if not 0.0 <= minimum_scale <= 1.0:
+        raise ValueError("corner_corridor_minimum_scale must be in [0,1]")
+    severity = corner_severity(reference)
+    effective_corridor_weight = float(corridor_weight) * (
+        1.0 - severity * (1.0 - minimum_scale)
+    )
     for candidate in result.candidates:
         if not candidate.feasible:
             continue
@@ -249,12 +263,97 @@ def apply_runtime_route_preference(
         _, future_clearance = occupancy.swept_footprint_clearance(tail)
         clearance_deficit = max(0.0, desired_future_clearance_m - future_clearance)
         candidate.guidance_cost += (
-            float(corridor_weight) * route_penalty
+            effective_corridor_weight * route_penalty
             + float(clearance_weight) * clearance_deficit
         )
     feasible = [candidate for candidate in result.candidates if candidate.feasible]
     if feasible:
         result.selected = min(feasible, key=lambda candidate: candidate.total_cost)
+    return result
+
+
+def corner_severity(
+    reference_path,
+    *,
+    trigger_rad: float = 0.35,
+    full_strength_rad: float = 1.20,
+) -> float:
+    """Return a smooth 0--1 activation for an upcoming route bend."""
+
+    trigger = float(trigger_rad)
+    full = float(full_strength_rad)
+    if not 0.0 <= trigger < full <= math.pi:
+        raise ValueError("corner severity thresholds are invalid")
+    angle = route_turn_angle(reference_path)
+    linear = min(1.0, max(0.0, (angle - trigger) / (full - trigger)))
+    # Smoothstep avoids candidate-ranking chatter as the sampled route angle
+    # moves by one grid cell around the activation threshold.
+    return float(linear * linear * (3.0 - 2.0 * linear))
+
+
+def apply_corner_clearance_preference(
+    result,
+    reference_path,
+    occupancy,
+    *,
+    soft_clearance_m: float = 0.30,
+    weight: float = 3.0,
+    trigger_rad: float = 0.35,
+    full_strength_rad: float = 1.20,
+    learned_score_base: bool = False,
+):
+    """Push feasible turning candidates away from walls without blocking them.
+
+    This is a soft swept-footprint halo, not occupancy inflation.  Candidates
+    inside the halo remain feasible and hard-veto semantics are untouched.
+    The normalized quadratic barrier strongly distinguishes two nearly
+    colliding inner arcs while becoming exactly zero once useful margin is
+    available.  It is applied to deterministic and learned banks alike.
+    """
+
+    if result is None or not result.executable:
+        return result
+    target = float(soft_clearance_m)
+    strength = float(weight)
+    if target < 0.0 or strength < 0.0:
+        raise ValueError("corner soft-clearance parameters cannot be negative")
+    if target == 0.0 or strength == 0.0:
+        return result
+    severity = corner_severity(
+        reference_path,
+        trigger_rad=trigger_rad,
+        full_strength_rad=full_strength_rad,
+    )
+    if severity <= 0.0:
+        return result
+
+    soft_costs = {}
+    for candidate in result.candidates:
+        if not candidate.feasible:
+            continue
+        trajectory = np.asarray(candidate.trajectory, dtype=float)
+        tail = trajectory[min(2, len(trajectory) - 1) :]
+        _, future_clearance = occupancy.swept_footprint_clearance(tail)
+        normalized_deficit = max(0.0, target - future_clearance) / target
+        soft_cost = strength * severity * normalized_deficit ** 2
+        candidate.guidance_cost += soft_cost
+        soft_costs[id(candidate)] = soft_cost
+
+    feasible = [candidate for candidate in result.candidates if candidate.feasible]
+    if feasible:
+        if learned_score_base:
+            result.selected = min(
+                feasible,
+                key=lambda candidate: (
+                    candidate.learned_score + soft_costs.get(id(candidate), 0.0),
+                    candidate.candidate_id,
+                ),
+            )
+        else:
+            result.selected = min(
+                feasible,
+                key=lambda candidate: (candidate.total_cost, candidate.candidate_id),
+            )
     return result
 
 
@@ -296,7 +395,9 @@ def corner_speed_limit(
 
 
 __all__ = [
+    "apply_corner_clearance_preference",
     "apply_runtime_route_preference",
+    "corner_severity",
     "corner_speed_limit",
     "monotonic_route_index",
     "required_center_clearance",

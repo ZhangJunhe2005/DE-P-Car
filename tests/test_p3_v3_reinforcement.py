@@ -20,6 +20,8 @@ import build_p3_v3_bundle as bundle_builder
 import generate_p3_v3_wave as wave
 import reextract_p3_v3_base as reextract
 from dep_car.core.types import Gear
+from dep_car.core.occupancy import OccupancyGrid2D
+from dep_car.global_planner.hybrid_astar import HybridAStar
 from dep_car.global_planner.hybrid_astar import HybridPathPose
 
 
@@ -92,6 +94,54 @@ def test_exact_route_preflight_accepts_open_space_and_rejects_unsafe_space():
     assert accepted["route_checkpoints"] == 3
     assert accepted["minimum_feasible_candidates"] >= 2
     assert rejected is None
+
+
+def test_endpoint_preflight_rejects_goal_whose_vehicle_footprint_hits_wall():
+    occupancy = np.zeros((100, 100), dtype=np.int8)
+    occupancy[:, 54] = 100
+    grid = OccupancyGrid2D(occupancy, resolution=0.1, origin=(-5.0, -5.0))
+
+    evidence = wave.preflight_endpoint_poses(
+        HybridAStar(), grid, (-3.0, 0.0, 0.0), (0.0, 0.0, 0.0)
+    )
+
+    assert evidence["start_valid"] is True
+    assert evidence["goal_valid"] is False
+    assert evidence["goal_reason"] == "GOAL_FOOTPRINT_COLLISION"
+
+
+def test_collection_exclusion_authority_is_exact_and_content_addressed(tmp_path):
+    authority_path = tmp_path / "collection_state.json"
+    exclusion_path = tmp_path / "collection_exclusion_authority.json"
+    manifest = {"task_manifest_sha256": "a" * 64}
+    exclusion = {
+        "schema": bundle_builder.EXCLUSION_SCHEMA,
+        "status": "PASS",
+        "task_manifest_sha256": "a" * 64,
+        "entries": [{
+            "task_id": "bad-goal",
+            "reason": "GOAL_FOOTPRINT_COLLISION",
+            "runtime_goal_rejection_observed": True,
+            "test_map_opened": False,
+        }],
+    }
+    exclusion["exclusion_authority_sha256"] = wave.canonical_sha256(exclusion)
+    exclusion_path.write_text(json.dumps(exclusion) + "\n", encoding="utf-8")
+    authority = {
+        "tasks": {"bad-goal": {
+            "status": bundle_builder.EXCLUDED_TASK_STATUS,
+            "exclusion_authority_sha256": exclusion[
+                "exclusion_authority_sha256"
+            ],
+        }}
+    }
+
+    evidence = bundle_builder.verify_collection_exclusions(
+        authority_path, authority, manifest, ["bad-goal"]
+    )
+
+    assert evidence["status"] == "PASS"
+    assert evidence["excluded_tasks"] == 1
 
 
 def test_proposal_selection_enforces_split_quotas_and_map_capacity():

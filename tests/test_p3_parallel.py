@@ -44,6 +44,32 @@ def test_map_affinity_prevents_same_map_from_running_on_two_workers():
     assert max(map(len, buckets)) - min(map(len, buckets)) <= 5
 
 
+def test_p3_recorder_defaults_to_bz2_without_changing_config_contract():
+    module = load_collection_module()
+    task = {
+        "task_id": "task", "map_uuid": "map", "map_split": "train",
+        "world": "data/map.world", "map_yaml": "data/map.yaml",
+        "start": [0.0, 0.0, 0.0], "goal": [1.0, 0.0, 0.0],
+        "maneuver_mode": "SHARP_TURN", "map_occupancy_sha256": "b" * 64,
+        "map_seed": 1,
+    }
+    collection = {
+        "startup_timeout_s": 90, "episode_timeout_s": 28,
+        "extraction_stride": 1,
+    }
+    commands = module.task_commands(
+        task, collection, ROOT / "data/test-run",
+        {"DEP_CAR_P3_TASK_MANIFEST_SHA256": "a" * 64}, 11321,
+    )
+    assert commands[2][-1] == "bz2"
+    collection["bag_compression"] = "lz4"
+    commands = module.task_commands(
+        task, collection, ROOT / "data/test-run",
+        {"DEP_CAR_P3_TASK_MANIFEST_SHA256": "a" * 64}, 11321,
+    )
+    assert commands[2][-1] == "lz4"
+
+
 def test_lidar_costmap_does_not_duplicate_planning_inflation():
     config = ROOT / "ros/dep_car_perception/config/lidar.yaml"
     content = config.read_text(encoding="utf-8")
@@ -65,6 +91,11 @@ def test_retry_policy_can_select_failed_and_zero_feasible_complete_tasks():
     assert not module.task_is_pending(task, complete, zero_rate_above=0.30)
     assert module.task_is_pending(task, complete, zero_rate_above=0.25)
     assert module.task_is_pending(task, complete, rerun_all_complete=True)
+    assert not module.task_is_pending(
+        task,
+        {"tasks": {"task": {"status": "EXCLUDED_INVALID_GOAL"}}},
+        retry_failed=True,
+    )
 
 
 def test_scaled_indoor_lattice_uses_one_second_receding_horizon():

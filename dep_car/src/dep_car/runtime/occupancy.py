@@ -9,11 +9,63 @@ from dep_car.core.occupancy import (
     FootprintConfig,
     OccupancyGrid2D,
     RUNTIME_FOOTPRINT_ALLOWANCE,
+    RUNTIME_HALF_DIAGONAL_MULTIPLIER,
     densify_trajectory_se2,
 )
 
 
 RUNTIME_DISTANCE_FIELD_SAMPLING_SCHEMA = "BilinearCellCentreDistanceV1"
+EGO_UNKNOWN_CLEARANCE_SCHEMA = "FiveCircleObservedObstaclePreservingV1"
+EGO_UNKNOWN_CLEARANCE_CELL_GUARD = 0.25
+
+
+def ego_unknown_clearance_mask(
+    x_coordinates: np.ndarray,
+    y_coordinates: np.ndarray,
+    *,
+    resolution: float,
+    blind_radius: float,
+    footprint: FootprintConfig = FootprintConfig(),
+) -> np.ndarray:
+    """Return unknown cells that may be cleared beneath the current car.
+
+    A rolling lidar grid cannot observe through the vehicle.  Its self-clear
+    mask therefore has to contain the *same* five-circle cover used by the P6
+    hard veto.  A smaller circular mask can make the stationary car collide
+    with unknown cells at its own nose or tail, rejecting every forward and
+    reverse primitive before either one moves.
+
+    This function only builds a mask.  The caller must apply it to unknown
+    cells exclusively, so an observed obstacle inside the cover is preserved.
+    One quarter cell is added beyond the runtime half-diagonal allowance to keep
+    the stationary footprint strictly positive under cell-centre distance
+    sampling instead of merely tangent to unknown space.  The guard is smaller
+    than the shortest micro-primitive displacement, so a car cannot creep
+    through entirely unobserved space by repeatedly recentering the grid.
+    """
+
+    x = np.asarray(x_coordinates, dtype=np.float64)
+    y = np.asarray(y_coordinates, dtype=np.float64)
+    if x.ndim != 1 or y.ndim != 1:
+        raise ValueError("ego-clearance coordinates must be one-dimensional")
+    if resolution <= 0.0:
+        raise ValueError("ego-clearance resolution must be positive")
+    if blind_radius < 0.0:
+        raise ValueError("ego-clearance blind radius cannot be negative")
+
+    xx, yy = np.meshgrid(x, y)
+    mask = xx * xx + yy * yy <= float(blind_radius) ** 2
+    grid_allowance = (
+        RUNTIME_HALF_DIAGONAL_MULTIPLIER * np.sqrt(2.0) * float(resolution)
+    )
+    cover_radius = (
+        footprint.circle_radius
+        + grid_allowance
+        + EGO_UNKNOWN_CLEARANCE_CELL_GUARD * float(resolution)
+    )
+    for offset in footprint.longitudinal_offsets:
+        mask |= (xx - float(offset)) ** 2 + yy * yy <= cover_radius ** 2
+    return mask
 
 
 class RuntimeOccupancyGrid2D(OccupancyGrid2D):

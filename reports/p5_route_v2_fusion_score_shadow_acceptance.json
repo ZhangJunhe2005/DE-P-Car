@@ -1,0 +1,172 @@
+{
+  "acceptance_contract": "/home/zjh/DE-P-Car/dep_car/config/p5_route_v2_score_acceptance.yaml",
+  "acceptance_contract_sha256": "3b068962a328eb74be7a055daa8a8b9f41bb1796be11c73206a1e0def431c3f7",
+  "acceptance_tool": "/home/zjh/DE-P-Car/tools/audit_p5_route_v2_score.py",
+  "acceptance_tool_sha256": "e55a290919dc385b20fc7c799d649e6b045f43709f77d803ad32542510e26748",
+  "active_control_authorized": false,
+  "candidate_source_gate": {
+    "acceptance_sidecar": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_candidate_capacity.best.candidate_acceptance.json",
+    "acceptance_sidecar_sha256": "4c14712a7640d0986e1d4d3b9f942bd258d83aa292632726f440c80bc0019409",
+    "capacity_capable_rate": 0.8561542263964409,
+    "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_candidate_capacity.best.pth",
+    "checkpoint_contract": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_candidate_capacity.best.contract.json",
+    "checkpoint_contract_sha256": "ac021b0315f5ed7e5a79b43412138c3ad9ca0b14f92d8081e52cf41f5e3dd8b7",
+    "checkpoint_sha256": "a8d58bfb4667d9b16ae4c555617c0d47c5c7211bc07dfc659a21ca9de67fcbf8",
+    "errors": [],
+    "formal_acceptance_report": "/home/zjh/DE-P-Car/reports/p5_route_v2_fusion_candidate_acceptance.json",
+    "formal_acceptance_report_sha256": "4c14712a7640d0986e1d4d3b9f942bd258d83aa292632726f440c80bc0019409",
+    "passed": true,
+    "population_frames": 4108,
+    "schema": "DEPCarRouteV2ScoreSourceGateV1",
+    "test_split_accessed": false,
+    "zero_hard_feasible_rate": 0.010133465150766189
+  },
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_score_calibration.best.pth",
+  "checkpoint_contract": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_score_calibration.best.contract.json",
+  "checkpoint_contract_sha256": "47ca4f988baf42407cd2c6cbe290586deba183365b96fa824f482843234b504d",
+  "checkpoint_sha256": "587f7bbd227ab8fd167d2c3996b3e87a92db8cca51a7361dde9c997373a28212",
+  "checks": {
+    "overall_mean_oracle_regret": "PASS",
+    "overall_selected_future_capable_rate": "PASS",
+    "overall_selected_hard_feasible_rate": "PASS",
+    "overall_zero_feasible_rate": "PASS",
+    "required_population_coverage": "PASS",
+    "reverse_exit_selected_future_capable_rate": "PASS",
+    "reverse_exit_selected_hard_feasible_rate": "PASS",
+    "sharp_turn_selected_future_capable_rate": "PASS",
+    "sharp_turn_selected_hard_feasible_rate": "PASS",
+    "three_point_turn_selected_future_capable_rate": "PASS",
+    "three_point_turn_selected_hard_feasible_rate": "PASS"
+  },
+  "dataset_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+  "dataset_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+  "errors": [],
+  "formal_training_authority_gate": {
+    "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+    "bundle_authority_file_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+    "bundle_authority_sha256": "7b69093f37d631b61e1f300a72ec1eb6ea47105f2c3c2b99cc7a09906b8de32d",
+    "development_reaudit": "/home/zjh/DE-P-Car/reports/p3_v4_corner_reaudit.json",
+    "development_reaudit_sha256": "90fbe73c8c7a9df9e3d2ac07e32c7ac8c8e0f2e36f7d21759158360c6182bdf8",
+    "errors": [],
+    "passed": true,
+    "proposal": "/home/zjh/DE-P-Car/reports/p3_v4_training_authority_proposal.json",
+    "proposal_sha256": "51077c4bd5ba266c42d35ba60551d6be1559cd122b2c3ee27dc53da5d5428549",
+    "samples": {
+      "train": 35940,
+      "validation": 9440
+    },
+    "schema": "DEPCarRouteV2FormalTrainingAuthorityGateV1",
+    "scope": "fusion_only_candidate_then_score",
+    "test_split_sealed": true
+  },
+  "gate_passed": true,
+  "generated_at_utc": "2026-08-18T12:35:14.444738+00:00",
+  "geometry_valid_frames": 9089,
+  "metrics": {
+    "GEAR:FORWARD": {
+      "mean_oracle_regret": 0.012448907382872533,
+      "samples": 6739,
+      "selected_future_capable_rate": 0.895533461937973,
+      "selected_hard_feasible_rate": 0.9856061730227037,
+      "selected_margin_capable_rate": 0.920611366671613,
+      "zero_feasible_rate": 0.0066775485977147945
+    },
+    "GEAR:REVERSE": {
+      "mean_oracle_regret": 0.010169356738209215,
+      "samples": 2350,
+      "selected_future_capable_rate": 0.8344680851063829,
+      "selected_hard_feasible_rate": 0.9770212765957447,
+      "selected_margin_capable_rate": 0.8612765957446809,
+      "zero_feasible_rate": 0.00425531914893617
+    },
+    "MODE:DEAD_END_ESCAPE": {
+      "mean_oracle_regret": 0.0027226420223557903,
+      "samples": 775,
+      "selected_future_capable_rate": 0.8283870967741935,
+      "selected_hard_feasible_rate": 0.9625806451612903,
+      "selected_margin_capable_rate": 0.8554838709677419,
+      "zero_feasible_rate": 0.007741935483870968
+    },
+    "MODE:NARROW_CORRIDOR": {
+      "mean_oracle_regret": 0.0022931006712921236,
+      "samples": 1042,
+      "selected_future_capable_rate": 0.8675623800383877,
+      "selected_hard_feasible_rate": 0.9990403071017274,
+      "selected_margin_capable_rate": 0.8800383877159309,
+      "zero_feasible_rate": 0.0
+    },
+    "MODE:NORMAL": {
+      "mean_oracle_regret": 0.011840157492463942,
+      "samples": 291,
+      "selected_future_capable_rate": 0.9656357388316151,
+      "selected_hard_feasible_rate": 1.0,
+      "selected_margin_capable_rate": 1.0,
+      "zero_feasible_rate": 0.0
+    },
+    "MODE:REVERSE_EXIT": {
+      "mean_oracle_regret": 0.0060361345674385105,
+      "samples": 118,
+      "selected_future_capable_rate": 0.652542372881356,
+      "selected_hard_feasible_rate": 0.8050847457627118,
+      "selected_margin_capable_rate": 0.7203389830508474,
+      "zero_feasible_rate": 0.03389830508474576
+    },
+    "MODE:SHARP_TURN": {
+      "mean_oracle_regret": 0.0125645956425659,
+      "samples": 4046,
+      "selected_future_capable_rate": 0.9142362827483935,
+      "selected_hard_feasible_rate": 0.9787444389520514,
+      "selected_margin_capable_rate": 0.9320316361838853,
+      "zero_feasible_rate": 0.010133465150766189
+    },
+    "MODE:THREE_POINT_TURN": {
+      "mean_oracle_regret": 0.017666975452327694,
+      "samples": 2708,
+      "selected_future_capable_rate": 0.843426883308715,
+      "selected_hard_feasible_rate": 0.9955686853766618,
+      "selected_margin_capable_rate": 0.8833087149187593,
+      "zero_feasible_rate": 0.0014771048744460858
+    },
+    "MODE:U_TURN": {
+      "mean_oracle_regret": 0.003851800746873978,
+      "samples": 109,
+      "selected_future_capable_rate": 1.0,
+      "selected_hard_feasible_rate": 1.0,
+      "selected_margin_capable_rate": 1.0,
+      "zero_feasible_rate": 0.0
+    },
+    "OVERALL": {
+      "mean_oracle_regret": 0.011858454853698746,
+      "samples": 9089,
+      "selected_future_capable_rate": 0.8797447463967433,
+      "selected_hard_feasible_rate": 0.9833865111673451,
+      "selected_margin_capable_rate": 0.9052701067224117,
+      "zero_feasible_rate": 0.006051270766861041
+    }
+  },
+  "population_frames_available": 9440,
+  "population_frames_selected": 9440,
+  "production_qualified": false,
+  "risk_flags": [
+    "REVERSE_EXIT_SELECTED_HARD_FEASIBLE_BELOW_0_95"
+  ],
+  "schema": "DEPCarRouteV2ScoreShadowAcceptanceV1",
+  "scope": "P6_SHADOW_ONLY",
+  "status": "PASS",
+  "test_split_accessed": false,
+  "thresholds": {
+    "maximum_overall_mean_oracle_regret": 0.05,
+    "maximum_overall_zero_feasible_rate": 0.08,
+    "minimum_overall_selected_future_capable_rate": 0.8,
+    "minimum_overall_selected_hard_feasible_rate": 0.95,
+    "minimum_reverse_exit_selected_future_capable_rate": 0.6,
+    "minimum_reverse_exit_selected_hard_feasible_rate": 0.75,
+    "minimum_sharp_turn_selected_future_capable_rate": 0.85,
+    "minimum_sharp_turn_selected_hard_feasible_rate": 0.95,
+    "minimum_three_point_turn_selected_future_capable_rate": 0.8,
+    "minimum_three_point_turn_selected_hard_feasible_rate": 0.95
+  },
+  "trainer_sha256": "d80ee4ffacc29de12f828b8d10a62860a84995730b9f40880cd7e12157722a0e",
+  "training_config": "/home/zjh/DE-P-Car/dep_car/config/p5_route_v2_training.yaml",
+  "training_config_sha256": "a1d30757ad360906272a7ba3a73924e0a1f1492af2b90cf475a632d3190ac240"
+}

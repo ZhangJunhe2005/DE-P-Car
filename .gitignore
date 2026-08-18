@@ -23,6 +23,7 @@ data/dynamic_eval/*
 data/arena_maps/
 data/p3_pilot/
 data/p3_v3/
+data/p3_v4/
 data/p6_static/
 !data/**/.gitkeep
 *.bag
@@ -31,3 +32,4 @@ third_party/*
 models/dep_car/p5/
 models/dep_car/p5_v2/
 models/dep_car/p5_score_v1/
+models/dep_car/p5_route_v2/

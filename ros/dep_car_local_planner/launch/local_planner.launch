@@ -9,6 +9,8 @@
   <arg name="fusion_sensor_mode" default="normal"/>
   <arg name="policy_python" default="$(optenv DEP_CAR_POLICY_PYTHON /home/zjh/miniconda3/envs/yopo/bin/python)"/>
   <arg name="active_fallback_to_baseline" default="false"/>
+  <arg name="learned_route_authority" default="false"/>
+  <arg name="require_goal_heading" default="true"/>
 
   <!-- Keep PyTorch/CUDA in yopo while the safety/actuation node stays on the
        ROS Noetic system Python.  They exchange only typed ROS messages. -->
@@ -22,7 +24,10 @@
     <param name="p6_authority" value="$(arg p6_authority)"/>
     <param name="device" value="$(arg device)"/>
     <param name="fusion_sensor_mode" value="$(arg fusion_sensor_mode)"/>
-    <param name="inference_rate" value="10.0"/>
+    <!-- The learned bank is horizon-based and is re-vetoed against the latest
+         grid at the 10 Hz control rate.  Refresh it at 5 Hz so Gazebo depth
+         rendering and CUDA inference do not build a shared-GPU queue. -->
+    <param name="inference_rate" value="5.0"/>
     <param name="maximum_sensor_age" value="0.35"/>
     <param name="synchronization_history" value="32"/>
     <!-- P3/P5 temporal contract: LiDAR/depth anchor, interpolated vehicle
@@ -42,6 +47,11 @@
     <param name="maneuver_leg_distance" value="0.85"/>
     <param name="maneuver_forward_speed" value="0.45"/>
     <param name="maneuver_reverse_speed" value="0.35"/>
+    <!-- Turnaround entry/exit hysteresis and a hard per-primitive yaw-progress
+         gate prevent oscillation between opposite steering directions. -->
+    <param name="forward_reacquired_bearing" value="1.308996939"/>
+    <param name="maneuver_minimum_yaw_progress" value="0.035"/>
+    <param name="exact_replan_minimum_displacement" value="0.25"/>
     <param name="terminal_maneuver_radius" value="1.50"/>
     <param name="terminal_maneuver_heading_trigger" value="0.55"/>
     <param name="terminal_capture_radius" value="0.80"/>
@@ -51,6 +61,13 @@
     <param name="route_corridor_weight" value="3.0"/>
     <param name="route_clearance_target" value="0.15"/>
     <param name="route_clearance_weight" value="1.5"/>
+    <!-- A strong bend relaxes the A* polyline tether and adds a non-blocking
+         swept-footprint halo.  Hard collision geometry is unchanged. -->
+    <param name="corner_corridor_minimum_scale" value="0.25"/>
+    <param name="corner_soft_clearance_target" value="0.30"/>
+    <param name="corner_soft_clearance_weight" value="3.0"/>
+    <param name="corner_soft_trigger" value="0.35"/>
+    <param name="corner_soft_full_strength" value="1.20"/>
     <param name="corner_straight_speed" value="0.55"/>
     <param name="corner_ninety_speed" value="0.26"/>
     <param name="approach_radius" value="1.5"/>
@@ -58,11 +75,15 @@
     <param name="approach_maximum_speed" value="0.45"/>
     <param name="mission_goal_tolerance" value="0.22"/>
     <param name="mission_heading_tolerance" value="0.35"/>
+    <param name="require_goal_heading" value="$(arg require_goal_heading)"/>
     <param name="goal_settled_speed" value="0.02"/>
     <param name="policy_mode" value="$(arg policy_mode)"/>
     <param name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
+    <param name="learned_route_authority" value="$(arg learned_route_authority)"/>
     <param name="policy_freshness" value="0.35"/>
-    <param name="policy_grid_skew" value="0.15"/>
+    <!-- This bounds model-input age only; every candidate is still checked
+         against the newest static/dynamic grids immediately before use. -->
+    <param name="policy_grid_skew" value="0.25"/>
     <param name="policy_subgoal_tolerance" value="0.50"/>
   </node>
 </launch>

@@ -225,6 +225,12 @@ def environment(config, run_root):
     return env, ros_port
 
 
+def goal_heading_required(args):
+    """Fixed episodes are strict; interactive RViz goals opt into final yaw."""
+
+    return args.stage != "interactive" or bool(args.require_goal_heading)
+
+
 def commands(config, manifest, scenario, args, output, ros_port):
     artifact = manifest["checkpoints"][args.modality]
     checkpoint = resolve(artifact["checkpoint"])
@@ -234,6 +240,8 @@ def commands(config, manifest, scenario, args, output, ros_port):
         if args.p6_authority
         else ROOT / "reports" / ("p6_shadow_acceptance_%s.json" % args.modality)
     )
+    effective_policy_mode = "shadow" if args.stage == "interactive" else args.stage
+    require_goal_heading = goal_heading_required(args)
     launch = [
         "roslaunch", "-p", str(ros_port), "dep_car_bringup", "p6_static.launch",
         "world:=" + str(resolve(scenario["world"])),
@@ -246,13 +254,15 @@ def commands(config, manifest, scenario, args, output, ros_port):
         "paused:=true",
         "checkpoint:=" + str(checkpoint),
         "checkpoint_contract:=" + str(contract),
-        "policy_mode:=" + ("shadow" if args.stage == "interactive" else args.stage),
+        "policy_mode:=" + effective_policy_mode,
         "policy_modality:=" + args.modality,
         "fusion_sensor_mode:=" + args.fusion_sensor_mode,
         "p6_authority:=" + (str(authority) if args.stage == "active" else ""),
         "gui:=" + ("true" if args.gui or args.stage == "interactive" else "false"),
         "enable_rviz:=" + ("true" if args.rviz or args.stage == "interactive" else "false"),
         "active_fallback_to_baseline:=" + ("true" if args.active_fallback else "false"),
+        "learned_route_authority:=" + ("true" if args.learned_route_authority else "false"),
+        "require_goal_heading:=" + ("true" if require_goal_heading else "false"),
     ]
     reset = [
         "rosrun", "dep_car_dataset", "reset_pilot_pose.py",
@@ -265,7 +275,7 @@ def commands(config, manifest, scenario, args, output, ros_port):
         "--scenario-id", scenario["scenario_id"],
         "--maneuver-mode", scenario["maneuver_mode"],
         "--cohort", scenario["cohort"],
-        "--policy-mode", args.stage,
+        "--policy-mode", effective_policy_mode,
         "--modality", args.modality,
         "--scenario-manifest-sha256", manifest["scenario_manifest_sha256"],
         "--runtime-implementation-sha256",
@@ -425,7 +435,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--stage",
-        choices=("prepare", "validate", "start_audit", "interactive", "shadow", "active", "audit"),
+        choices=("prepare", "rebind", "validate", "start_audit", "list", "interactive", "shadow", "active", "audit"),
         required=True,
     )
     parser.add_argument("--config", type=Path, default=ROOT / "dep_car/config/p6_static.yaml")
@@ -441,6 +451,22 @@ def main():
     parser.add_argument("--rviz", action="store_true")
     parser.add_argument("--active-fallback", action="store_true")
     parser.add_argument(
+        "--require-goal-heading",
+        action="store_true",
+        help=(
+            "in interactive mode, enforce the RViz 2D Nav Goal arrow yaw; "
+            "otherwise interactive goals are position-only"
+        ),
+    )
+    parser.add_argument(
+        "--learned-route-authority",
+        action="store_true",
+        help=(
+            "certify V2 local corner ability: feed the A* corridor into the "
+            "network but disable runtime route reranking/manual active corner caps"
+        ),
+    )
+    parser.add_argument(
         "--gate-suite",
         action="store_true",
         help="run the smallest deterministic scenario set that satisfies the stage gate",
@@ -453,8 +479,18 @@ def main():
     config_path, root = args.config.resolve(), args.root.resolve()
     config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     python = str(config["runtime"]["policy_python"])
-    if args.stage in ("prepare", "validate", "start_audit"):
+    enabled_modalities = config.get(
+        "enabled_modalities", ["depth_only", "lidar_only", "fusion"]
+    )
+    if args.modality not in enabled_modalities:
+        raise ValueError(
+            "modality %s is not enabled; configured=%s"
+            % (args.modality, ",".join(enabled_modalities))
+        )
+    if args.stage in ("prepare", "rebind", "validate", "start_audit"):
         command = [python, str(PREPARE), "--config", str(config_path), "--root", str(root), "--workers", str(args.workers)]
+        if args.stage == "rebind":
+            command.append("--rebind-checkpoints")
         if args.stage == "validate":
             command.append("--verify")
         if args.stage == "start_audit":
@@ -475,6 +511,33 @@ def main():
         ]
         raise SystemExit(run_checked(command))
     manifest = load_manifest(manifest_path)
+    if args.stage == "list":
+        rows = [
+            {
+                "scenario_id": row["scenario_id"],
+                "cohort": row["cohort"],
+                "maneuver_mode": row["maneuver_mode"],
+                "map_uuid": row["map_uuid"],
+                "start": row["start"],
+                "goal": row["goal"],
+            }
+            for row in manifest["scenarios"]
+        ]
+        print(json.dumps({
+            "status": "PASS",
+            "scenario_manifest_sha256": manifest["scenario_manifest_sha256"],
+            "scenarios": rows,
+        }, indent=2, sort_keys=True))
+        return
+    if args.learned_route_authority:
+        artifact = manifest["checkpoints"][args.modality]
+        contract = json.loads(
+            resolve(artifact["contract"]).read_text(encoding="utf-8")
+        )
+        if contract.get("architecture_id") != "dep_car_multimodal_v2_route_ackermann_3x5":
+            raise ValueError(
+                "--learned-route-authority requires a DEPCarNetV2 checkpoint"
+            )
     scenarios = select_scenarios(manifest, args, config)
     failures = 0
     try:

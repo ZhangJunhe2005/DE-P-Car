@@ -1,0 +1,99 @@
+{
+  "acceptance_contract": "/home/zjh/DE-P-Car/dep_car/config/p5_route_v2_candidate_acceptance.yaml",
+  "acceptance_contract_sha256": "8aa1c97debf1e28df6aaa8c506782375d43c2e179d7e289a7a0373cde05a0aeb",
+  "acceptance_tool": "/home/zjh/DE-P-Car/tools/audit_p6_corner_capacity.py",
+  "acceptance_tool_sha256": "6910ae30cbdfdf25689f524f46f749e5d7398cd644b1a8a4a2dd495b7484201c",
+  "candidate_trainer_sha256": "a26d6de1d0ac2ba9b05c948250939add94b7c83fe3d25c2b3126a574a61d7269",
+  "candidate_training_config_sha256": "a1d30757ad360906272a7ba3a73924e0a1f1492af2b90cf475a632d3190ac240",
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_candidate_capacity.best.pth",
+  "checkpoint_contract": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_candidate_capacity.best.contract.json",
+  "checkpoint_contract_sha256": "ac021b0315f5ed7e5a79b43412138c3ad9ca0b14f92d8081e52cf41f5e3dd8b7",
+  "checkpoint_sha256": "a8d58bfb4667d9b16ae4c555617c0d47c5c7211bc07dfc659a21ca9de67fcbf8",
+  "conclusion": "CAPACITY_PASS_RANKING_FAIL",
+  "dataset_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+  "dataset_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+  "decision": "preserve Candidate checkpoint; train route-conditioned Score V2",
+  "errors": [
+    "diagnostic_limited_candidate_audit"
+  ],
+  "formal_training_authority_gate": {
+    "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+    "bundle_authority_file_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+    "bundle_authority_sha256": "7b69093f37d631b61e1f300a72ec1eb6ea47105f2c3c2b99cc7a09906b8de32d",
+    "development_reaudit": "/home/zjh/DE-P-Car/reports/p3_v4_corner_reaudit.json",
+    "development_reaudit_sha256": "90fbe73c8c7a9df9e3d2ac07e32c7ac8c8e0f2e36f7d21759158360c6182bdf8",
+    "errors": [],
+    "passed": true,
+    "proposal": "/home/zjh/DE-P-Car/reports/p3_v4_training_authority_proposal.json",
+    "proposal_sha256": "51077c4bd5ba266c42d35ba60551d6be1559cd122b2c3ee27dc53da5d5428549",
+    "samples": {
+      "train": 35940,
+      "validation": 9440
+    },
+    "schema": "DEPCarRouteV2FormalTrainingAuthorityGateV1",
+    "scope": "fusion_only_candidate_then_score",
+    "test_split_sealed": true
+  },
+  "gate_passed": false,
+  "gates": {
+    "capacity_capable_rate": {
+      "observed": 0.8412698412698413,
+      "operator": ">=",
+      "status": "PASS",
+      "threshold": 0.75
+    },
+    "zero_hard_feasible_rate": {
+      "observed": 0.015873015873015872,
+      "operator": "<=",
+      "status": "PASS",
+      "threshold": 0.08
+    }
+  },
+  "generated_at_utc": "2026-08-18T09:57:48.781300+00:00",
+  "metrics": {
+    "best_progress_inside_tube_m_percentiles": {
+      "p10": 0.0,
+      "p50": 0.3107401728630066,
+      "p90": 0.5083464205265047
+    },
+    "capacity_capable": 53,
+    "capacity_capable_rate": 0.8412698412698413,
+    "feasible_candidates_median": 15.0,
+    "followup_capable": 53,
+    "maximum_route_progress_m_percentiles": {
+      "p10": 0.0,
+      "p50": 0.3107401728630066,
+      "p90": 0.5083464205265047
+    },
+    "minimum_route_cross_track_m_percentiles": {
+      "p10": 0.00421083141118288,
+      "p50": 0.021649764850735664,
+      "p90": 0.11401979774236687
+    },
+    "oracle_regret_mean": 0.25096145970007727,
+    "route_tube_capable": 53,
+    "samples": 63,
+    "selected_capable": 43,
+    "selected_capable_rate": 0.6825396825396826,
+    "zero_hard_feasible": 1,
+    "zero_hard_feasible_rate": 0.015873015873015872,
+    "zero_margin_feasible": 4,
+    "zero_margin_feasible_rate": 0.06349206349206349
+  },
+  "modality": "fusion",
+  "population": "validation/SHARP_TURN/geometry_valid",
+  "population_frames_available": 4108,
+  "population_frames_selected": 64,
+  "schema": "DEPCarRouteV2CandidateAcceptanceV1",
+  "smoke_limited": true,
+  "status": "SMOKE",
+  "test_split_accessed": false,
+  "thresholds": {
+    "clearance_margin_m": 0.08,
+    "followup": "at_least_one_same_gear_canonical_primitive_above_margin",
+    "maximum_zero_hard_feasible_rate": 0.08,
+    "minimum_capacity_capable_rate": 0.75,
+    "minimum_route_progress_m": 0.25,
+    "route_tube_radius_m": 0.45
+  }
+}

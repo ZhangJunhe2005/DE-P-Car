@@ -8,6 +8,7 @@ import numpy as np
 
 from dep_car.model.checkpoint import P4_ARCHITECTURE_ID, verify_checkpoint
 from dep_car.model.dep_car_net import DEPCarNetV1
+from dep_car.model.dep_car_net_v2 import DEPCarNetV2
 
 from .p6_contract import sha256_file, verify_p6_shadow_acceptance
 
@@ -52,14 +53,44 @@ class P6PolicyRuntime:
         if self.modality != "fusion" and self.fusion_sensor_mode != "normal":
             raise PolicyArtifactError("sensor-drop validation applies only to fusion")
         try:
-            verified = verify_checkpoint(
-                self.checkpoint_path,
-                self.contract_path,
-                architecture_id=P4_ARCHITECTURE_ID,
-                allow_untrained=True,
+            contract_document = json.loads(
+                self.contract_path.read_text(encoding="utf-8")
             )
         except Exception as exc:
-            raise PolicyArtifactError("P5 checkpoint identity verification failed: %s" % exc) from exc
+            raise PolicyArtifactError("unable to read policy contract: %s" % exc) from exc
+        self.architecture_id = str(contract_document.get("architecture_id", ""))
+        if self.architecture_id == P4_ARCHITECTURE_ID:
+            try:
+                verified = verify_checkpoint(
+                    self.checkpoint_path,
+                    self.contract_path,
+                    architecture_id=P4_ARCHITECTURE_ID,
+                    allow_untrained=True,
+                )
+            except Exception as exc:
+                raise PolicyArtifactError("P5 checkpoint identity verification failed: %s" % exc) from exc
+            payload = None
+        elif self.architecture_id == DEPCarNetV2.architecture_id:
+            try:
+                payload = torch.load(
+                    self.checkpoint_path, map_location="cpu", weights_only=True
+                )
+            except Exception as exc:
+                raise PolicyArtifactError("unable to read V2 checkpoint: %s" % exc) from exc
+            verified = dict(contract_document)
+            if (
+                verified.get("schema") != "DEPCarRouteV2ArtifactContractV1"
+                or verified.get("checkpoint_sha256") != sha256_file(self.checkpoint_path)
+                or payload.get("architecture_id") != self.architecture_id
+                or payload.get("training_stage") != verified.get("training_stage")
+                or payload.get("modality") != verified.get("modality")
+                or payload.get("artifact_role") != verified.get("artifact_role")
+            ):
+                raise PolicyArtifactError("V2 checkpoint/contract identity verification failed")
+        else:
+            raise PolicyArtifactError(
+                "unsupported policy architecture: " + self.architecture_id
+            )
         required = {
             "training_stage": "score_calibration",
             "artifact_role": "best",
@@ -73,21 +104,40 @@ class P6PolicyRuntime:
             raise PolicyArtifactError(
                 "checkpoint is not an accepted P6 Score artifact: " + ",".join(mismatches)
             )
-        training_run = verified.get("training_run", {})
-        formal_gates = (
-            "formal_dataset_authority_gate_passed",
-            "formal_index_content_gate_passed",
-            "formal_p3_footprint_gate_passed",
-            "formal_training_yaml_gate_passed",
-            "formal_validation_coverage_gate_passed",
-        )
-        if (
-            training_run.get("completed_epochs", 0) < 40
-            or training_run.get("partial_epoch") is not False
-            or any(training_run.get(gate) is not True for gate in formal_gates)
-        ):
-            raise PolicyArtifactError("checkpoint training/coverage evidence is incomplete")
-        self._verify_accepted_candidate_source(verified.get("training_source", {}))
+        if self.architecture_id == P4_ARCHITECTURE_ID:
+            training_run = verified.get("training_run", {})
+            formal_gates = (
+                "formal_dataset_authority_gate_passed",
+                "formal_index_content_gate_passed",
+                "formal_p3_footprint_gate_passed",
+                "formal_training_yaml_gate_passed",
+                "formal_validation_coverage_gate_passed",
+            )
+            if (
+                training_run.get("completed_epochs", 0) < 40
+                or training_run.get("partial_epoch") is not False
+                or any(training_run.get(gate) is not True for gate in formal_gates)
+            ):
+                raise PolicyArtifactError("checkpoint training/coverage evidence is incomplete")
+            self._verify_accepted_candidate_source(verified.get("training_source", {}))
+        else:
+            if (
+                payload.get("completed_epochs", 0) < 40
+                or payload.get("partial_epoch") is not False
+                or payload.get("run_completed") is not True
+                or verified.get("run_completed") is not True
+                or verified.get("formal_training_authority_gate", {}).get(
+                    "passed"
+                ) is not True
+                or not verified.get("source_checkpoint")
+                or not verified.get("source_checkpoint_sha256")
+                or sha256_file(verified["source_checkpoint"])
+                != verified["source_checkpoint_sha256"]
+            ):
+                raise PolicyArtifactError("V2 training/lineage evidence is incomplete")
+            self.score_shadow_acceptance_sha256 = (
+                self._verify_v2_score_shadow_acceptance(payload, verified)
+            )
         self.contract = verified
         self.checkpoint_sha256 = verified["checkpoint_sha256"]
         self.contract_sha256 = sha256_file(self.contract_path)
@@ -107,15 +157,32 @@ class P6PolicyRuntime:
         if str(device).startswith("cuda") and not torch.cuda.is_available():
             raise PolicyArtifactError("CUDA policy device requested but unavailable")
         self.device = torch.device(device)
+        if self.device.type == "cuda":
+            # P6 always uses fixed depth/BEV shapes.  Let cuDNN benchmark the
+            # convolution kernels once during startup instead of repeatedly
+            # falling back to a slower generic choice.  This does not relax
+            # the FP32 physics/safety islands or alter checkpoint identity.
+            torch.backends.cudnn.benchmark = True
         try:
-            payload = torch.load(
-                self.checkpoint_path, map_location="cpu", weights_only=True
+            if payload is None:
+                payload = torch.load(
+                    self.checkpoint_path, map_location="cpu", weights_only=True
+                )
+            model = (
+                DEPCarNetV2()
+                if self.architecture_id == DEPCarNetV2.architecture_id
+                else DEPCarNetV1()
             )
-            model = DEPCarNetV1()
             model.load_state_dict(payload["model_state_dict"], strict=True)
         except Exception as exc:
-            raise PolicyArtifactError("unable to materialize DEPCarNetV1: %s" % exc) from exc
+            raise PolicyArtifactError("unable to materialize policy model: %s" % exc) from exc
         self.model = model.to(self.device).eval()
+        if self.device.type == "cuda":
+            # Both sensor towers are convolution-heavy and receive fixed NCHW
+            # tensors.  Keeping weights and inputs in channels-last format
+            # avoids repeated layout work on recent NVIDIA GPUs while leaving
+            # the signed weights and FP32 safety calculations unchanged.
+            self.model = self.model.to(memory_format=torch.channels_last)
         self._amp_output_handles = []
         if self.device.type == "cuda":
             # Match the signed P5 training path: convolutions/towers stay in
@@ -132,6 +199,69 @@ class P6PolicyRuntime:
                 self.model.lidar_encoder.register_forward_hook(output_fp32),
             ]
         self.last_latency_ms = 0.0
+
+    def _verify_v2_score_shadow_acceptance(self, payload, contract):
+        acceptance = self.checkpoint_path.with_suffix(
+            ".score_shadow_acceptance.json"
+        )
+        try:
+            evidence = json.loads(acceptance.read_text(encoding="utf-8"))
+            source = payload.get("source_acceptance_gate", {})
+            source_checkpoint = Path(source["checkpoint"]).resolve()
+            source_contract = Path(source["checkpoint_contract"]).resolve()
+            source_sidecar = Path(source["acceptance_sidecar"]).resolve()
+            source_report = Path(source["formal_acceptance_report"]).resolve()
+            acceptance_tool = Path(evidence["acceptance_tool"]).resolve()
+            expected_acceptance_tool = (
+                Path(__file__).resolve().parents[4]
+                / "tools/audit_p5_route_v2_score.py"
+            ).resolve()
+            valid = (
+                evidence.get("schema")
+                == "DEPCarRouteV2ScoreShadowAcceptanceV1"
+                and evidence.get("status") == "PASS"
+                and evidence.get("gate_passed") is True
+                and evidence.get("scope") == "P6_SHADOW_ONLY"
+                and evidence.get("active_control_authorized") is False
+                and evidence.get("production_qualified") is False
+                and evidence.get("test_split_accessed") is False
+                and evidence.get("checkpoint_sha256")
+                == self.checkpoint_sha256_from_contract(contract)
+                and evidence.get("checkpoint_contract_sha256")
+                == sha256_file(self.contract_path)
+                and evidence.get("acceptance_tool_sha256")
+                == sha256_file(acceptance_tool)
+                and acceptance_tool == expected_acceptance_tool
+                and evidence.get("candidate_source_gate") == source
+                and source.get("schema") == "DEPCarRouteV2ScoreSourceGateV1"
+                and source.get("passed") is True
+                and source.get("errors") == []
+                and source.get("test_split_accessed") is False
+                and sha256_file(source_checkpoint)
+                == source.get("checkpoint_sha256")
+                and sha256_file(source_contract)
+                == source.get("checkpoint_contract_sha256")
+                and sha256_file(source_sidecar)
+                == source.get("acceptance_sidecar_sha256")
+                and sha256_file(source_report)
+                == source.get("formal_acceptance_report_sha256")
+                and payload.get("source_checkpoint_sha256")
+                == source.get("checkpoint_sha256")
+            )
+        except Exception as exc:
+            raise PolicyArtifactError(
+                "unable to verify V2 Score shadow acceptance: %s" % exc
+            ) from exc
+        if not valid:
+            raise PolicyArtifactError("V2 Score shadow acceptance is invalid")
+        return sha256_file(acceptance)
+
+    @staticmethod
+    def checkpoint_sha256_from_contract(contract):
+        value = contract.get("checkpoint_sha256")
+        if not value:
+            raise PolicyArtifactError("V2 contract has no checkpoint hash")
+        return value
 
     @staticmethod
     def _verify_accepted_candidate_source(source):
@@ -187,7 +317,10 @@ class P6PolicyRuntime:
             return (1.0, 0.0)
         return (1.0, 1.0)
 
-    def infer(self, depth, lidar_bev, vehicle_state, requested_gear):
+    def infer(
+        self, depth, lidar_bev, vehicle_state, requested_gear,
+        route_pose=None, route_mask=None,
+    ):
         torch = self.torch
         depth = np.asarray(depth, dtype=np.float32)
         lidar_bev = np.asarray(lidar_bev, dtype=np.float32)
@@ -200,12 +333,34 @@ class P6PolicyRuntime:
             raise ValueError("policy vehicle state must be finite [9]")
         if int(requested_gear) not in (-1, 1):
             raise ValueError("policy requested gear must be -1 or +1")
-        tensors = (
-            torch.from_numpy(depth[None]).to(self.device, non_blocking=True),
-            torch.from_numpy(lidar_bev[None]).to(self.device, non_blocking=True),
+        depth_tensor = torch.from_numpy(depth[None]).to(
+            self.device, non_blocking=True
+        )
+        lidar_tensor = torch.from_numpy(lidar_bev[None]).to(
+            self.device, non_blocking=True
+        )
+        if self.device.type == "cuda":
+            depth_tensor = depth_tensor.contiguous(memory_format=torch.channels_last)
+            lidar_tensor = lidar_tensor.contiguous(memory_format=torch.channels_last)
+        tensors = [
+            depth_tensor,
+            lidar_tensor,
             torch.from_numpy(vehicle_state[None]).to(self.device, non_blocking=True),
             torch.tensor([int(requested_gear)], dtype=torch.int64, device=self.device),
-            torch.tensor([self.modality_mask], dtype=torch.float32, device=self.device),
+        ]
+        if self.architecture_id == DEPCarNetV2.architecture_id:
+            route_pose = np.asarray(route_pose, dtype=np.float32)
+            route_mask = np.asarray(route_mask, dtype=bool)
+            if route_pose.shape != (80, 3) or route_mask.shape != (80,):
+                raise ValueError("V2 route corridor must be [80,3] with [80] mask")
+            if int(route_mask.sum()) < 2 or not np.all(np.isfinite(route_pose)):
+                raise ValueError("V2 route corridor is invalid")
+            tensors.extend((
+                torch.from_numpy(route_pose[None]).to(self.device, non_blocking=True),
+                torch.from_numpy(route_mask[None]).to(self.device, non_blocking=True),
+            ))
+        tensors.append(
+            torch.tensor([self.modality_mask], dtype=torch.float32, device=self.device)
         )
         if self.device.type == "cuda":
             torch.cuda.synchronize(self.device)
@@ -224,9 +379,9 @@ class P6PolicyRuntime:
         controls = output.controls[0].detach().cpu().numpy().astype(np.float64)
         scores = output.scores[0].detach().cpu().numpy().astype(np.float64)
         if trajectories.shape != (15, 11, 6) or controls.shape != (15, 4) or scores.shape != (15,):
-            raise RuntimeError("DEPCarNetV1 output shape changed")
+            raise RuntimeError("DE-P-Car policy output shape changed")
         if not all(np.all(np.isfinite(values)) for values in (trajectories, controls, scores)):
-            raise RuntimeError("DEPCarNetV1 produced non-finite output")
+            raise RuntimeError("DE-P-Car policy produced non-finite output")
         return trajectories, controls, scores
 
 

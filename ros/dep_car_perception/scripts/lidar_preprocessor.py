@@ -14,6 +14,7 @@ from dep_car.perception.pointcloud import (
     lidar_environment_mask,
 )
 from dep_car.perception.range_image import build_range_image
+from dep_car.runtime.occupancy import ego_unknown_clearance_mask
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs import point_cloud2
 from sensor_msgs.msg import Image, PointCloud2
@@ -123,16 +124,20 @@ class LidarPreprocessor:
             occupied = (grid == 100).astype(np.uint8)
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
             grid[cv2.dilate(occupied, kernel) > 0] = 100
-        # The lidar cannot observe through the vehicle body.  Explicitly clear
-        # only the physical ego box (not the planning safety margin), matching
-        # standard rolling-costmap footprint clearing.
+        # The lidar cannot observe through the vehicle body.  The unknown-only
+        # self-clear mask must cover the exact five-circle envelope used by the
+        # P6 hard veto; otherwise the stationary nose/tail can collide with an
+        # unknown cell and reject every forward and reverse primitive.  Known
+        # occupied returns are deliberately preserved below.
         coordinates = (np.arange(size, dtype=np.float32) + 0.5 - center) * self.resolution
-        xx, yy = np.meshgrid(coordinates, coordinates)
-        unknown_under_ego = (xx * xx + yy * yy <= self.unknown_ego_clearance ** 2) & (grid < 0)
+        self_clearance = ego_unknown_clearance_mask(
+            coordinates,
+            coordinates,
+            resolution=self.resolution,
+            blind_radius=self.unknown_ego_clearance,
+        )
+        unknown_under_ego = self_clearance & (grid < 0)
         grid[unknown_under_ego] = 0
-        ego_x = np.abs(coordinates) <= (0.5 * self.self_filter.length + self.self_filter.padding)
-        ego_y = np.abs(coordinates) <= (0.5 * self.self_filter.width + self.self_filter.padding)
-        grid[np.ix_(ego_y, ego_x)] = 0
         message = OccupancyGrid()
         message.header = header
         message.header.frame_id = self.body_frame

@@ -81,4 +81,39 @@ def interpolated(entries, anchor_stamp, maximum_source_distance):
     return (1.0 - alpha) * first + alpha * second, float(source_distance)
 
 
-__all__ = ["StampedHistory", "interpolated", "nearest"]
+def newest_synchronized_anchor(
+    anchors,
+    interpolated_sources,
+    nearest_sources=None,
+):
+    """Return the newest anchor for which every source can be synchronized.
+
+    Online callbacks commonly receive the newest anchor just before the
+    bracketing state sample.  Rejecting that one frame is correct, but it must
+    not hide an immediately preceding anchor that already has the complete
+    P3/P5 temporal evidence.  Source mappings contain
+    ``name: (entries, tolerance)`` pairs.
+    """
+
+    anchors = tuple(anchors)
+    nearest_sources = nearest_sources or {}
+    for anchor_stamp, anchor_value in reversed(anchors):
+        matches = {
+            name: interpolated(entries, anchor_stamp, tolerance)
+            for name, (entries, tolerance) in interpolated_sources.items()
+        }
+        matches.update({
+            name: nearest(entries, anchor_stamp, tolerance)
+            for name, (entries, tolerance) in nearest_sources.items()
+        })
+        if all(value is not None for value in matches.values()):
+            return float(anchor_stamp), anchor_value, matches
+    return None
+
+
+__all__ = [
+    "StampedHistory",
+    "interpolated",
+    "nearest",
+    "newest_synchronized_anchor",
+]

@@ -17,6 +17,8 @@
   <arg name="fusion_sensor_mode" default="normal"/>
   <arg name="policy_python" default="$(optenv DEP_CAR_POLICY_PYTHON /home/zjh/miniconda3/envs/yopo/bin/python)"/>
   <arg name="active_fallback_to_baseline" default="false"/>
+  <arg name="learned_route_authority" default="false"/>
+  <arg name="require_goal_heading" default="true"/>
   <env name="GAZEBO_MODEL_PATH" value="$(arg gazebo_model_path):$(optenv GAZEBO_MODEL_PATH)"/>
   <arg unless="$(arg paused)" name="pause_arg" value=""/>
   <arg if="$(arg paused)" name="pause_arg" value="-u"/>
@@ -42,6 +44,11 @@
     <node pkg="dep_car_global_planner" type="hybrid_astar_node.py" name="dep_car_hybrid_astar" output="screen">
       <param name="planning_timeout_s" value="5.0"/>
       <param name="terminal_planning_timeout_s" value="15.0"/>
+      <!-- A topological corridor is directional guidance, not a centerline
+           controller.  Give a committed multi-leg local turn room to leave
+           and rejoin it; exact Hybrid-A* tails retain the tighter bound. -->
+      <param name="corridor_replan_deviation" value="1.50"/>
+      <param name="exact_replan_deviation" value="0.75"/>
       <param name="terminal_hybrid_radius" value="2.0"/>
       <param name="terminal_hybrid_heading_trigger" value="0.55"/>
       <param name="terminal_hybrid_capture_radius" value="0.80"/>
@@ -49,6 +56,7 @@
       <param name="exact_route_lookahead" value="0.50"/>
       <param name="duplicate_goal_window_s" value="0.5"/>
       <param name="route_mode" value="topology_corridor"/>
+      <param name="require_goal_heading" value="$(arg require_goal_heading)"/>
     </node>
     <include file="$(find dep_car_local_planner)/launch/local_planner.launch">
       <arg name="policy_mode" value="$(arg policy_mode)"/>
@@ -60,6 +68,8 @@
       <arg name="fusion_sensor_mode" value="$(arg fusion_sensor_mode)"/>
       <arg name="policy_python" value="$(arg policy_python)"/>
       <arg name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
+      <arg name="learned_route_authority" value="$(arg learned_route_authority)"/>
+      <arg name="require_goal_heading" value="$(arg require_goal_heading)"/>
     </include>
   </group>
   <node pkg="dep_car_bringup" type="rviz_exec.sh" name="rviz"

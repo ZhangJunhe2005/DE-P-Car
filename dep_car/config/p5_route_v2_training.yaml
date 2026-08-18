@@ -1,0 +1,64 @@
+schema: DEPCarRouteV2TrainingContractV1
+architecture_id: dep_car_multimodal_v2_route_ackermann_3x5
+objective_id: dep_car_objective_v5_route_tube_future_viability
+dataset_authority: data/p3_v4/bundle_v1/bundle_authority.json
+authorization:
+  status: APPLIED_EXPLICIT_FUSION_ONLY_APPROVAL
+  formal_modalities: [fusion]
+  diagnostic_only_modalities: [depth_only, lidar_only]
+  bundle_authority: data/p3_v4/bundle_v1/bundle_authority.json
+  bundle_authority_file_sha256: 9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4
+  bundle_authority_sha256: 7b69093f37d631b61e1f300a72ec1eb6ea47105f2c3c2b99cc7a09906b8de32d
+  development_reaudit: reports/p3_v4_corner_reaudit.json
+  development_reaudit_sha256: 90fbe73c8c7a9df9e3d2ac07e32c7ac8c8e0f2e36f7d21759158360c6182bdf8
+  proposal: reports/p3_v4_training_authority_proposal.json
+  proposal_sha256: 51077c4bd5ba266c42d35ba60551d6be1559cd122b2c3ee27dc53da5d5428549
+  test_split_sealed: true
+initialization:
+  depth_only_candidate_v1: models/dep_car/p5_v2/depth_only_candidate_capacity.best.pth
+  depth_only_candidate_v1_sha256: 56f14f56b5f56dc9d18697354f6f61ecbb1a02bfb090da3fb379ef64d4701fe3
+  depth_only_candidate_v1_acceptance: models/dep_car/p5_v2/depth_only_candidate_capacity.best.candidate_acceptance.json
+  depth_only_candidate_v1_acceptance_sha256: 5ef9b661906b7cfcad0ba1121c837a9d5c6affc286ac0b0bbf85dded3a65c6b7
+  lidar_only_candidate_v1: models/dep_car/p5_v2/lidar_only_candidate_capacity.best.pth
+  lidar_only_candidate_v1_sha256: 0949a6fb2e04d94446a6923e61e5580108c7bc47437d6f1c2ce55794eab8dc4e
+  lidar_only_candidate_v1_acceptance: models/dep_car/p5_v2/lidar_only_candidate_capacity.best.candidate_acceptance.json
+  lidar_only_candidate_v1_acceptance_sha256: 2731d93bfa2fe977cda4ae7a34a04cd0aa794934b84e376d46b68012438107a2
+  fusion_candidate_v1: models/dep_car/p5_v2/fusion_candidate_capacity.best.pth
+  fusion_candidate_v1_sha256: 1bbf50e69f70e0dfabd8c9de2704789870ba9d0bd32d4ba4c3c54fce2dc0a9bc
+  fusion_candidate_v1_acceptance: models/dep_car/p5_v2/fusion_candidate_capacity.best.candidate_acceptance.json
+  fusion_candidate_v1_acceptance_sha256: 264d2ec281a5415700de0bb8c0462a7b69109503507c55030863a7e6dcfac6e6
+artifacts:
+  candidate: models/dep_car/p5_route_v2/fusion_candidate_capacity.pth
+  score: models/dep_car/p5_route_v2/fusion_score_calibration.pth
+training:
+  epochs: 40
+  batch_size: 128
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  workers: 8
+  prefetch_factor: 4
+  progress_interval_steps: 50
+  torch_threads: 8
+  seed: 75105
+route_corridor:
+  maximum_points: 80
+  runtime_horizon_m: 3.0
+  candidate_conditioned: true
+  score_conditioned: true
+loss:
+  route_tube_radius_m: 0.30
+  route_outer_tube_radius_m: 0.45
+  minimum_one_cycle_progress_m: 0.05
+  clearance_margin_m: 0.08
+  future_horizon_s: 0.60
+  future_steps: 7
+  clearance_margin_weight: 2.0
+  future_viability_weight: 1.5
+qualification:
+  minimum_corner_capacity_rate: 0.75
+  maximum_corner_zero_hard_feasible_rate: 0.08
+  p6_learned_capability_mode_required: true
+  production_qualified_by_training: false

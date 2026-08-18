@@ -41,6 +41,9 @@ class HybridAStarNode:
         self.goal_generation = 0
         self.plan_revision = 0
         self.hybrid_validator = HybridAStar()
+        self.require_goal_heading = bool(
+            rospy.get_param("~require_goal_heading", True)
+        )
         self.route_mode = str(rospy.get_param("~route_mode", "topology_corridor"))
         if self.route_mode not in ("topology_corridor", "hybrid_exact"):
             raise ValueError("route_mode must be topology_corridor or hybrid_exact")
@@ -61,6 +64,12 @@ class HybridAStarNode:
         )
         self.terminal_hybrid_capture_radius = float(
             rospy.get_param("~terminal_hybrid_capture_radius", 0.80)
+        )
+        self.corridor_replan_deviation = float(
+            rospy.get_param("~corridor_replan_deviation", 1.50)
+        )
+        self.exact_replan_deviation = float(
+            rospy.get_param("~exact_replan_deviation", 0.75)
         )
         self.planning_timeout = float(rospy.get_param("~planning_timeout_s", 5.0))
         self.terminal_planning_timeout = float(
@@ -86,6 +95,11 @@ class HybridAStarNode:
             )
         if self.duplicate_goal_window < 0.0:
             raise ValueError("duplicate_goal_window_s must be non-negative")
+        if min(
+            self.corridor_replan_deviation,
+            self.exact_replan_deviation,
+        ) <= 0.0:
+            raise ValueError("route replan deviations must be positive")
         self.last_goal_signature = None
         self.last_goal_received_wall = float("-inf")
         self.path_pub = rospy.Publisher("/dep_car/global_path", Path, queue_size=1, latch=True)
@@ -120,10 +134,10 @@ class HybridAStarNode:
         with self.lock: self.odom = message
 
     def on_goal(self, message):
-        signature = (
-            round(float(message.pose.position.x), 4),
-            round(float(message.pose.position.y), 4),
-            round(float(yaw(message.pose.orientation)), 4),
+        signature = self.goal_signature(
+            message.pose.position.x,
+            message.pose.position.y,
+            yaw(message.pose.orientation),
         )
         received_wall = time.monotonic()
         with self.lock:
@@ -147,6 +161,43 @@ class HybridAStarNode:
             generation = self.goal_generation
         self.clear_route_visualization()
         self.publish_status("RECEIVED", "waiting for global planning", message, generation)
+
+    def goal_signature(self, x, y, heading):
+        """Ignore RViz's mandatory arrow angle for position-only missions."""
+
+        return (
+            round(float(x), 4),
+            round(float(y), 4),
+            round(float(heading), 4) if self.require_goal_heading else 0.0,
+        )
+
+    def position_only_target(self, grid, start, x, y):
+        """Choose any collision-free terminal body orientation at a goal point."""
+
+        approach = math.atan2(float(y) - start[1], float(x) - start[0])
+        angles = [approach, start[2], approach + math.pi, start[2] + math.pi]
+        angles.extend(np.linspace(-math.pi, math.pi, 24, endpoint=False).tolist())
+        best = None
+        seen = set()
+        for angle in angles:
+            angle = math.atan2(math.sin(angle), math.cos(angle))
+            key = round(angle, 6)
+            if key in seen:
+                continue
+            seen.add(key)
+            target = (float(x), float(y), angle)
+            valid, reason, clearance = self.hybrid_validator.validate_goal_pose(
+                grid, target
+            )
+            if valid and (best is None or clearance > best[3]):
+                best = (target, valid, "GOAL_POSITION_VALID", clearance)
+        if best is not None:
+            return best
+        target = (float(x), float(y), approach)
+        valid, reason, clearance = self.hybrid_validator.validate_goal_pose(
+            grid, target
+        )
+        return target, valid, reason, clearance
 
     def on_replan_request(self, message):
         with self.lock:
@@ -249,8 +300,13 @@ class HybridAStarNode:
             terminal_exact_goal = self.terminal_exact_goal
         if grid is None or odom is None or goal is None: return
         start = (odom.pose.pose.position.x, odom.pose.pose.position.y, yaw(odom.pose.pose.orientation))
-        target = (goal.pose.position.x, goal.pose.position.y, yaw(goal.pose.orientation))
-        target_signature = tuple(round(value, 4) for value in target)
+        raw_target = (
+            goal.pose.position.x,
+            goal.pose.position.y,
+            yaw(goal.pose.orientation),
+        )
+        target = raw_target
+        target_signature = self.goal_signature(*raw_target)
         terminal_distance = float(
             np.hypot(start[0] - target[0], start[1] - target[1])
         )
@@ -262,6 +318,7 @@ class HybridAStarNode:
         )
         terminal_exact_required = (
             self.route_mode == "topology_corridor"
+            and self.require_goal_heading
             and terminal_distance <= self.terminal_hybrid_radius
             and (
                 terminal_heading_error >= self.terminal_hybrid_heading_trigger
@@ -310,9 +367,16 @@ class HybridAStarNode:
                         self.cached_poses = None
                         self.cached_status = state
             return
-        valid, validity_reason, goal_clearance = self.hybrid_validator.validate_goal_pose(
-            grid, target
-        )
+        if self.require_goal_heading:
+            valid, validity_reason, goal_clearance = (
+                self.hybrid_validator.validate_goal_pose(grid, target)
+            )
+        else:
+            target, valid, validity_reason, goal_clearance = (
+                self.position_only_target(
+                    grid, start, raw_target[0], raw_target[1]
+                )
+            )
         if not valid:
             if cached_goal != target_signature or cached_status != "INVALID_GOAL":
                 detail = "%s clearance=%.3fm" % (validity_reason, goal_clearance)
@@ -473,7 +537,20 @@ class HybridAStarNode:
             nearest_index, route_distance = monotonic_route_index(
                 poses, begin, position, grid=grid, maximum_search=20
             )
-        if route_distance > 0.75:
+        replan_deviation = (
+            self.exact_replan_deviation
+            if exact_route
+            else self.corridor_replan_deviation
+        )
+        if route_distance > replan_deviation:
+            rospy.logwarn(
+                "Route deviation generation=%d distance=%.3fm threshold=%.3fm "
+                "route_index=%d; replanning from measured pose",
+                generation,
+                route_distance,
+                replan_deviation,
+                begin,
+            )
             with self.lock:
                 self.cached_poses = None
                 self.cached_status = "PLANNING"
@@ -483,7 +560,8 @@ class HybridAStarNode:
             self.clear_route_visualization()
             self.publish_status(
                 "PLANNING",
-                "route deviation exceeded 0.75m; replanning from measured pose",
+                "route deviation %.3fm exceeded %.3fm; replanning from measured pose"
+                % (route_distance, replan_deviation),
                 goal,
                 generation,
                 diagnostics=start_diagnostics,

@@ -37,7 +37,8 @@ def main(argv=None):
         required=True,
         choices=(
             "validate", "prepare", "base-reextract", "collect",
-            "bundle", "audit", "proposal", "status",
+            "recover-extraction", "qualify-invalid-goals", "bundle", "audit",
+            "proposal", "status",
         ),
     )
     parser.add_argument(
@@ -59,7 +60,17 @@ def main(argv=None):
         raise ValueError("maximum task/sample limits cannot be negative")
     config = yaml.safe_load(args.config.read_text(encoding="utf-8"))
     wave_id = str(config["wave"]["id"])
-    wave_root = ROOT / "data/p3_v3/waves" / wave_id
+    configured_wave_root = Path(
+        config["wave"].get("output_root", "data/p3_v3/waves")
+    )
+    wave_base = (
+        configured_wave_root.resolve()
+        if configured_wave_root.is_absolute()
+        else (ROOT / configured_wave_root).resolve()
+    )
+    if ROOT.resolve() not in wave_base.parents:
+        raise ValueError("wave output root must remain inside the project")
+    wave_root = wave_base / wave_id
     wave_manifest = wave_root / "task_manifest.json"
     wave_run = wave_root / "run"
     base_root = ROOT / "data/p3_v3/base_reextracted"
@@ -73,6 +84,30 @@ def main(argv=None):
     )
     if ROOT.resolve() not in bundle_root.parents:
         raise ValueError("bundle output must remain inside the project")
+    configured_audit_report = Path(
+        config.get("audit", {}).get(
+            "report", "reports/p3_development_reaudit_v3.json"
+        )
+    )
+    audit_report = (
+        configured_audit_report.resolve()
+        if configured_audit_report.is_absolute()
+        else (ROOT / configured_audit_report).resolve()
+    )
+    if ROOT.resolve() not in audit_report.parents:
+        raise ValueError("audit report must remain inside the project")
+    configured_proposal = Path(
+        config.get("audit", {}).get(
+            "proposal", "reports/p3_v3_training_authority_proposal.json"
+        )
+    )
+    proposal_output = (
+        configured_proposal.resolve()
+        if configured_proposal.is_absolute()
+        else (ROOT / configured_proposal).resolve()
+    )
+    if ROOT.resolve() not in proposal_output.parents:
+        raise ValueError("proposal report must remain inside the project")
 
     if args.stage == "validate":
         run([
@@ -135,6 +170,37 @@ def main(argv=None):
         run(command)
         return 0
 
+    if args.stage == "recover-extraction":
+        if not wave_manifest.is_file():
+            raise FileNotFoundError("run --stage prepare before extraction recovery")
+        command = [
+            SYSTEM_PYTHON,
+            ROOT / "tools/recover_p3_extraction.py",
+            "--config", args.config,
+            "--manifest", wave_manifest,
+            "--work-root", wave_run,
+            "--workers", args.workers,
+        ]
+        if args.maximum_tasks:
+            command.extend(("--maximum-tasks", args.maximum_tasks))
+        if args.dry_run:
+            command.append("--dry-run")
+        run(command)
+        return 0
+
+    if args.stage == "qualify-invalid-goals":
+        command = [
+            YOPO_PYTHON,
+            ROOT / "tools/qualify_p3_invalid_goal_exclusions.py",
+            "--manifest", wave_manifest,
+            "--state", wave_run / "collection_state.json",
+            "--maps", ROOT / "data/p3_pilot/maps",
+        ]
+        if args.dry_run:
+            command.append("--dry-run")
+        run(command)
+        return 0
+
     if args.stage == "bundle":
         command = [
             YOPO_PYTHON, ROOT / "tools/build_p3_v3_bundle.py",
@@ -150,9 +216,9 @@ def main(argv=None):
 
     if args.stage == "audit":
         report_path = (
-            ROOT / "reports/p3_development_reaudit_v3_smoke.json"
+            audit_report.with_name(audit_report.stem + "_smoke" + audit_report.suffix)
             if args.maximum_samples
-            else ROOT / "reports/p3_development_reaudit_v3.json"
+            else audit_report
         )
         command = [
             YOPO_PYTHON, ROOT / "tools/audit_p3_v3_bundle.py",
@@ -170,8 +236,8 @@ def main(argv=None):
         run([
             YOPO_PYTHON, ROOT / "tools/propose_p3_v3_training_authority.py",
             "--authority", bundle_root / "bundle_authority.json",
-            "--reaudit", ROOT / "reports/p3_development_reaudit_v3.json",
-            "--output", ROOT / "reports/p3_v3_training_authority_proposal.json",
+            "--reaudit", audit_report,
+            "--output", proposal_output,
         ])
         return 0
 
@@ -182,7 +248,7 @@ def main(argv=None):
         "base_reextract": load_json_if_present(base_root / "reextract_state.json"),
         "bundle": load_json_if_present(bundle_root / "bundle_authority.json"),
         "development_reaudit": load_json_if_present(
-            ROOT / "reports/p3_development_reaudit_v3.json"
+            audit_report
         ),
     }
     summary = {

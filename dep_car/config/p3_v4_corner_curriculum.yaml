@@ -1,0 +1,88 @@
+schema: DEPCarP3V3IncrementalConfigV1
+wave:
+  id: corner01
+  output_root: data/p3_v4/waves
+  task_seed: 74100
+  workers: 8
+  selected_split_maps:
+    train: 31
+    validation: 5
+  maximum_tasks_per_map: 10
+  proposal_attempts_per_map_mode: 300
+  proposals_per_map_mode: 12
+  hybrid_astar_maximum_expansions: 60000
+  task_quotas:
+    train:
+      SHARP_TURN: 96
+      THREE_POINT_TURN: 48
+      DEAD_END_ESCAPE: 24
+      NARROW_CORRIDOR: 24
+    validation:
+      SHARP_TURN: 24
+      THREE_POINT_TURN: 12
+      DEAD_END_ESCAPE: 6
+      NARROW_CORRIDOR: 6
+  corner_curriculum:
+    schema: P3V4RightAngleCurriculumV1
+    minimum_absolute_turn_rad: 1.25
+    maximum_absolute_turn_rad: 1.90
+    minimum_tasks_per_side_per_split: 8
+  preflight:
+    schema: P3V3CanonicalLatticeContinuousSweepPreflightV1
+    route_checkpoints: 9
+    minimum_feasible_candidates_per_probe: 2
+    forward_speed_probes_mps: [0.0, 0.3, 0.6]
+    reverse_speed_probes_mps: [0.0, -0.2]
+    require_every_probe: true
+collection:
+  ros_master_port: 11621
+  gazebo_master_port: 11651
+  startup_timeout_s: 90
+  episode_timeout_s: 28
+  shutdown_timeout_s: 30
+  extraction_stride: 1
+  minimum_samples_per_episode: 20
+  minimum_free_disk_gb: 20
+  keep_bags: true
+base_reextract:
+  workers: 8
+  splits: [train, validation]
+bundle:
+  id: p3_v4_corner_bundle_v1
+  output: data/p3_v4/bundle_v1
+  workers: 8
+  materialization: copy
+  sources:
+    - name: p3_v3_curated
+      samples: data/p3_v3/bundle_v2_curated/samples
+      authority: reports/p3_development_reaudit_v3.json
+    - name: corner01
+      samples: data/p3_v4/waves/corner01/run/samples
+      authority: data/p3_v4/waves/corner01/run/collection_state.json
+      task_manifest: data/p3_v4/waves/corner01/task_manifest.json
+curation:
+  schema: P3V3InitialPoseFeasibilityCurationV1
+  policy: exclude_initial_pose_infeasible
+  evaluator: production_signed_SDF_training_footprint_at_t0
+  preserve_rejected_source_samples: true
+audit:
+  report: reports/p3_v4_corner_reaudit.json
+  proposal: reports/p3_v4_training_authority_proposal.json
+gates:
+  maximum_zero_feasible_rate: 0.08
+  maximum_per_mode_zero_feasible_rate: 0.20
+  minimum_median_feasible_candidates: 3
+  minimum_validation_frames_per_maneuver: 50
+  minimum_validation_frames_per_requested_gear: 100
+  minimum_validation_frames_per_candidate_context: 20
+  required_candidate_contexts: [MISSION, RECOVERY]
+  allowed_candidate_contexts: [MISSION, RECOVERY]
+  required_maneuvers:
+    - NORMAL
+    - SHARP_TURN
+    - NARROW_CORRIDOR
+    - U_TURN
+    - DEAD_END_ESCAPE
+    - REVERSE_EXIT
+    - THREE_POINT_TURN
+  required_requested_gears: [FORWARD, REVERSE]

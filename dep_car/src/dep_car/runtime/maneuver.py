@@ -20,12 +20,48 @@ class ManeuverState(str, Enum):
 class ManeuverConfig:
     base_leg_distance_m: float = 0.85
     maximum_leg_distance_m: float = 1.15
+    # A forward-restoration turn must reserve room for its opposite-gear
+    # continuation.  The longer adaptive leg remains available to ordinary
+    # corner/dead-end recovery where backing far enough is the objective.
+    forward_restoration_leg_distance_m: float = 0.85
     minimum_useful_leg_m: float = 0.25
     maximum_legs: int = 8
     leg_timeout_s: float = 8.0
     lateral_offset_m: float = 0.35
     terminal_lateral_offset_m: float = 0.90
     settled_speed_mps: float = 0.04
+    settled_steering_rad: float = 0.08
+
+
+class MeasuredPoseReplanGate:
+    """Request one global replan per materially different measured pose.
+
+    Repeating an identical Hybrid-A* solution while the local hard-safety
+    layer holds the car stationary is not progress.  After one measured-pose
+    retry, local recovery gets authority until it has moved far enough to make
+    another global solve meaningfully different.
+    """
+
+    def __init__(self, minimum_displacement_m: float = 0.25):
+        minimum_displacement_m = float(minimum_displacement_m)
+        if not math.isfinite(minimum_displacement_m) or minimum_displacement_m <= 0.0:
+            raise ValueError("minimum_displacement_m must be finite and positive")
+        self.minimum_displacement_m = minimum_displacement_m
+        self.reset()
+
+    def reset(self) -> None:
+        self.last_requested_position = None
+
+    def authorize(self, position) -> bool:
+        current = np.asarray(position, dtype=float)
+        if current.shape != (2,) or not np.all(np.isfinite(current)):
+            raise ValueError("replan position must be a finite 2-vector")
+        if self.last_requested_position is not None:
+            displacement = float(np.linalg.norm(current - self.last_requested_position))
+            if displacement < self.minimum_displacement_m:
+                return False
+        self.last_requested_position = current.copy()
+        return True
 
 
 class CommittedManeuver:
@@ -78,19 +114,39 @@ class CommittedManeuver:
         subgoal_body,
         heading_error_rad: float,
         purpose: str = "static_recovery",
+        turn_sign_hint=None,
     ) -> bool:
         if self.leg_count >= self.config.maximum_legs:
             return False
-        self.gear = Gear.require_drive(gear)
-        self.turn_sign = self.turn_direction(subgoal_body, heading_error_rad)
-        self.target_distance_m = self.required_distance(
-            subgoal_body, heading_error_rad
+        purpose = str(purpose)
+        continuing_forward_restoration = (
+            purpose == "forward_restoration"
+            and self.purpose == purpose
+            and self.leg_count > 0
+            and self.turn_sign != 0.0
         )
+        self.gear = Gear.require_drive(gear)
+        if not continuing_forward_restoration:
+            if turn_sign_hint is None:
+                self.turn_sign = self.turn_direction(
+                    subgoal_body, heading_error_rad
+                )
+            else:
+                hint = float(turn_sign_hint)
+                if not math.isfinite(hint) or abs(hint) < 1.0e-6:
+                    raise ValueError("turn_sign_hint must be finite and nonzero")
+                self.turn_sign = 1.0 if hint > 0.0 else -1.0
+        self.target_distance_m = self.required_distance(subgoal_body, heading_error_rad)
+        if purpose == "forward_restoration":
+            self.target_distance_m = min(
+                self.target_distance_m,
+                self.config.forward_restoration_leg_distance_m,
+            )
         self.travelled_m = 0.0
         self.started_at = float(now)
         self.last_position = np.asarray(position, dtype=float).copy()
         self.finish_reason = ""
-        self.purpose = str(purpose)
+        self.purpose = purpose
         self.leg_count += 1
         self.state = ManeuverState.DRIVE_LEG
         return True
@@ -112,10 +168,13 @@ class CommittedManeuver:
             self.finish_reason = str(reason)
             self.state = ManeuverState.SETTLING
 
-    def finish_if_stopped(self, signed_speed_mps: float) -> bool:
+    def finish_if_stopped(
+        self, signed_speed_mps: float, steering_angle_rad: float = 0.0
+    ) -> bool:
         if (
             self.state == ManeuverState.SETTLING
             and abs(float(signed_speed_mps)) <= self.config.settled_speed_mps
+            and abs(float(steering_angle_rad)) <= self.config.settled_steering_rad
         ):
             self.last_completed_gear = self.gear
             self.state = ManeuverState.IDLE
@@ -159,10 +218,30 @@ class CommittedManeuver:
         subgoal_body,
         heading_error_rad: float,
         purpose: str = "static_recovery",
+        turn_sign_hint=None,
     ) -> Tuple[float, float]:
         gear = Gear.require_drive(gear)
         distance = self.required_distance(subgoal_body, heading_error_rad)
-        turn_sign = self.turn_direction(subgoal_body, heading_error_rad)
+        purpose = str(purpose)
+        if purpose == "forward_restoration":
+            distance = min(
+                distance,
+                self.config.forward_restoration_leg_distance_m,
+            )
+        if (
+            purpose == "forward_restoration"
+            and self.purpose == purpose
+            and self.leg_count > 0
+            and self.turn_sign != 0.0
+        ):
+            turn_sign = self.turn_sign
+        elif turn_sign_hint is None:
+            turn_sign = self.turn_direction(subgoal_body, heading_error_rad)
+        else:
+            hint = float(turn_sign_hint)
+            if not math.isfinite(hint) or abs(hint) < 1.0e-6:
+                raise ValueError("turn_sign_hint must be finite and nonzero")
+            turn_sign = 1.0 if hint > 0.0 else -1.0
         x = distance if gear == Gear.FORWARD else -distance
         lateral_offset = (
             self.config.terminal_lateral_offset_m

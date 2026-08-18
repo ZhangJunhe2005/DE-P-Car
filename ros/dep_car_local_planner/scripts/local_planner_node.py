@@ -10,11 +10,19 @@ import rospy
 from dep_car.core.gear import GearSupervisor
 from dep_car.runtime.occupancy import RuntimeOccupancyGrid2D
 from dep_car.runtime.route_guidance import (
+    apply_corner_clearance_preference,
     apply_runtime_route_preference,
+    corner_severity,
     corner_speed_limit,
     route_reference_body,
     route_turn_angle,
     segment_is_visible,
+)
+from dep_car.runtime.forward_preference import (
+    ForwardPreferenceConfig,
+    ForwardPreferenceState,
+    ForwardPreferenceSupervisor,
+    corridor_direction_body,
 )
 from dep_car.core.planner import DeterministicPlanner
 from dep_car.core.recovery import RecoveryManager, RecoveryState
@@ -26,7 +34,12 @@ from dep_car.core.vehicle import (
 )
 from dep_car.runtime.safety import evaluate_learned_candidate_bank
 from dep_car.runtime.arrival import ArrivalConfig, GoalArrivalController
-from dep_car.runtime.maneuver import CommittedManeuver, ManeuverConfig, ManeuverState
+from dep_car.runtime.maneuver import (
+    CommittedManeuver,
+    ManeuverConfig,
+    ManeuverState,
+    MeasuredPoseReplanGate,
+)
 from dep_car_msgs.msg import (
     AckermannCommand,
     AckermannRoute,
@@ -39,7 +52,7 @@ from dep_car_msgs.msg import (
     PolicyQuery,
     PolicyState,
 )
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import Pose2D, PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from sensor_msgs.msg import JointState
 from std_msgs.msg import String
@@ -73,6 +86,9 @@ class LocalPlannerNode:
         self.last_runtime_status = None
         self.mission_goal_tolerance = float(rospy.get_param("~mission_goal_tolerance", 0.22))
         self.mission_heading_tolerance = float(rospy.get_param("~mission_heading_tolerance", 0.35))
+        self.require_mission_goal_heading = bool(
+            rospy.get_param("~require_goal_heading", True)
+        )
         self.arrival = GoalArrivalController(
             ArrivalConfig(
                 position_tolerance_m=self.mission_goal_tolerance,
@@ -98,7 +114,23 @@ class LocalPlannerNode:
         self.maneuver = CommittedManeuver(
             ManeuverConfig(base_leg_distance_m=maneuver_leg_distance)
         )
+        self.forward_preference = ForwardPreferenceSupervisor(
+            ForwardPreferenceConfig(
+                forward_reacquired_bearing_rad=float(
+                    rospy.get_param(
+                        "~forward_reacquired_bearing",
+                        math.radians(75.0),
+                    )
+                )
+            )
+        )
         self.maneuver_spatial_scales = (1.0, 0.75, 0.50, 0.35, 0.25)
+        self.maneuver_minimum_yaw_progress = float(
+            rospy.get_param("~maneuver_minimum_yaw_progress", 0.035)
+        )
+        self.exact_replan_gate = MeasuredPoseReplanGate(
+            float(rospy.get_param("~exact_replan_minimum_displacement", 0.25))
+        )
         self.maneuver_forward_speed = float(
             rospy.get_param("~maneuver_forward_speed", 0.45)
         )
@@ -132,6 +164,21 @@ class LocalPlannerNode:
         self.route_clearance_weight = float(
             rospy.get_param("~route_clearance_weight", 1.5)
         )
+        self.corner_corridor_minimum_scale = float(
+            rospy.get_param("~corner_corridor_minimum_scale", 0.25)
+        )
+        self.corner_soft_clearance_target = float(
+            rospy.get_param("~corner_soft_clearance_target", 0.30)
+        )
+        self.corner_soft_clearance_weight = float(
+            rospy.get_param("~corner_soft_clearance_weight", 3.0)
+        )
+        self.corner_soft_trigger = float(
+            rospy.get_param("~corner_soft_trigger", 0.35)
+        )
+        self.corner_soft_full_strength = float(
+            rospy.get_param("~corner_soft_full_strength", 1.20)
+        )
         self.corner_straight_speed = float(
             rospy.get_param("~corner_straight_speed", 0.55)
         )
@@ -144,10 +191,16 @@ class LocalPlannerNode:
             self.route_corridor_weight,
             self.route_clearance_target,
             self.route_clearance_weight,
+            self.corner_soft_clearance_target,
+            self.corner_soft_clearance_weight,
             self.corner_straight_speed,
             self.corner_ninety_speed,
         ) < 0.0:
             raise ValueError("route guidance weights, clearances and speeds cannot be negative")
+        if not 0.0 <= self.corner_corridor_minimum_scale <= 1.0:
+            raise ValueError("corner_corridor_minimum_scale must be in [0,1]")
+        if not 0.0 <= self.corner_soft_trigger < self.corner_soft_full_strength <= math.pi:
+            raise ValueError("corner soft-clearance angle thresholds are invalid")
         self.policy_mode = str(rospy.get_param("~policy_mode", "disabled"))
         if self.policy_mode not in ("disabled", "shadow", "active"):
             raise ValueError("policy_mode must be disabled, shadow or active")
@@ -158,6 +211,9 @@ class LocalPlannerNode:
         self.policy_grid_skew = float(rospy.get_param("~policy_grid_skew", 0.15))
         self.policy_subgoal_tolerance = float(
             rospy.get_param("~policy_subgoal_tolerance", 0.50)
+        )
+        self.learned_route_authority = bool(
+            rospy.get_param("~learned_route_authority", False)
         )
         self.command_pub = rospy.Publisher(
             "/dep_car/cmd_ackermann", AckermannCommand, queue_size=1
@@ -292,9 +348,15 @@ class LocalPlannerNode:
             self.last_position = None
             self.arrival.reset()
             self.maneuver.reset()
+            self.forward_preference.reset()
+            self.exact_replan_gate.reset()
             self.recovery.set_mission_goal(
                 (message.pose.position.x, message.pose.position.y)
             )
+        rospy.loginfo(
+            "Accepted mission goal as %s",
+            "position+heading" if self.require_mission_goal_heading else "position-only",
+        )
 
     def on_tracks(self, message):
         tracks = [
@@ -504,6 +566,64 @@ class LocalPlannerNode:
             horizon_m=self.route_reference_horizon,
         )
 
+    def turnaround_probes(
+        self, state, route_reference, grid, tracks, *, heading_error
+    ):
+        """Probe local Ackermann room without turning A* into a controller."""
+
+        reference = np.asarray(route_reference, dtype=float)
+        if reference.ndim != 2 or reference.shape[1] != 2 or len(reference) < 2:
+            return {}, False
+        bearing, _ = corridor_direction_body(
+            reference, self.forward_preference.config.direction_lookahead_m
+        )
+        continuing_turn_sign = (
+            self.maneuver.turn_sign
+            if self.maneuver.purpose == "forward_restoration"
+            and self.maneuver.leg_count > 0
+            and self.maneuver.turn_sign != 0.0
+            else 0.0
+        )
+        turn_hint = (
+            continuing_turn_sign
+            if continuing_turn_sign != 0.0
+            else bearing
+            if math.isfinite(bearing) and abs(bearing) > 1.0e-6
+            else heading_error
+            if math.isfinite(heading_error) and abs(heading_error) > 1.0e-6
+            else 1.0
+        )
+        directional_reference = (
+            float(reference[-1, 0]),
+            float(reference[-1, 1]),
+        )
+        probes = {}
+        for gear in (Gear.FORWARD, Gear.REVERSE):
+            proposed = self.maneuver.proposed_subgoal(
+                gear,
+                directional_reference,
+                bearing if math.isfinite(bearing) else heading_error,
+                purpose="forward_restoration",
+                turn_sign_hint=turn_hint,
+            )
+            result = self.planner.plan(
+                state,
+                proposed,
+                grid,
+                tracks,
+                requested_gear=gear,
+                target_heading=bearing,
+                spatial_scales=self.maneuver_spatial_scales,
+                required_yaw_direction=turn_hint,
+                minimum_yaw_progress_rad=self.maneuver_minimum_yaw_progress,
+            )
+            probes[gear] = (proposed, result)
+        # A turnaround site must support both halves of a local multi-point
+        # correction.  One safe reverse arc alone is an escape corridor, not
+        # evidence that the car can already restore forward travel there.
+        feasible = all(probes[gear][1].executable for gear in probes)
+        return probes, feasible
+
     @staticmethod
     def reference_steering(odom, route, requested_gear, start_index=0):
         """Return the next Hybrid-A* steering sample for local tie-breaking."""
@@ -536,6 +656,7 @@ class LocalPlannerNode:
         heading_error=0.0,
         reference_curvature=0.0,
         recovery_mode=False,
+        reference_path=None,
     ):
         if self.policy_mode == "disabled":
             return 0
@@ -546,6 +667,41 @@ class LocalPlannerNode:
         message.requested_gear = int(requested_gear)
         message.subgoal_body.x = float(subgoal_body[0])
         message.subgoal_body.y = float(subgoal_body[1])
+        reference = np.asarray(reference_path, dtype=float)
+        if not (
+            reference.ndim == 2
+            and reference.shape[1] == 2
+            and len(reference) >= 2
+            and np.all(np.isfinite(reference))
+        ):
+            # DEPCarNetV2 has a mandatory route-corridor contract.  During the
+            # first route update or very close to the goal, the global route
+            # slice can temporarily contain fewer than two points.  Preserve
+            # fail-closed inference without creating an availability deadlock
+            # by using the current-origin-to-subgoal segment as the minimal
+            # local corridor.  This supplies direction only; hard veto still
+            # decides whether any generated trajectory is executable.
+            endpoint = np.asarray(subgoal_body, dtype=float)
+            if not np.all(np.isfinite(endpoint)):
+                endpoint = np.asarray((0.05, 0.0), dtype=float)
+            if float(np.linalg.norm(endpoint)) < 0.05:
+                endpoint = np.asarray((0.05, 0.0), dtype=float)
+            reference = np.vstack((np.zeros(2, dtype=float), endpoint))
+        if reference.ndim == 2 and reference.shape[1] == 2 and len(reference) >= 2:
+            reference = reference[:80]
+            for index, point in enumerate(reference):
+                pose = Pose2D()
+                pose.x = float(point[0])
+                pose.y = float(point[1])
+                if index + 1 < len(reference):
+                    delta = reference[index + 1] - point
+                else:
+                    delta = point - reference[index - 1]
+                pose.theta = float(math.atan2(delta[1], delta[0]))
+                message.route_corridor_body.append(pose)
+            message.route_corridor_valid = True
+        else:  # Defensive; the normalized fallback above must make this unreachable.
+            message.route_corridor_valid = False
         message.heading_error = float(heading_error)
         message.reference_curvature = float(reference_curvature)
         message.recovery_mode = bool(recovery_mode)
@@ -627,13 +783,25 @@ class LocalPlannerNode:
                 tracks,
                 generation=raw.generation,
             )
-            result = apply_runtime_route_preference(
+            if not self.learned_route_authority:
+                result = apply_runtime_route_preference(
+                    result,
+                    reference_path,
+                    grid,
+                    corridor_weight=self.route_corridor_weight,
+                    desired_future_clearance_m=self.route_clearance_target,
+                    clearance_weight=self.route_clearance_weight,
+                    corner_corridor_minimum_scale=self.corner_corridor_minimum_scale,
+                )
+            result = apply_corner_clearance_preference(
                 result,
                 reference_path,
                 grid,
-                corridor_weight=self.route_corridor_weight,
-                desired_future_clearance_m=self.route_clearance_target,
-                clearance_weight=self.route_clearance_weight,
+                soft_clearance_m=self.corner_soft_clearance_target,
+                weight=self.corner_soft_clearance_weight,
+                trigger_rad=self.corner_soft_trigger,
+                full_strength_rad=self.corner_soft_full_strength,
+                learned_score_base=self.learned_route_authority,
             )
         except Exception as exc:
             return None, "policy_bank_rejected:" + type(exc).__name__ + ":" + str(exc)
@@ -655,6 +823,8 @@ class LocalPlannerNode:
         spatial_scales=(1.0,),
         force_baseline=False,
         reference_path=None,
+        required_yaw_direction=None,
+        minimum_yaw_progress_rad=0.0,
     ):
         self.publish_policy_query(
             requested_gear,
@@ -662,6 +832,7 @@ class LocalPlannerNode:
             heading_error=heading_error,
             reference_curvature=reference_curvature,
             recovery_mode=recovery_mode,
+            reference_path=reference_path,
         )
         baseline = self.planner.plan(
             state,
@@ -672,6 +843,8 @@ class LocalPlannerNode:
             target_heading=heading_error,
             target_steering=reference_steering,
             spatial_scales=spatial_scales,
+            required_yaw_direction=required_yaw_direction,
+            minimum_yaw_progress_rad=minimum_yaw_progress_rad,
         )
         baseline = apply_runtime_route_preference(
             baseline,
@@ -680,6 +853,16 @@ class LocalPlannerNode:
             corridor_weight=self.route_corridor_weight,
             desired_future_clearance_m=self.route_clearance_target,
             clearance_weight=self.route_clearance_weight,
+            corner_corridor_minimum_scale=self.corner_corridor_minimum_scale,
+        )
+        baseline = apply_corner_clearance_preference(
+            baseline,
+            reference_path,
+            grid,
+            soft_clearance_m=self.corner_soft_clearance_target,
+            weight=self.corner_soft_clearance_weight,
+            trigger_rad=self.corner_soft_trigger,
+            full_strength_rad=self.corner_soft_full_strength,
         )
         policy, reason = self.policy_result(
             grid,
@@ -923,7 +1106,12 @@ class LocalPlannerNode:
         state = self.vehicle_state(odom, joint_state)
         mission_distance, mission_heading = self.mission_error(odom, mission_goal)
         arrival = (
-            self.arrival.update(mission_distance, mission_heading, state.speed)
+            self.arrival.update(
+                mission_distance,
+                mission_heading,
+                state.speed,
+                heading_required=self.require_mission_goal_heading,
+            )
             if mission_goal is not None
             else None
         )
@@ -980,8 +1168,27 @@ class LocalPlannerNode:
         # to forward at a 90-degree corner.
         if self.maneuver.active:
             self.maneuver.observe(position, now)
+            active_bearing = None
+            if (
+                self.maneuver.purpose == "forward_restoration"
+                and route is not None
+                and route_command is not None
+            ):
+                active_reference = self.route_reference(
+                    odom, route, route_command.segment_index
+                )
+                active_bearing, _ = corridor_direction_body(
+                    active_reference,
+                    self.forward_preference.config.direction_lookahead_m,
+                )
+                if self.forward_preference.forward_corridor_reacquired(
+                    active_reference,
+                    route_requested_gear=route_command.requested_gear,
+                ):
+                    self.maneuver.settle("forward_corridor_reacquired")
             if (
                 mission_goal is not None
+                and self.require_mission_goal_heading
                 and mission_distance <= self.terminal_maneuver_radius
                 and mission_heading <= self.mission_heading_tolerance
                 and self.maneuver.purpose == "terminal_alignment"
@@ -990,7 +1197,7 @@ class LocalPlannerNode:
                 self.maneuver.settle("terminal_heading_aligned")
             if self.maneuver.state == ManeuverState.SETTLING:
                 reason = self.maneuver.finish_reason
-                if self.maneuver.finish_if_stopped(state.speed):
+                if self.maneuver.finish_if_stopped(state.speed, state.steering):
                     self.gear_supervisor.update(Gear.NEUTRAL, state.speed, now)
                     self.stop("maneuver_leg_complete:" + reason)
                     self.publish_state(None, "committed maneuver leg completed: " + reason)
@@ -1006,6 +1213,9 @@ class LocalPlannerNode:
                 self.heading_error(odom, mission_goal)
                 if self.maneuver.purpose == "terminal_alignment"
                 and mission_goal is not None
+                else active_bearing
+                if self.maneuver.purpose == "forward_restoration"
+                and active_bearing is not None
                 else heading_error
             )
             maneuver_result, _ = self.plan_context(
@@ -1019,6 +1229,16 @@ class LocalPlannerNode:
                 recovery_mode=True,
                 spatial_scales=self.maneuver_spatial_scales,
                 force_baseline=True,
+                required_yaw_direction=(
+                    self.maneuver.turn_sign
+                    if self.maneuver.purpose == "forward_restoration"
+                    else None
+                ),
+                minimum_yaw_progress_rad=(
+                    self.maneuver_minimum_yaw_progress
+                    if self.maneuver.purpose == "forward_restoration"
+                    else 0.0
+                ),
             )
             self.publish_candidates(
                 maneuver_result,
@@ -1088,11 +1308,21 @@ class LocalPlannerNode:
             odom, route, requested_gear, route_command.segment_index
         )
         turn_angle = route_turn_angle(reference_path)
+        turn_soft_severity = corner_severity(
+            reference_path,
+            trigger_rad=self.corner_soft_trigger,
+            full_strength_rad=self.corner_soft_full_strength,
+        )
         turn_speed_limit = corner_speed_limit(
             turn_angle,
             straight_speed_mps=self.corner_straight_speed,
             ninety_degree_speed_mps=self.corner_ninety_speed,
         )
+        if self.learned_route_authority and self.policy_mode == "active":
+            # V2 must demonstrate its own smooth corner trajectory.  The hard
+            # safety layer remains active, but legacy manual corner shaping is
+            # not allowed to manufacture a pass.
+            turn_speed_limit = None
         mission_subgoal = (
             self.subgoal_body(odom, mission_goal)
             if mission_goal is not None
@@ -1104,10 +1334,11 @@ class LocalPlannerNode:
         )
         rospy.loginfo_throttle(
             2.0,
-            "Local route guidance index=%d turn=%.3frad corner_speed=%s "
+            "Local route guidance index=%d turn=%.3frad corner_soft=%.2f corner_speed=%s "
             "terminal_direct_visible=%s",
             route_command.segment_index,
             turn_angle,
+            turn_soft_severity,
             "none" if turn_speed_limit is None else "%.3f" % turn_speed_limit,
             terminal_direct_visible,
         )
@@ -1119,13 +1350,20 @@ class LocalPlannerNode:
             mission_goal is not None
             and not exact_route
             and mission_distance <= self.terminal_capture_radius
-            and mission_heading < self.terminal_maneuver_heading_trigger
+            and (
+                not self.require_mission_goal_heading
+                or mission_heading < self.terminal_maneuver_heading_trigger
+            )
             and terminal_direct_visible
         )
         if terminal_capture_active:
             subgoal = self.subgoal_body(odom, mission_goal)
             active_subgoal = subgoal
-            heading_error = self.heading_error(odom, mission_goal)
+            heading_error = (
+                self.heading_error(odom, mission_goal)
+                if self.require_mission_goal_heading
+                else 0.0
+            )
             if subgoal[0] > 0.08:
                 requested_gear = Gear.FORWARD
             elif subgoal[0] < -0.08:
@@ -1133,12 +1371,116 @@ class LocalPlannerNode:
             elif self.gear_supervisor.engaged in (Gear.FORWARD, Gear.REVERSE):
                 requested_gear = self.gear_supervisor.engaged
 
+        # A neutral topological corridor supplies connectivity only.  Do not
+        # repeat its instantaneous behind/ahead dot product as a transmission
+        # command for hundreds of points.  Instead, use local safe primitives
+        # to turn around at the first viable site, or reverse only far enough
+        # to reach such a site.
+        if (
+            not exact_route
+            and not terminal_capture_active
+            and (
+                mission_goal is None
+                or mission_distance > self.terminal_maneuver_radius
+            )
+        ):
+            bearing, route_length = corridor_direction_body(
+                reference_path,
+                self.forward_preference.config.direction_lookahead_m,
+            )
+            behind_or_recovering = (
+                route_length > 0.15
+                and abs(bearing)
+                >= self.forward_preference.config.behind_bearing_rad
+            ) or self.forward_preference.state != ForwardPreferenceState.FORWARD_CRUISE
+            probes, turnaround_feasible = ({}, False)
+            if behind_or_recovering:
+                probes, turnaround_feasible = self.turnaround_probes(
+                    state,
+                    reference_path,
+                    grid,
+                    body_tracks,
+                    heading_error=heading_error,
+                )
+                if (
+                    self.forward_preference.state
+                    == ForwardPreferenceState.TURNAROUND_PENDING
+                    and any(result.executable for _, result in probes.values())
+                ):
+                    # Both directions are required before starting a new
+                    # turnaround site.  Once committed, the safe alternating
+                    # next leg may itself create room for the following leg.
+                    turnaround_feasible = True
+            forward_decision = self.forward_preference.update(
+                reference_path,
+                turnaround_feasible=turnaround_feasible,
+                progress_m=progress,
+                route_requested_gear=route_command.requested_gear,
+            )
+            if forward_decision.state == ForwardPreferenceState.REVERSE_ESCAPE_EXHAUSTED:
+                self.stop("bounded_reverse_escape_exhausted")
+                self.publish_state(
+                    None,
+                    "reverse escape reached %.2fm without finding a safe turnaround site"
+                    % forward_decision.reverse_escape_m,
+                )
+                return
+            requested_gear = forward_decision.requested_gear
+            if forward_decision.start_turnaround:
+                for maneuver_gear in self.maneuver.recovery_gear_order(Gear.FORWARD):
+                    proposed, shortened = probes[maneuver_gear]
+                    if not shortened.executable:
+                        continue
+                    if not self.maneuver.begin(
+                        maneuver_gear,
+                        position,
+                        now,
+                        reference_path[-1],
+                        forward_decision.corridor_bearing_rad,
+                        purpose="forward_restoration",
+                        turn_sign_hint=forward_decision.corridor_bearing_rad,
+                    ):
+                        self.stop("forward_restoration_leg_limit_reached")
+                        self.publish_state(
+                            shortened,
+                            "maximum forward-restoration legs reached",
+                        )
+                        return
+                    requested_gear = maneuver_gear
+                    result = shortened
+                    active_subgoal = proposed
+                    command_source = "deterministic_forward_restoration"
+                    maneuver_started = True
+                    rospy.loginfo(
+                        "Starting forward-restoration %s leg target=%.3fm "
+                        "corridor_bearing=%.3frad turn_sign=%+.0f "
+                        "reverse_escape=%.3fm leg=%d",
+                        maneuver_gear.name,
+                        self.maneuver.target_distance_m,
+                        forward_decision.corridor_bearing_rad,
+                        self.maneuver.turn_sign,
+                        forward_decision.reverse_escape_m,
+                        self.maneuver.leg_count,
+                    )
+                    break
+            rospy.loginfo_throttle(
+                2.0,
+                "Forward preference state=%s gear=%s bearing=%.3f "
+                "reverse_escape=%.3fm reason=%s",
+                forward_decision.state.value,
+                forward_decision.requested_gear.name,
+                forward_decision.corridor_bearing_rad,
+                forward_decision.reverse_escape_m,
+                forward_decision.reason,
+            )
+
         # A topological corridor can reach the correct goal position while
         # leaving the car facing the wrong way.  That is not a static-blockage
         # event, so trigger an explicit multi-leg Ackermann alignment before
         # the corridor's forward/reverse hint starts oscillating.
         terminal_alignment_required = (
             mission_goal is not None
+            and self.require_mission_goal_heading
             and not exact_route
             and mission_distance <= self.terminal_maneuver_radius
             and mission_heading >= self.terminal_maneuver_heading_trigger
@@ -1249,7 +1591,7 @@ class LocalPlannerNode:
                 if shortened.executable:
                     result = shortened
                     command_source = "deterministic_exact_route_micro"
-                else:
+                elif self.exact_replan_gate.authorize(position):
                     self.request_measured_pose_replan(
                         "exact_route_static_safety_exhausted"
                     )
@@ -1262,6 +1604,18 @@ class LocalPlannerNode:
                         "exact route has no safe micro primitive; requested replan",
                     )
                     return
+                else:
+                    # The measured pose has not changed enough for Hybrid A*
+                    # to produce materially new geometry.  Let the local
+                    # Ackermann recovery below create that room instead of
+                    # entering a plan/brake/replan loop at 1 Hz.
+                    result = shortened
+                    command_source = "deterministic_exact_route_local_recovery"
+                    rospy.logwarn_throttle(
+                        2.0,
+                        "Exact route remained locally blocked at the same "
+                        "measured pose; delegating space creation to local recovery",
+                    )
             gear_order = self.maneuver.recovery_gear_order(requested_gear)
             for maneuver_gear in gear_order if not result.executable else ():
                 proposed = self.maneuver.proposed_subgoal(

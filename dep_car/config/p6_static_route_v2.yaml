@@ -1,0 +1,62 @@
+schema: DEPCarP6StaticConfigV1
+enabled_modalities: [fusion]
+maps:
+  generated_count: 40
+  selected_count: 20
+  generator_seed: 76000
+  task_seed: 77000
+  type: indoor
+  width: 201
+  height: 201
+  resolution_m: 0.10
+  corridor_radius_cells: 8
+  iterations: 45
+  required_split_maps: {train: 14, validation: 3, test: 3}
+tasks:
+  total: 35
+  maximum_per_map: 2
+  proposal_attempts_per_map: 50
+  hybrid_astar_maximum_expansions: 60000
+  maneuver_quotas:
+    NORMAL: 5
+    SHARP_TURN: 5
+    NARROW_CORRIDOR: 5
+    U_TURN: 5
+    DEAD_END_ESCAPE: 5
+    REVERSE_EXIT: 5
+    THREE_POINT_TURN: 5
+runtime:
+  ros_master_port: 11421
+  gazebo_master_port: 11451
+  gazebo_seed: 49105
+  startup_timeout_s: 120
+  episode_timeout_s: 60
+  shutdown_timeout_s: 20
+  goal_tolerance_m: 0.22
+  heading_tolerance_rad: 0.35
+  policy_device: cuda
+  policy_python: /home/zjh/miniconda3/envs/yopo/bin/python
+checkpoints:
+  fusion:
+    checkpoint: models/dep_car/p5_route_v2/fusion_score_calibration.best.pth
+    contract: models/dep_car/p5_route_v2/fusion_score_calibration.best.contract.json
+    shadow_entry_acceptance: models/dep_car/p5_route_v2/fusion_score_calibration.best.score_shadow_acceptance.json
+shadow_gates:
+  cohort: development
+  minimum_episodes: 14
+  required_maneuvers: [NORMAL, SHARP_TURN, NARROW_CORRIDOR, U_TURN, DEAD_END_ESCAPE, REVERSE_EXIT, THREE_POINT_TURN]
+  maximum_collision_samples: 0
+  maximum_illegal_shift_count: 0
+  maximum_zero_feasible_rate: 0.08
+  maximum_inference_latency_p95_ms: 100.0
+  maximum_sensor_skew_s: 0.05
+  require_all_episode_success: true
+  require_hard_safety: true
+  forbid_learned_control_in_shadow: true
+active_gates:
+  cohort: holdout
+  minimum_episodes: 7
+  maximum_collision_samples: 0
+  maximum_illegal_shift_count: 0
+  maximum_deterministic_fallback_commands: 0
+  require_all_episode_success: true

@@ -16,7 +16,12 @@ from dep_car.core.vehicle import (
     world_velocity_to_body_longitudinal,
 )
 from dep_car.runtime.p6_policy import P6PolicyRuntime, PolicyArtifactError
-from dep_car.runtime.online_sync import StampedHistory, interpolated, nearest
+from dep_car.runtime.online_sync import (
+    StampedHistory,
+    interpolated,
+    nearest,
+    newest_synchronized_anchor,
+)
 from dep_car.runtime.preprocessing import (
     build_policy_state,
     current_gear_from_speed,
@@ -221,7 +226,35 @@ class PolicyNode:
             missing.append("query")
         if missing:
             raise ValueError("missing:" + "+".join(dict.fromkeys(missing)))
-        anchor_stamp, anchor_value = histories[anchor_name][-1]
+        interpolated_sources = {
+            "odom": (histories["odom"], self.odom_tolerance),
+            "imu": (histories["imu"], self.imu_tolerance),
+            "joints": (histories["joints"], self.joint_tolerance),
+        }
+        nearest_sources = {}
+        if required_modalities[0] > 0.5 and anchor_name != "depth":
+            nearest_sources["depth"] = (
+                histories["depth"], self.depth_tolerance
+            )
+        synchronized = newest_synchronized_anchor(
+            histories[anchor_name], interpolated_sources, nearest_sources
+        )
+        if synchronized is None:
+            latest_stamp = histories[anchor_name][-1][0]
+            unmatched = [
+                name
+                for name, (entries, tolerance) in interpolated_sources.items()
+                if interpolated(entries, latest_stamp, tolerance) is None
+            ]
+            unmatched.extend(
+                name
+                for name, (entries, tolerance) in nearest_sources.items()
+                if nearest(entries, latest_stamp, tolerance) is None
+            )
+            raise ValueError(
+                "unsynchronized:" + "+".join(unmatched or ["unknown"])
+            )
+        anchor_stamp, anchor_value, matches = synchronized
         now = rospy.Time.now().to_sec()
         sensor_age = now - anchor_stamp
         query_age = now - query_entry[0]
@@ -229,20 +262,6 @@ class PolicyNode:
             raise ValueError("stale_sensor_age=%.6f" % sensor_age)
         if query_age < -0.05 or query_age > self.maximum_sensor_age:
             raise ValueError("stale_query_age=%.6f" % query_age)
-        matches = {
-            "odom": interpolated(histories["odom"], anchor_stamp, self.odom_tolerance),
-            "imu": interpolated(histories["imu"], anchor_stamp, self.imu_tolerance),
-            "joints": interpolated(
-                histories["joints"], anchor_stamp, self.joint_tolerance
-            ),
-        }
-        if required_modalities[0] > 0.5:
-            matches["depth"] = nearest(
-                histories["depth"], anchor_stamp, self.depth_tolerance
-            )
-        unmatched = [name for name, value in matches.items() if value is None]
-        if unmatched:
-            raise ValueError("unsynchronized:" + "+".join(unmatched))
         values = {
             name: matched[0] for name, matched in matches.items()
         }
@@ -285,8 +304,22 @@ class PolicyNode:
             )
             depth = values.get("depth", np.zeros((2, 96, 160), dtype=np.float32))
             bev = values.get("bev", np.zeros((6, 160, 160), dtype=np.float32))
+            route_pose = np.zeros((80, 3), dtype=np.float32)
+            route_mask = np.zeros(80, dtype=bool)
+            if bool(query.route_corridor_valid):
+                count = min(80, len(query.route_corridor_body))
+                if count < 2:
+                    raise ValueError("route_corridor_valid requires at least two poses")
+                for index, pose in enumerate(query.route_corridor_body[:count]):
+                    route_pose[index] = (pose.x, pose.y, pose.theta)
+                route_mask[:count] = True
             trajectories, controls, scores = self.runtime.infer(
-                depth, bev, state, int(query.requested_gear)
+                depth,
+                bev,
+                state,
+                int(query.requested_gear),
+                route_pose=route_pose,
+                route_mask=route_mask,
             )
             output = PolicyCandidateArray()
             output.header.stamp = rospy.Time.from_sec(anchor_stamp)

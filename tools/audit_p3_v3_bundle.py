@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Qualify a sealed P3 V3 base+wave development bundle for P5.
+"""Qualify a sealed P3 V3/V4 development bundle for P5.
 
 This wrapper authenticates the dynamic bundle authority, then delegates all
 candidate regeneration and continuous footprint geometry to the frozen P3 V3
-audit implementation.  It emits the existing P5-compatible report schema.
+audit implementation.  A derived curriculum may tighten (but never weaken)
+the frozen geometry gates.  It emits the existing P5-compatible report schema.
 """
 
 from __future__ import annotations
@@ -41,6 +42,11 @@ GEAR_NAMES = {1: "FORWARD", -1: "REVERSE"}
 CURATION_SCHEMA = "P3V3InitialPoseFeasibilityCurationV1"
 CURATION_POLICY = "exclude_initial_pose_infeasible"
 CURATION_EVALUATOR = "production_signed_SDF_training_footprint_at_t0"
+GEOMETRY_GATE_KEYS = (
+    "maximum_zero_feasible_rate",
+    "maximum_per_mode_zero_feasible_rate",
+    "minimum_median_feasible_candidates",
+)
 
 
 def file_sha256(path):
@@ -78,8 +84,33 @@ def load_config(path):
         "required_maneuvers": list(geometry.PILOT_MANEUVER_MODES),
         "required_requested_gears": ["FORWARD", "REVERSE"],
     }
-    if gates != frozen:
-        raise ValueError("P3 V3 qualification gates differ from the frozen contract")
+    if not isinstance(gates, dict) or set(gates) != set(frozen):
+        raise ValueError("P3 qualification gate fields differ from the frozen contract")
+    for name, expected in frozen.items():
+        if name not in GEOMETRY_GATE_KEYS and gates[name] != expected:
+            raise ValueError(
+                "P3 non-geometry qualification gates differ from the frozen contract"
+            )
+    for name in GEOMETRY_GATE_KEYS:
+        value = gates[name]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(float(value))
+        ):
+            raise ValueError("P3 geometry qualification gates must be finite numbers")
+    if not 0.0 < float(gates["maximum_zero_feasible_rate"]) <= float(
+        frozen["maximum_zero_feasible_rate"]
+    ):
+        raise ValueError("P3 overall zero-feasible gate weakens the frozen contract")
+    if not 0.0 < float(gates["maximum_per_mode_zero_feasible_rate"]) <= float(
+        frozen["maximum_per_mode_zero_feasible_rate"]
+    ):
+        raise ValueError("P3 per-mode zero-feasible gate weakens the frozen contract")
+    if not float(frozen["minimum_median_feasible_candidates"]) <= float(
+        gates["minimum_median_feasible_candidates"]
+    ) <= float(geometry.EXPECTED_CANDIDATES):
+        raise ValueError("P3 median-feasible gate weakens the frozen contract")
     curation = config.get("curation")
     if curation is not None and curation != {
         "schema": CURATION_SCHEMA,
@@ -89,6 +120,72 @@ def load_config(path):
     }:
         raise ValueError("P3 V3 curation differs from the frozen contract")
     return config
+
+
+def evaluate_configured_geometry_gates(statistics, configured):
+    """Evaluate the sealed bundle against its configured, non-weakened gates."""
+    overall = statistics.get("overall", {}).get("new", {})
+    by_mode = statistics.get("by_mode", {})
+    zero_threshold = float(configured["maximum_zero_feasible_rate"])
+    mode_threshold = float(configured["maximum_per_mode_zero_feasible_rate"])
+    median_threshold = float(configured["minimum_median_feasible_candidates"])
+    overall_zero = overall.get("zero_feasible_rate")
+    overall_median = overall.get("feasible_candidates_median")
+
+    zero_pass = (
+        isinstance(overall_zero, (int, float))
+        and not isinstance(overall_zero, bool)
+        and math.isfinite(float(overall_zero))
+        and float(overall_zero) < zero_threshold
+    )
+    median_pass = (
+        isinstance(overall_median, (int, float))
+        and not isinstance(overall_median, bool)
+        and math.isfinite(float(overall_median))
+        and float(overall_median) >= median_threshold
+    )
+    checks = {
+        "configured_overall_zero_feasible_rate": {
+            "observed": overall_zero,
+            "operator": "<",
+            "threshold": zero_threshold,
+            "status": "PASS" if zero_pass else "FAIL",
+        },
+        "configured_overall_median_feasible_candidates": {
+            "observed": overall_median,
+            "operator": ">=",
+            "threshold": median_threshold,
+            "status": "PASS" if median_pass else "FAIL",
+        },
+    }
+    mode_checks = {}
+    for mode in geometry.PILOT_MANEUVER_MODES:
+        observed = by_mode.get(mode, {}).get("new", {}).get("zero_feasible_rate")
+        passed = (
+            isinstance(observed, (int, float))
+            and not isinstance(observed, bool)
+            and math.isfinite(float(observed))
+            and float(observed) < mode_threshold
+        )
+        mode_checks[mode] = {
+            "observed": observed,
+            "operator": "<",
+            "threshold": mode_threshold,
+            "status": "PASS" if passed else "FAIL",
+        }
+    checks["configured_per_mode_zero_feasible_rate"] = mode_checks
+    failures = [
+        name
+        for name, row in checks.items()
+        if name != "configured_per_mode_zero_feasible_rate"
+        and row["status"] != "PASS"
+    ]
+    failures.extend(
+        "configured_mode_zero_feasible_rate_" + mode
+        for mode, row in mode_checks.items()
+        if row["status"] != "PASS"
+    )
+    return checks, failures
 
 
 def verify_bundle_authority(path, config_path):
@@ -123,6 +220,37 @@ def verify_bundle_authority(path, config_path):
                 or file_sha256(manifest_path) != source.get("task_manifest_file_sha256")
             ):
                 errors.append("bundle_source_manifest_" + str(source.get("name", "unknown")))
+        exclusion = source.get("collection_exclusion")
+        if exclusion is not None:
+            exclusion_path = Path(str(exclusion.get("authority", "")))
+            try:
+                exclusion_raw = exclusion_path.read_bytes()
+                exclusion_payload = json.loads(exclusion_raw.decode("utf-8"))
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                errors.append(
+                    "bundle_source_exclusion_" + str(source.get("name", "unknown"))
+                )
+            else:
+                exclusion_content = dict(exclusion_payload)
+                exclusion_claimed = exclusion_content.pop(
+                    "exclusion_authority_sha256", ""
+                )
+                if (
+                    hashlib.sha256(exclusion_raw).hexdigest()
+                    != exclusion.get("authority_file_sha256")
+                    or exclusion_payload.get("schema")
+                    != "DEPCarP3CollectionExclusionAuthorityV1"
+                    or exclusion_payload.get("status") != "PASS"
+                    or exclusion_claimed != canonical_sha256(exclusion_content)
+                    or exclusion_claimed
+                    != exclusion.get("exclusion_authority_sha256")
+                    or len(exclusion_payload.get("entries", ()))
+                    != int(exclusion.get("excluded_tasks", -1))
+                ):
+                    errors.append(
+                        "bundle_source_exclusion_"
+                        + str(source.get("name", "unknown"))
+                    )
     curation = payload.get("curation")
     if curation is not None:
         if (
@@ -327,15 +455,8 @@ def main(argv=None):
         enforce_frozen_authority=False,
     )
     limited = bool(args.maximum_samples)
-    geometry_failures = [
-        name for name, row in inner["gates"].items()
-        if name != "per_mode_zero_feasible_rate_lt_0_25"
-        and row.get("status") != "PASS"
-    ]
-    geometry_failures.extend(
-        "mode_zero_feasible_rate_" + mode
-        for mode, row in inner["gates"]["per_mode_zero_feasible_rate_lt_0_25"].items()
-        if row.get("status") != "PASS"
+    configured_geometry_gates, geometry_failures = (
+        evaluate_configured_geometry_gates(inner["statistics"], config["gates"])
     )
     operational = []
     if inner.get("sample_failures"):
@@ -362,6 +483,8 @@ def main(argv=None):
         status = "PASS" if not errors else "FAIL"
 
     report = dict(inner)
+    report["baseline_geometry_gates"] = report["gates"]
+    report["gates"] = configured_geometry_gates
     report.update({
         "schema": REPORT_SCHEMA,
         "status": status,
@@ -385,6 +508,22 @@ def main(argv=None):
             "tool_sha256": file_sha256(__file__),
             "delegated_geometry_tool": str(Path(geometry.__file__).resolve()),
             "delegated_geometry_tool_sha256": file_sha256(geometry.__file__),
+        },
+        "qualification_gate_contract": {
+            "policy": "frozen_P3V3_or_stricter",
+            "configured": {
+                name: config["gates"][name] for name in GEOMETRY_GATE_KEYS
+            },
+            "frozen_baseline": {
+                "maximum_zero_feasible_rate": geometry.OVERALL_ZERO_FEASIBLE_LIMIT,
+                "maximum_per_mode_zero_feasible_rate": (
+                    geometry.PER_MODE_ZERO_FEASIBLE_LIMIT
+                ),
+                "minimum_median_feasible_candidates": (
+                    geometry.MINIMUM_MEDIAN_FEASIBLE
+                ),
+            },
+            "weakened": False,
         },
     })
     report["scope"].update({
