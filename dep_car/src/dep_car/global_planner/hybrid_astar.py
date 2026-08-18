@@ -2,7 +2,7 @@
 
 import heapq
 from dataclasses import dataclass
-from typing import Dict, List, NamedTuple, Optional, Tuple
+from typing import Callable, Dict, List, NamedTuple, Optional, Tuple
 
 import numpy as np
 
@@ -39,6 +39,79 @@ class HybridAStarConfig:
 class HybridAStar:
     def __init__(self, config: HybridAStarConfig = HybridAStarConfig()):
         self.config = config
+        self.last_expansions = 0
+        self.last_status = "IDLE"
+
+    @staticmethod
+    def _validate_static_pose(
+        grid: OccupancyGrid2D,
+        pose_values: Tuple[float, float, float],
+        label: str,
+        footprint: FootprintConfig = FootprintConfig(),
+    ) -> Tuple[bool, str, float]:
+        values = np.asarray(pose_values, dtype=np.float64)
+        prefix = str(label).upper()
+        if values.shape != (3,) or not np.all(np.isfinite(values)):
+            return False, prefix + "_NON_FINITE", 0.0
+        cell = grid.world_to_cell(values[None, :2])[0]
+        if (
+            cell[0] < 0
+            or cell[1] < 0
+            or cell[0] >= grid.data.shape[1]
+            or cell[1] >= grid.data.shape[0]
+        ):
+            return False, prefix + "_OUTSIDE_MAP", 0.0
+        if bool(grid.is_occupied(values[None, :2])[0]):
+            return False, prefix + "_CELL_OCCUPIED", 0.0
+        pose = np.asarray([[0.0, values[0], values[1], values[2], 0.0, 0.0]])
+        safe, clearance = grid.swept_footprint_clearance(pose, footprint)
+        if not safe:
+            return False, prefix + "_FOOTPRINT_COLLISION", float(clearance)
+        return True, prefix + "_VALID", float(clearance)
+
+    @staticmethod
+    def validate_goal_pose(
+        grid: OccupancyGrid2D,
+        goal: Tuple[float, float, float],
+        footprint: FootprintConfig = FootprintConfig(),
+    ) -> Tuple[bool, str, float]:
+        """Check only whether the static endpoint can contain the vehicle.
+
+        This deliberately does not certify a route or replace the local
+        planner.  It avoids spending a full search on an endpoint outside the
+        map, inside an occupied cell or too tight for the frozen footprint.
+        """
+
+        return HybridAStar._validate_static_pose(grid, goal, "GOAL", footprint)
+
+    def validate_start_pose(
+        self,
+        grid: OccupancyGrid2D,
+        start: Tuple[float, float, float],
+        footprint: FootprintConfig = FootprintConfig(),
+    ) -> Tuple[bool, str, float, int]:
+        """Validate the measured start and count immediately safe controls.
+
+        A valid stationary footprint with no complete 0.25 m Ackermann
+        primitive is reported separately as ``START_BLOCKED`` by the ROS
+        wrapper.  This makes spawn/odometry faults distinguishable from a
+        legitimate but locally immobile pose.
+        """
+
+        valid, reason, clearance = self._validate_static_pose(
+            grid, start, "START", footprint
+        )
+        if not valid:
+            return False, reason, clearance, 0
+        safe_primitives = 0
+        for direction in (1.0, -1.0):
+            for steering in self.config.steering_values:
+                trajectory = self._primitive_trajectory(start, steering, direction)
+                safe, _ = grid.swept_footprint_clearance(trajectory, footprint)
+                safe_primitives += int(safe)
+        if safe_primitives == 0:
+            return False, "START_NO_SAFE_PRIMITIVE", clearance, 0
+        return True, "START_VALID", clearance, safe_primitives
 
     def _key(self, pose, grid, gear=Gear.NEUTRAL):
         cell = grid.world_to_cell(np.asarray([[pose[0], pose[1]]]))[0]
@@ -82,7 +155,10 @@ class HybridAStar:
         start: Tuple[float, float, float],
         goal: Tuple[float, float, float],
         footprint: FootprintConfig = FootprintConfig(),
+        cancel_requested: Optional[Callable[[], bool]] = None,
     ) -> Optional[List[Tuple[float, float, float]]]:
+        self.last_expansions = 0
+        self.last_status = "PLANNING"
         start_key = self._key(start, grid, Gear.NEUTRAL)
         queue = [(float(np.hypot(start[0] - goal[0], start[1] - goal[1])), 0.0, start_key, start)]
         costs: Dict[Tuple[int, int, int], float] = {start_key: 0.0}
@@ -90,8 +166,13 @@ class HybridAStar:
         poses = {start_key: HybridPathPose(*start, Gear.NEUTRAL, 0.0)}
         tie = 0
 
-        for _ in range(self.config.maximum_expansions):
+        for expansion in range(self.config.maximum_expansions):
+            self.last_expansions = expansion
+            if cancel_requested is not None and cancel_requested():
+                self.last_status = "CANCELED"
+                return None
             if not queue:
+                self.last_status = "NO_PATH"
                 return None
             _, current_cost, current_key, current = heapq.heappop(queue)
             if current_cost > costs.get(current_key, float("inf")):
@@ -105,6 +186,8 @@ class HybridAStar:
                 while key is not None:
                     path.append(poses[key])
                     key = parents[key]
+                self.last_expansions = expansion + 1
+                self.last_status = "SUCCESS"
                 return list(reversed(path))
             for direction in (1.0, -1.0):
                 gear = Gear.FORWARD if direction > 0 else Gear.REVERSE
@@ -131,4 +214,6 @@ class HybridAStar:
                     heuristic += self.config.heading_heuristic_weight * self._heading_error(nxt[2], goal[2])
                     tie += 1
                     heapq.heappush(queue, (new_cost + heuristic + tie * 1e-12, new_cost, key, nxt))
+        self.last_expansions = self.config.maximum_expansions
+        self.last_status = "EXPANSION_LIMIT"
         return None

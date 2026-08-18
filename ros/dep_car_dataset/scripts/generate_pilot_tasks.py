@@ -15,16 +15,19 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "dep_car/src"))
 from dep_car.core.occupancy import OccupancyGrid2D
+from dep_car.runtime.occupancy import RuntimeOccupancyGrid2D
 from dep_car.global_planner.hybrid_astar import HybridAStar, HybridAStarConfig
 from dep_car.training.dataset import map_split
 from dep_car.training.pilot import PilotTask, PilotTaskSampler, canonical_sha256, classify_maneuver, make_pilot_manifest
+from dep_car.runtime.start_robustness import audit_start_robustness
 
 
-def load_grid(folder):
+def load_grid(folder, runtime=False):
     metadata = yaml.safe_load((folder / "map.yaml").read_text(encoding="utf-8"))
     image = np.asarray(Image.open(str(folder / metadata["image"])).convert("L"))
     data = np.flipud(np.where(image < 128, 100, 0).astype(np.int16))
-    return OccupancyGrid2D(data, metadata["resolution"], tuple(metadata["origin"][:2]))
+    grid_type = RuntimeOccupancyGrid2D if runtime else OccupancyGrid2D
+    return grid_type(data, metadata["resolution"], tuple(metadata["origin"][:2]))
 
 
 def load_maps(root):
@@ -87,7 +90,11 @@ def main():
         print(json.dumps({"status": "PASS", "map_selection": selection_summary, "maneuver_quotas": quotas}, indent=2, sort_keys=True))
         return
 
-    grids = {manifest["map_uuid"]: load_grid(folder) for folder, manifest, _ in selected}
+    require_robust_start = config.get("schema") == "DEPCarP6StaticConfigV1"
+    grids = {
+        manifest["map_uuid"]: load_grid(folder, runtime=require_robust_start)
+        for folder, manifest, _ in selected
+    }
     planners = {
         manifest["map_uuid"]: HybridAStar(HybridAStarConfig(maximum_expansions=int(task_config["hybrid_astar_maximum_expansions"])))
         for _, manifest, _ in selected
@@ -123,6 +130,13 @@ def main():
                     if observed_mode != target_mode:
                         failures[target_mode + ":classified_as_" + observed_mode] += 1
                         continue
+                    if require_robust_start:
+                        robustness = audit_start_robustness(
+                            grids[map_manifest["map_uuid"]], start
+                        )
+                        if robustness["status"] != "PASS":
+                            failures[target_mode + ":start_not_robust"] += 1
+                            continue
                     identity = "%s:%s:%d:%d" % (map_manifest["map_uuid"], target_mode, task_seed, task_number)
                     accepted = PilotTask(
                         task_id="p3_" + canonical_sha256(identity)[:16],
@@ -156,6 +170,8 @@ def main():
         "deficits": deficits,
         "proposal_failures": dict(failures),
     }
+    if require_robust_start:
+        generator_contract["start_robustness_gate"] = "DEPCarP6StartRobustnessV1"
     manifest = make_pilot_manifest(
         tasks, seed=map_config["task_seed"], map_selection=selection_summary,
         quotas=quotas, generator_contract=generator_contract,

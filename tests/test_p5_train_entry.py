@@ -538,10 +538,10 @@ def test_formal_training_parameter_overrides_are_permanent_smoke(
 @pytest.mark.parametrize(
     "caps",
     (
-        ("--max-steps", "10"),
-        ("--max-samples", "32"),
-        ("--max-steps", "11", "--max-samples", "32"),
-        ("--max-steps", "10", "--max-samples", "33"),
+        ("--max-steps", "64"),
+        ("--max-samples", "512"),
+        ("--max-steps", "65", "--max-samples", "512"),
+        ("--max-steps", "64", "--max-samples", "513"),
     ),
 )
 def test_unbounded_or_oversized_smoke_cannot_bypass_formal_gates(authority, caps):
@@ -558,8 +558,8 @@ def test_double_capped_smoke_can_run_but_remains_permanent_smoke(authority):
     args = arguments(
         authority,
         "--init", str(authority["initialization"]),
-        "--max-steps", "10",
-        "--max-samples", "32",
+        "--max-steps", "64",
+        "--max-samples", "512",
     )
     plan = trainer.build_training_plan(args)
     plan["p3_footprint_gate"] = {"passed": False, "errors": ["synthetic_fail"]}
@@ -710,9 +710,27 @@ def test_real_p3_v3_report_exposes_its_current_feasibility_gates():
             "map_contract_aggregate_sha256"
         ],
     )
-    assert gate["passed"] is (
-        report.get("status") == "PASS" and not report.get("errors")
+    audit_implementation = report.get("audit_implementation", {})
+    current_implementation = build_p4_implementation_contract(ROOT)
+    implementation_matches = (
+        audit_implementation.get("p4_implementation_aggregate_sha256")
+        == current_implementation["aggregate_sha256"]
+        and audit_implementation.get("p4_implementation_files")
+        == current_implementation["files"]
     )
+    losses_match = audit_implementation.get("losses_implementation_sha256") == sha256(
+        ROOT / "dep_car/src/dep_car/training/losses.py"
+    )
+    assert gate["passed"] is (
+        report.get("status") == "PASS"
+        and not report.get("errors")
+        and implementation_matches
+        and losses_match
+    )
+    if not implementation_matches:
+        assert "p4_implementation_aggregate_sha256_mismatch" in gate["errors"]
+    if not losses_match:
+        assert "losses_implementation_sha256_mismatch" in gate["errors"]
     assert gate["overall_zero_feasible_rate"] == pytest.approx(
         report["statistics"]["overall"]["new"]["zero_feasible_rate"]
     )
@@ -809,6 +827,62 @@ def test_trainer_streams_hard_veto_oracle_and_maneuver_metrics():
     assert set(summary["by_maneuver"]) == {"NORMAL", "REVERSE_EXIT"}
     assert set(summary["by_candidate_context"]) == {"MISSION", "UNKNOWN"}
     assert set(summary["by_requested_gear"]) == {"FORWARD", "REVERSE"}
+
+
+def test_candidate_best_checkpoint_selection_is_qualification_first():
+    thresholds = trainer._training_config_authority()["raw"]["qualification"][
+        "candidate_acceptance"
+    ]
+
+    def validation(kinematic, zero, mean, total):
+        def row():
+            return {
+                "frames": 100,
+                "kinematic_violation_rate": kinematic,
+                "zero_feasible_rate": zero,
+                "mean_feasible_candidates": mean,
+            }
+
+        return {
+            "total": total,
+            "candidate_metrics": {
+                "overall": row(),
+                "by_maneuver": {
+                    name: row() for name in thresholds["required_maneuvers"]
+                },
+                "by_requested_gear": {
+                    name: row()
+                    for name in thresholds["required_requested_gears"]
+                },
+                "by_candidate_context": {
+                    name: row()
+                    for name in thresholds["required_candidate_contexts"]
+                },
+            },
+        }
+
+    unsafe_low_loss = trainer._checkpoint_selection(
+        "candidate_capacity",
+        validation(0.06, 0.01, 10.0, 0.1),
+        thresholds,
+        epoch=1,
+        global_step=10,
+    )
+    safe_higher_loss = trainer._checkpoint_selection(
+        "candidate_capacity",
+        validation(0.04, 0.01, 10.0, 1.0),
+        thresholds,
+        epoch=2,
+        global_step=20,
+    )
+
+    assert unsafe_low_loss["summary"]["qualification_failures"] > 0
+    assert safe_higher_loss["summary"]["qualification_failures"] == 0
+    assert trainer._selection_improved(safe_higher_loss, unsafe_low_loss)
+    assert not trainer._selection_improved(unsafe_low_loss, safe_higher_loss)
+    assert trainer._best_checkpoint_path(Path("candidate.pth")) == Path(
+        "candidate.best.pth"
+    )
 
 
 @pytest.mark.parametrize(

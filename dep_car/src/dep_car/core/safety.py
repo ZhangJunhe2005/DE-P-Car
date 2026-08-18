@@ -61,11 +61,25 @@ def evaluate_dynamic(
     return candidate
 
 
-def goal_cost(candidate: Candidate, subgoal_body: Tuple[float, float]) -> float:
+def goal_cost(
+    candidate: Candidate,
+    subgoal_body: Tuple[float, float],
+    target_heading: float = None,
+    target_steering: float = None,
+) -> float:
     endpoint = candidate.trajectory[-1, 1:3]
     distance = float(np.linalg.norm(endpoint - np.asarray(subgoal_body, dtype=float)))
     terminal_yaw = float(candidate.trajectory[-1, 3])
-    target_yaw = float(np.arctan2(subgoal_body[1], subgoal_body[0]))
+    target_yaw = (
+        float(np.arctan2(subgoal_body[1], subgoal_body[0]))
+        if target_heading is None
+        else float(target_heading)
+    )
     heading = abs(float(np.arctan2(np.sin(terminal_yaw - target_yaw), np.cos(terminal_yaw - target_yaw))))
-    candidate.guidance_cost = distance + 0.35 * heading
+    steering = (
+        0.0
+        if target_steering is None
+        else abs(float(candidate.trajectory[-1, 5]) - float(target_steering))
+    )
+    candidate.guidance_cost = distance + 0.35 * heading + 0.50 * steering
     return candidate.guidance_cost

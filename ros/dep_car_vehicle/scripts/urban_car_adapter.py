@@ -21,6 +21,16 @@ class UrbanCarAdapter:
         self.effort_limit = rospy.get_param("~effort_limit", 120.0 * EFFORT_SCALE)
         self.kp = rospy.get_param("~speed_kp", 65.0 * EFFORT_SCALE)
         self.ki = rospy.get_param("~speed_ki", 8.0 * EFFORT_SCALE)
+        self.active_stop_deadband = float(
+            rospy.get_param("~active_stop_deadband", 0.02)
+        )
+        self.active_stop_minimum_effort_fraction = float(
+            rospy.get_param("~active_stop_minimum_effort_fraction", 0.10)
+        )
+        self.brake_deadband = float(rospy.get_param("~brake_deadband", 0.005))
+        self.brake_minimum_effort_fraction = float(
+            rospy.get_param("~brake_minimum_effort_fraction", 0.10)
+        )
         self.timeout = rospy.get_param("~command_timeout", 0.35)
         self.sim_positive_right = rospy.get_param("~simulator_positive_right", True)
         self.lock = threading.Lock()
@@ -74,6 +84,9 @@ class UrbanCarAdapter:
             command.gear == int(Gear.REVERSE) and command.speed <= 0.0
         )
         brake = stale or command.brake or not valid_gear or not valid_sign
+        active_stop = (
+            not brake and valid_gear and abs(float(command.speed)) <= 1.0e-6
+        )
         if not stale and not command.brake and (not valid_gear or not valid_sign):
             rospy.logerr_throttle(2.0, "Rejected Ackermann command with inconsistent speed/gear contract")
         target_speed = 0.0 if brake else command.speed
@@ -82,8 +95,42 @@ class UrbanCarAdapter:
         error = target_speed - self.speed
         if brake:
             self.integral = 0.0
-            effort = 0.0
+            # ``brake`` is a zero-speed hold, not neutral coasting.  Keep a
+            # bounded opposing wheel effort until the chassis is genuinely
+            # stationary; otherwise the goal latch can drift back outside its
+            # position tolerance after the planner has declared success.
+            if abs(self.speed) <= self.brake_deadband:
+                effort = 0.0
+            else:
+                magnitude = max(
+                    self.kp * abs(self.speed),
+                    self.effort_limit * self.brake_minimum_effort_fraction,
+                )
+                effort = -math.copysign(
+                    min(self.effort_limit, magnitude), self.speed
+                )
+        elif active_stop:
+            # A zero-speed command in a drive gear is an active stop, not a
+            # neutral/coast command.  Discard the previous drive integral so
+            # it cannot keep propelling the car through a shift or goal.  A
+            # small bounded effort floor avoids an excessively long tail near
+            # zero speed; it is disabled inside the deadband.
+            self.integral = 0.0
+            if abs(self.speed) <= self.active_stop_deadband:
+                effort = 0.0
+            else:
+                magnitude = max(
+                    self.kp * abs(self.speed),
+                    self.effort_limit * self.active_stop_minimum_effort_fraction,
+                )
+                effort = -math.copysign(min(self.effort_limit, magnitude), self.speed)
         else:
+            # Do not let integral accumulated while accelerating oppose a
+            # newly requested deceleration (or vice versa).  This is
+            # especially important for the terminal speed envelope, whose
+            # target decreases continuously near the goal.
+            if error * self.integral < 0.0:
+                self.integral = 0.0
             self.integral = max(-2.0, min(2.0, self.integral + error * dt))
             effort = max(-self.effort_limit, min(self.effort_limit, self.kp * error + self.ki * self.integral))
         left, right = self.ackermann_angles(0.0 if brake else command.steering_angle)

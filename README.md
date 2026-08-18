@@ -7,20 +7,20 @@ DE-P-Car 是把最新 DE-P Route-A V4.9.1 的候选规划、确定性安全、�
 - 固定并验证 `ZhangJunhe2005/DE-P` 当前分支头 `cbcc61d…`；85 个上游测试通过。
 - 克隆并锁定 car-simulator、Arena-Rosnav-3D、arena-tools。
 - 正式 P4 `DEPCarNetV1`：metric depth+validity 与 6 通道 360° LiDAR BEV 双编码器、9D state、gear-conditioned 3x5 logical queries、独立 candidate/score tower；只 exact 迁移 V4.8.3 的 246 个 depth-backbone tensor，禁止迁移 UAV head/PVA。
-- 3 speed × 5 steering、gear-aligned 双向可微 bicycle rollout、161 时刻 FiveCircleContinuousSweptFootprintV3、完整 revision 3 safety/guidance/kinematic/comfort/diversity/score loss、动态 reachability hard veto、1.0/1.2/1.4 ordered retiming。
-- 带档位状态的 Hybrid A*、正反向 signed lattice、到点制动、stop-before-shift 与有限 deterministic reverse recovery；`GearModeV1` 由确定性状态机掌权，网络只能按挡位条件工作；窄走廊三点掉头测试得到 `F→R→F`。
+- 3 speed × 5 steering、gear-aligned 双向可微 bicycle rollout、161 时刻 FiveCircleContinuousSweptFootprintV3、revision 4 FP32 physical loss/hard-veto、全 15 候选运动学裕度、动态 reachability hard veto、1.0/1.2/1.4 ordered retiming。
+- 数据标注保留带档位 Hybrid A*；P6 在线全局层改为快速拓扑走廊，只负责连通性和避免死胡同。正反向 signed lattice、连续车身 hard veto、局部双挡仲裁、到点制动和 stop-before-shift 掌握实际运动权限，网络只能在确定性安全边界内按挡位工作。
 - Urban Car ros_control adapter，包含 Ackermann 内外轮转角、速度 PI 与 0.35 s freshness watchdog。
 - Urban Car 采用统一 `1/3` 线性缩放：车身、车轮、轴距、碰撞体、质量/惯量和规划 footprint 保持一致；VLP-16 移到车顶中央，避免后向视场被车身遮挡，测量量程不缩放。
 - `StaticAckermannSampleV2` revision 2 多模态合同：metric depth、rosbag 引用式原始点云、6 通道 360° BEV、IMU、9D 车辆/路线状态、gear-conditioned route/candidate、状态插值、measurement-stamped TF 和完整 provenance。
 - P3 Pilot 与 V3 增量补强已经完成；23,236 条 source 全部保留，3,218 条初始足迹不可行帧经认证 curation 隔离。冻结的 `bundle_v2_curated` 共 20,018 条开发样本：16,394 train、3,624 validation，按 map UUID 隔离为 31/5 张地图，test 不参与 P4/P5 调参。七类 maneuver、MISSION/RECOVERY、正反挡和三点掉头数据均进入后续门禁。
-- P4 训练视图已就绪：8-worker DataLoader、地图字节/语义权威、同挡 route 修复、三模态路径、严格 Candidate Capacity→Score Calibration 参数分区和 UNQUALIFIED checkpoint 合同。corrected-footprint P3 全量重审 PASS，P4 CUDA 机器验收 PASS，Depth-only/LiDAR-only/Fusion 三个 P5 正式入口 dry-run 均为 `DRY_RUN_READY`。
+- P4 训练视图已就绪：8-worker DataLoader、地图字节/语义权威、同挡 route 修复、三模态路径、严格 Candidate Capacity→Score Calibration 参数分区和 UNQUALIFIED checkpoint 合同。P5 v2 已完成 512 样本三模态 CUDA/AMP 短验证，P3 全量重审、P4 CUDA 验收和三模态正式 dry-run 已重新签发 PASS。
 - P4 safety authority 已升级为 signed SDF（known-free 正、occupied/unknown 负）与 mean+CVaR+worst barrier；训练 index 使用逐 NPZ 内容 SHA256，P5 CLI 对 footprint、data、config、checkpoint lineage 全部 fail-closed。
 - Gazebo odometry 发布 `map -> dummy` 动态 TF；VLP-16 点云和 640×480 深度图已接入预配置 RViz。
 - arena-tools 固定 seed/UUID wrapper，自动生成 ROS map + SDF/Gazebo world；不需要手工 Blender 转换。
 - Arena-compatible crossing/head-on/multi-agent 动态场景与 evaluation-only GT 边界。
-- 16 个 catkin 包以 `-j8` 构建成功；P4 机器验收 PASS，候选/评分两阶段的 fail-closed、checkpoint 和数据权威测试均已通过。
+- 16 个 catkin 包以 `-j8` 构建成功；P4 机器验收、候选/评分两阶段的 fail-closed、checkpoint 和数据权威工具均已实现并通过本轮正式复签。
 
-P0～P4 已按修订路线通过开发验收，P3→P5 proposal 已精确应用，P5 三模态正式训练入口已经获准。P5 正式训练尚未启动，任何 learned checkpoint 都没有获得 Gazebo/production 资格。阶段路线见 `reports/p0_p8_revised_roadmap.md`，P3 V3 重审见 `reports/p3_development_reaudit_v3.json`，P4 验收见 `reports/p4_acceptance.json`，P5 宿主机启动顺序见 `reports/p5_training_launch_guide.md`。
+P0～P4 已按 P5 v2 合同重新验收；首轮 P5 三模态 Candidate 训练仅作隔离诊断，随后三模态 Candidate Capacity 与 Score Calibration 已完成。三个 Score checkpoint 保持 `TRAINED_UNQUALIFIED`，当前仅允许 P6 shadow 验证，尚未获得 active/production 资格。
 
 ## 一次性准备
 
@@ -61,7 +61,7 @@ roslaunch dep_car_bringup urban_sim.launch \
   gui:=true enable_rviz:=true
 ```
 
-RViz 会自动使用 `map` 作为 Fixed Frame，并显示 `/map`、车辆模型、`/velodyne_points` 和 `/camera/depth/image_raw`。用 `2D Nav Goal` 发布 `/move_base_simple/goal`。Hybrid A* 会发布带档位的 `/dep_car/global_route` 与 `/dep_car/local_route_command`；局部规划器只发布 `/dep_car/cmd_ackermann`，实际底盘输出由 `urban_car_adapter.py` 统一完成。按一次 `Ctrl+C` 即可清理 Gazebo、Gazebo GUI 和 RViz。
+RViz 会自动使用 `map` 作为 Fixed Frame，并显示 `/map`、车辆模型、`/velodyne_points` 和 `/camera/depth/image_raw`。用 `2D Nav Goal` 发布 `/move_base_simple/goal`。在线拓扑 A* 发布不含硬挡位命令的连通走廊与局部子目标；局部规划器决定前进/倒车候选并只发布 `/dep_car/cmd_ackermann`，实际底盘输出由 `urban_car_adapter.py` 统一完成。按一次 `Ctrl+C` 即可清理 Gazebo、Gazebo GUI 和 RViz。
 
 ## 动态测试
 
@@ -148,7 +148,7 @@ P5 已获单独批准，长时间计算仍由宿主机用户启动。严格按 C
 
 P3 V3 增量补强与 curation 已完成。`bundle_v2_curated` 使用 8 worker 从已认证 source 构建：逐帧复核 production signed-SDF 的初始车身足迹，显式隔离不合法起始状态并签发 curation authority；没有删除或改写任何原始 NPZ。宿主机命令与历史证据见 `reports/p3_v3_data_reinforcement_implementation.md`。
 
-P6 learned-policy 接入仍未开始：当前 ROS local planner 是确定性 baseline/历史 `LidarDEPCarV1` 接口，必须先实现 `DEPCarNetV1` 的 depth+BEV+9D+gear adapter，才能进入 shadow mode 或网络控制。
+P6 `DEPCarNetV1` depth+BEV+9D+gear adapter 与 shadow 控制边界已经接入。场景冻结、起点扰动审计、交互式 RViz 目标、固定场景复现和 shadow 报告入口见 `reports/p6_static_validation_launch_guide.md`；active 仍必须等待完整 shadow gate-suite 审计签发。
 
 ## 验证与审计
 

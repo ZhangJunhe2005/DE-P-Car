@@ -1,0 +1,43 @@
+<launch>
+  <arg name="world"/>
+  <arg name="map_yaml"/>
+  <arg name="gazebo_model_path"/>
+  <arg name="x"/>
+  <arg name="y"/>
+  <arg name="yaw"/>
+  <arg name="checkpoint"/>
+  <arg name="checkpoint_contract"/>
+  <arg name="policy_mode" default="shadow"/>
+  <arg name="policy_modality" default="fusion"/>
+  <arg name="p6_authority" default=""/>
+  <arg name="fusion_sensor_mode" default="normal"/>
+  <arg name="gazebo_seed" default="49105"/>
+  <arg name="gui" default="true"/>
+  <arg name="enable_rviz" default="true"/>
+  <arg name="paused" default="true"/>
+  <arg name="rviz_start_delay_s" default="6.0"/>
+  <arg name="policy_python" default="$(optenv DEP_CAR_POLICY_PYTHON /home/zjh/miniconda3/envs/yopo/bin/python)"/>
+  <arg name="active_fallback_to_baseline" default="false"/>
+
+  <include file="$(find dep_car_bringup)/launch/urban_sim.launch">
+    <arg name="world" value="$(arg world)"/>
+    <arg name="map_yaml" value="$(arg map_yaml)"/>
+    <arg name="gazebo_model_path" value="$(arg gazebo_model_path)"/>
+    <arg name="x" value="$(arg x)"/>
+    <arg name="y" value="$(arg y)"/>
+    <arg name="yaw" value="$(arg yaw)"/>
+    <arg name="gazebo_seed" value="$(arg gazebo_seed)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="enable_rviz" value="$(arg enable_rviz)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="rviz_start_delay_s" value="$(arg rviz_start_delay_s)"/>
+    <arg name="policy_mode" value="$(arg policy_mode)"/>
+    <arg name="policy_modality" value="$(arg policy_modality)"/>
+    <arg name="policy_checkpoint" value="$(arg checkpoint)"/>
+    <arg name="policy_checkpoint_contract" value="$(arg checkpoint_contract)"/>
+    <arg name="p6_authority" value="$(arg p6_authority)"/>
+    <arg name="fusion_sensor_mode" value="$(arg fusion_sensor_mode)"/>
+    <arg name="policy_python" value="$(arg policy_python)"/>
+    <arg name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
+  </include>
+</launch>

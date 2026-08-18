@@ -143,6 +143,68 @@ Visualization Manager:
       Topic: /dep_car/local_subgoal
       Unreliable: false
       Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /dep_car/global_planner_status_marker
+      Name: Global Planner Status
+      Namespaces:
+        dep_car_global_planner_status: true
+      Queue Size: 10
+      Value: true
+    - Class: rviz/Marker
+      Enabled: true
+      Marker Topic: /dep_car/local_planner_status_marker
+      Name: Local Planner Status
+      Namespaces:
+        dep_car_local_planner_status: true
+      Queue Size: 10
+      Value: true
+    - Alpha: 0.9
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 255; 170; 0
+      Enabled: true
+      Head Diameter: 0.1
+      Head Length: 0.1
+      Length: 0.1
+      Line Style: Lines
+      Line Width: 0.04
+      Name: Controlling Candidate
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.04
+      Pose Color: 255; 170; 0
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0.03
+      Shaft Length: 0.1
+      Topic: /dep_car/selected_path
+      Unreliable: false
+      Value: true
+    - Alpha: 0.9
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 0; 170; 255
+      Enabled: true
+      Head Diameter: 0.1
+      Head Length: 0.1
+      Length: 0.1
+      Line Style: Lines
+      Line Width: 0.03
+      Name: Learned Candidate
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.05
+      Pose Color: 0; 170; 255
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0.03
+      Shaft Length: 0.1
+      Topic: /dep_car/policy_selected_path
+      Unreliable: false
+      Value: true
     - Class: rviz/Image
       Enabled: true
       Image Topic: /camera/depth/image_raw

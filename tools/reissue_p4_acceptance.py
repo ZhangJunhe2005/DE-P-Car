@@ -15,6 +15,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 MODALITIES = ("depth_only", "lidar_only", "fusion")
+P5_V2_ARTIFACT_ROOT = ROOT / "models/dep_car/p5_v2"
 
 
 def file_sha256(path: Path) -> str:
@@ -136,6 +137,31 @@ def all_dry_run_gates_pass(dry_run: dict) -> bool:
     return all(dry_run.get(name, {}).get("passed") is True for name in gate_names)
 
 
+def p5_artifact_inventory(root: Path = ROOT) -> dict:
+    """Separate current v2 formal outputs from quarantined v1 diagnostics."""
+
+    root = Path(root).resolve()
+    v2_root = root / "models/dep_car/p5_v2"
+    v1_root = root / "models/dep_car/p5"
+    current = sorted(v2_root.glob("*.pth")) if v2_root.is_dir() else []
+    legacy = sorted(v1_root.glob("*.pth")) if v1_root.is_dir() else []
+    return {
+        "schema": "DEPCarP5GenerationArtifactInventoryV1",
+        "current_generation": "p5_v2_fp32_margin_best",
+        "current_formal_checkpoints": [
+            {"path": relative(path), "sha256": file_sha256(path)}
+            for path in current
+        ],
+        "legacy_generation": "p5_v1_failed_candidate_diagnostic_only",
+        "legacy_checkpoints": [
+            {"path": relative(path), "sha256": file_sha256(path)}
+            for path in legacy
+        ],
+        "legacy_authorized_for_current_generation": False,
+        "bounded_pilot_subdirectories_excluded": True,
+    }
+
+
 def build_acceptance(
     *,
     proposal_path: Path,
@@ -239,6 +265,7 @@ def build_acceptance(
     )
 
     dry_runs = {}
+    expected_v2_root = P5_V2_ARTIFACT_ROOT.resolve()
     for modality in MODALITIES:
         path = dry_run_paths[modality]
         dry_run = read_json(path)
@@ -262,6 +289,14 @@ def build_acceptance(
             dry_run.get("trainer_sha256")
             == file_sha256(ROOT / "tools/train_dep_car.py"),
             f"{modality} trainer hash mismatch",
+        )
+        expected_output = (
+            expected_v2_root / f"{modality}_candidate_capacity.pth"
+        )
+        actual_output = Path(str(dry_run.get("output", ""))).resolve()
+        require(
+            actual_output == expected_output,
+            f"{modality} dry-run output is not the canonical P5 v2 path",
         )
         require(
             dry_run.get("dataset_authority_gate", {}).get(
@@ -296,11 +331,13 @@ def build_acceptance(
             ).get("requested_gear", {}).get("status"),
         }
 
-    training_artifacts = sorted((ROOT / "models/dep_car/p5").glob("*.pth"))
+    artifact_inventory = p5_artifact_inventory(ROOT)
+    training_artifacts = artifact_inventory["current_formal_checkpoints"]
     require(
         not training_artifacts,
-        "P5 checkpoint artifacts already exist; cannot attest that training has not started: "
-        + ", ".join(relative(path) for path in training_artifacts),
+        "P5 v2 checkpoint artifacts already exist; cannot attest that current "
+        "generation training has not started: "
+        + ", ".join(row["path"] for row in training_artifacts),
     )
 
     p3_metrics = p3.get("statistics", {}).get("overall", {}).get("new")
@@ -323,8 +360,12 @@ def build_acceptance(
         ),
         "architecture_id": p4_machine.get("architecture_id"),
         "production_qualified": False,
+        "p5_training_generation": "p5_v2_fp32_margin_best",
         "p5_formal_training_allowed": True,
         "p5_formal_training_started": False,
+        "legacy_p5_v1_training_attempted": bool(
+            artifact_inventory["legacy_checkpoints"]
+        ),
         "errors": [],
         "proposal_application": {
             "proposal": relative(proposal_path),
@@ -395,7 +436,10 @@ def build_acceptance(
         "p5_entry_verification": {
             "status": "READY_TO_START_CANDIDATE_CAPACITY",
             "dry_runs": dry_runs,
-            "formal_checkpoint_artifacts": [],
+            "artifact_inventory": artifact_inventory,
+            "formal_checkpoint_artifacts": artifact_inventory[
+                "current_formal_checkpoints"
+            ],
             "formal_training_started": False,
             "validation_requested_gear_gate": (
                 "DEFERRED_TO_LOADER_AND_CANDIDATE_ACCEPTANCE"

@@ -1,3 +1,5 @@
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 import torch
@@ -12,11 +14,15 @@ from dep_car.model.ackermann_rollout import AckermannRolloutV1
 from dep_car.model.symmetry import mirror_route, mirror_scores, mirror_trajectory
 from dep_car.training.p4_dataset import _bev_distance_field, _signed_distance_field
 from dep_car.training.losses import (
+    DEPCarLossConfig,
+    DEPCarLossWeights,
+    DEPCarObjectiveV1,
     _aggregate_swept_safety_penalty,
     _densify_trajectories_se2,
     candidate_diversity_loss,
     comfort_loss,
     kinematic_loss,
+    kinematic_violation_components,
     kinematic_violation_mask,
     route_guidance_loss,
     score_ranking_loss,
@@ -302,6 +308,36 @@ def test_kinematic_and_comfort_penalize_violations_and_oscillation():
     assert float(comfort_loss(oscillating)) > 1.0
 
 
+def test_all_candidate_kinematic_margin_penalizes_non_top_k_violation():
+    trajectories = straight_trajectories()
+    trajectories[:, -1, :, 4] = 2.4  # hard-legal, outside the 10% operating margin
+    output = SimpleNamespace(
+        trajectories=trajectories,
+        residuals=torch.zeros(1, 15, 4),
+        scores=torch.zeros(1, 15),
+    )
+    route = torch.zeros(1, 11, 3)
+    route[..., 0] = torch.linspace(0.0, 1.0, 11)
+    arguments = dict(
+        distance_field=torch.full((1, 1, 160, 160), 8.0),
+        route=route,
+        route_mask=torch.ones(1, 11, dtype=torch.bool),
+        requested_gear=torch.ones(1, dtype=torch.long),
+        stage="candidate_capacity",
+    )
+    enabled = DEPCarObjectiveV1()(output, **arguments)
+    disabled_config = DEPCarLossConfig(
+        weights=DEPCarLossWeights(kinematic_all=0.0)
+    )
+    disabled = DEPCarObjectiveV1(disabled_config)(output, **arguments)
+
+    assert not bool(enabled["kinematic_violation"].any())
+    assert float(enabled["kinematic_per_candidate"][0, -1]) > 0.0
+    assert float(enabled["candidate"] - disabled["candidate"]) == pytest.approx(
+        float(enabled["kinematic"] * 2.0), rel=1.0e-5, abs=1.0e-7
+    )
+
+
 def test_kinematic_acceleration_and_veto_are_relative_to_requested_gear():
     time = torch.tensor([0.0, 0.1])
     cases = (
@@ -323,6 +359,25 @@ def test_kinematic_acceleration_and_veto_are_relative_to_requested_gear():
         assert bool(violation.item()) is expected_violation
         loss = kinematic_loss(trajectory, gear)
         assert (float(loss) > 0.0) is expected_violation
+
+
+def test_kinematic_veto_exposes_constraint_breakdown():
+    trajectory = straight_trajectories(candidates=1)
+    trajectory[..., 5] = 0.8
+    components = kinematic_violation_components(
+        trajectory, torch.ones(1, dtype=torch.long)
+    )
+    assert set(components) == {
+        "opposite_motion",
+        "speed_limit",
+        "steering_limit",
+        "steering_rate",
+        "acceleration",
+        "deceleration",
+        "lateral_acceleration",
+    }
+    assert bool(components["steering_limit"].item())
+    assert not bool(components["speed_limit"].item())
 
 
 def test_diversity_detects_candidate_collapse():

@@ -1,7 +1,7 @@
 {
   "architecture_id": "dep_car_multimodal_v1_ackermann_3x5",
-  "checkpoint_sha256": "3c570d5ed3715ab019dacfc29b0ae6e0e405d0dc7d27cd861b625877f7f43c6c",
-  "checkpoint_version": "dep_car_p4_depth_transfer_initialization_v1",
+  "checkpoint_sha256": "2f1c515718d927e3170456bcec9b8d43bc4636839b14bd2cb7cff79078239ebc",
+  "checkpoint_version": "dep_car_p4_depth_transfer_initialization_v2_fp32_margin",
   "contract_version": 2,
   "dataset_provenance": {
     "p3_acceptance_schema": "DEPCarP3PilotAcceptanceV1",
@@ -46,7 +46,7 @@
     "one_constant_gear_per_candidate_bank": true
   },
   "implementation_contract": {
-    "aggregate_sha256": "c040cee4f7bd0ba43b19731e3721d3fe8d3344407fbacff9c299b5c985807077",
+    "aggregate_sha256": "af633ead446bee39004667ae57184c1c337eeb729537699396840a44f75e9941",
     "files": {
       "dep_car/src/dep_car/core/lattice.py": "b52a98f06cc7c93e6af7890695ee7d9eb3158479a8923ad4cafc71c82b22588c",
       "dep_car/src/dep_car/core/occupancy.py": "4e71546be4d44809f42d7e93dfcbf716187428f2575ebd5640d80039a86ef742",
@@ -54,14 +54,14 @@
       "dep_car/src/dep_car/core/types.py": "1d975c3832b02a2e2e25dc39f96019724d2e31f625368931117d3bab1c3ccda0",
       "dep_car/src/dep_car/core/vehicle.py": "9873351fe39a90e9328e7a4c50b51230e1835eaa0e720e4103cd83a1a9f98ec5",
       "dep_car/src/dep_car/model/ackermann_rollout.py": "aa2e145d1b586b743964c3b84bd7a9db80b5d2d7f909eeff6676ff7cd47ab7a6",
-      "dep_car/src/dep_car/model/checkpoint.py": "a4da1af5be813ae432326020c71ed6f98dda19d3a49eb8d8a2bdc18cb7976292",
-      "dep_car/src/dep_car/model/dep_car_net.py": "0559cd05e53ebe17a37f2b194b047932702e9c5122365ab8bf4babe3feddcd21",
+      "dep_car/src/dep_car/model/checkpoint.py": "683d4ba17f48fb26eaddfc4b2608e343d022dd3f8596fde64086bac8574d5ad1",
+      "dep_car/src/dep_car/model/dep_car_net.py": "aeea8aec0e83c58f50ffa4fe866eb09c7272192be4f8c4a00d98470089ff29c7",
       "dep_car/src/dep_car/model/implementation_contract.py": "15bb95a4e3699a9f1af4e83a015b1e0a05f20e2b3df6e38e8d0d6d51f3b32935",
       "dep_car/src/dep_car/model/lidar_dep.py": "2da50340d2b33921972a3ddb3c399f066736c27294011f660dfa2f871fa61b5c",
       "dep_car/src/dep_car/model/symmetry.py": "4ac6ef629e1ec18dddd6a7f02ca712a49d7ecc1aa9a78d1c59b24c4d7e39fc53",
       "dep_car/src/dep_car/training/dataset.py": "0dc476aa6fa4cfe1246db39e2c70bb43a5fbeba57e86d1e182cf050e5a48fe4c",
-      "dep_car/src/dep_car/training/losses.py": "a497e33f9a2fbdb2eacc7d046e61c9b25e961370a7e98654fbec5f5fb185ede6",
-      "dep_car/src/dep_car/training/metrics.py": "9b9507a13f9b88ebebead7c343dcbda62ddcff163f5a9f50de0ca5c4229fd14f",
+      "dep_car/src/dep_car/training/losses.py": "9c0c498d58aaaa38c88067dbd269a8e98592e42f97d4ef2b2013a789201cd063",
+      "dep_car/src/dep_car/training/metrics.py": "f1255295137bbc5202dd47a90d252769e28817d3c1f164e4f2d3f9cd5bb19c94",
       "dep_car/src/dep_car/training/p4_dataset.py": "ca3593703aebcd11d9e7b4005614a2798cbfdf1cc2e9438f57d97d1cca0a3fff",
       "dep_car/src/dep_car/training/stages.py": "94f17ed03b0af50859524dd2d9a5e9f2b4c8c0163e0da1d35fab545cc16abe27",
       "third_party/DE-P/DE-P/policy/backbone_variant.py": "45249f2c46d44d806dff5e80062c67b863c063308f1a1eb3343102f6431fd733",
@@ -280,6 +280,7 @@
       "guidance_endpoint_weight": 0.2,
       "guidance_heading_weight": 0.25,
       "guidance_progress_weight": 0.5,
+      "kinematic_safety_margin_fraction": 0.1,
       "maximum_lateral_acceleration_mps2": 3.0,
       "minimum_normalized_terminal_separation": 0.12,
       "reverse_diversity_scales": [
@@ -299,13 +300,14 @@
         "diversity": 0.2,
         "guidance": 1.0,
         "kinematic": 0.5,
+        "kinematic_all": 2.0,
         "safety": 2.0,
         "score": 1.0
       }
     },
-    "loss_config_sha256": "20a8ce55afaa870c00bf5c8ac19b8b6584e7145b6a62e96e0cb1bba541c9913a",
-    "objective_id": "dep_car_objective_v3_signed_sdf_cvar_continuous_swept_route_capacity_score",
-    "objective_revision": 3,
+    "loss_config_sha256": "2115e56265bd24e88c7a9fcd1fd005db621038380a3e16eff77fc22151fa75be",
+    "objective_id": "dep_car_objective_v4_fp32_physics_all_candidate_kinematic_margin",
+    "objective_revision": 4,
     "sdf_schema": "SignedDistanceFieldV1KnownFreePositiveUnknownUnsafe",
     "stage_order": [
       "candidate_capacity",

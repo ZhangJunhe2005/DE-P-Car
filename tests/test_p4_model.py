@@ -12,6 +12,7 @@ from dep_car.model.symmetry import (
     mirror_vehicle_state,
 )
 from dep_car.training.stages import configure_training_stage, parameter_partitions
+from dep_car.training.losses import kinematic_violation_mask
 
 
 def inputs(batch=2):
@@ -41,6 +42,34 @@ def test_formal_network_contract_and_no_gear_prediction():
     assert not any("gear_head" in name or "gear_logits" in name for name, _ in model.named_modules())
     assert hasattr(model, "speed_embedding") and hasattr(model, "steering_embedding")
     assert not hasattr(model, "spatial_projection")
+
+
+def test_amp_keeps_executable_rollout_in_fp32_and_preserves_gradients():
+    torch.manual_seed(23)
+    model = DEPCarNetV1().train()
+    state = torch.zeros(2, 9)
+    state[:, 0] = torch.tensor([0.4, -0.3])
+    state[:, 2] = torch.tensor([0.15, -0.20])
+    gear = torch.tensor([1, -1])
+    raw = torch.randn(2, 15, 4, requires_grad=True)
+
+    reference = model._rollout_fp32(state, gear, raw)
+    with torch.autocast(device_type="cpu", dtype=torch.bfloat16):
+        mixed = model._rollout_fp32(state, gear, raw)
+
+    for reference_value, mixed_value in zip(reference, mixed):
+        assert mixed_value.dtype == torch.float32
+        torch.testing.assert_close(mixed_value, reference_value, atol=0.0, rtol=0.0)
+    violation = kinematic_violation_mask(
+        mixed.trajectory,
+        gear,
+        lateral_acceleration_limit_mps2=1.0e6,
+    )
+    assert not bool(violation.any())
+    mixed.trajectory[..., 1:4].square().mean().backward()
+    assert raw.grad is not None
+    assert torch.isfinite(raw.grad).all()
+    assert float(raw.grad.abs().sum()) > 0.0
 
 
 def test_state_normalization_uses_the_versioned_physical_scale():

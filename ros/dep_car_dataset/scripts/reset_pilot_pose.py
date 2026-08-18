@@ -47,7 +47,10 @@ def main():
     set_state = rospy.ServiceProxy("/gazebo/set_model_state", SetModelState)
     pause = rospy.ServiceProxy("/gazebo/pause_physics", Empty)
     unpause = rospy.ServiceProxy("/gazebo/unpause_physics", Empty)
-    rospy.sleep(args.pre_settle_s)
+    # P6 deliberately starts Gazebo paused so camera/LiDAR rendering plugins
+    # can finish loading before their first frame.  This wait must therefore
+    # use wall time; rospy.sleep would block forever while /clock is paused.
+    time.sleep(args.pre_settle_s)
     history = []
     success = False
     for attempt in range(1, args.attempts + 1):

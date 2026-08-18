@@ -1,0 +1,17 @@
+std_msgs/Header header
+string mode
+string modality
+string checkpoint_sha256
+bool model_loaded
+bool sensor_ready
+bool inference_ok
+bool hard_safety_applied
+bool executable
+bool control_authorized
+uint64 generation
+float64 inference_latency_ms
+float64 sensor_skew_s
+uint16 candidate_count
+uint16 feasible_count
+int16 selected_candidate_id
+string reason

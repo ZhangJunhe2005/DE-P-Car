@@ -1,0 +1,7 @@
+std_msgs/Header header
+int8 requested_gear
+geometry_msgs/Point subgoal_body
+float64 heading_error
+float64 reference_curvature
+bool recovery_mode
+uint64 generation

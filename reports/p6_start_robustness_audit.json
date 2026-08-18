@@ -1,0 +1,749 @@
+{
+  "failed_scenario_ids": [
+    "p6_cb4a93cedae5f755"
+  ],
+  "not_robust": 1,
+  "old_scenario_manifest_sha256": "ed096bc7801ebcb5f8bfcf015fa2ecb7cc6f910cc96dee7d1f3d05a87029b31e",
+  "results": [
+    {
+      "cohort": "development",
+      "failure_count": 19,
+      "failures": [
+        {
+          "center_clearance_m": 0.4408761012554172,
+          "delta": [
+            -0.02,
+            -0.02,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4408761012554172,
+          "delta": [
+            -0.02,
+            -0.02,
+            0.0
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4298819243907938,
+          "delta": [
+            -0.02,
+            0.0,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4298819243907938,
+          "delta": [
+            -0.02,
+            0.0,
+            0.0
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4298819243907938,
+          "delta": [
+            -0.02,
+            0.0,
+            0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.42252434134483424,
+          "delta": [
+            -0.02,
+            0.02,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.42252434134483424,
+          "delta": [
+            -0.02,
+            0.02,
+            0.0
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.42252434134483424,
+          "delta": [
+            -0.02,
+            0.02,
+            0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4577708959579462,
+          "delta": [
+            0.0,
+            -0.02,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.44721361994743347,
+          "delta": [
+            0.0,
+            0.0,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.44721361994743347,
+          "delta": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.44721361994743347,
+          "delta": [
+            0.0,
+            0.0,
+            0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4402330100536346,
+          "delta": [
+            0.0,
+            0.02,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4402330100536346,
+          "delta": [
+            0.0,
+            0.02,
+            0.0
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4402330100536346,
+          "delta": [
+            0.0,
+            0.02,
+            0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.4654741883277896,
+          "delta": [
+            0.02,
+            0.0,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.45874511957168596,
+          "delta": [
+            0.02,
+            0.02,
+            -0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.45874511957168596,
+          "delta": [
+            0.02,
+            0.02,
+            0.0
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        },
+        {
+          "center_clearance_m": 0.45874511957168596,
+          "delta": [
+            0.02,
+            0.02,
+            0.035
+          ],
+          "footprint_clearance_m": 0.0,
+          "reason": "START_FOOTPRINT_COLLISION",
+          "safe_ackermann_primitives": 0
+        }
+      ],
+      "maneuver_mode": "THREE_POINT_TURN",
+      "minimum_center_clearance_m": 0.42252434134483424,
+      "minimum_footprint_clearance_m": 0.0,
+      "minimum_safe_ackermann_primitives": 0,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_cb4a93cedae5f755",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "FAIL",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "THREE_POINT_TURN",
+      "minimum_center_clearance_m": 0.4225243413448348,
+      "minimum_footprint_clearance_m": 0.08483445078819997,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_e748e2fec853911f",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "THREE_POINT_TURN",
+      "minimum_center_clearance_m": 0.48000000119209263,
+      "minimum_footprint_clearance_m": 0.13535819726843,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_bd70d714bb3a8986",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "THREE_POINT_TURN",
+      "minimum_center_clearance_m": 0.5800000190734874,
+      "minimum_footprint_clearance_m": 0.18420785538950407,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_44568eea012e99dd",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "holdout",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "THREE_POINT_TURN",
+      "minimum_center_clearance_m": 0.580000019073486,
+      "minimum_footprint_clearance_m": 0.18420785538950263,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_cce27ef704821eaf",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "minimum_center_clearance_m": 0.5800000190734864,
+      "minimum_footprint_clearance_m": 0.0436697183970758,
+      "minimum_safe_ackermann_primitives": 5,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_d8de47006c6886d3",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "minimum_center_clearance_m": 0.480000001192094,
+      "minimum_footprint_clearance_m": 0.05577966768502725,
+      "minimum_safe_ackermann_primitives": 5,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_af429f08d626b095",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "minimum_center_clearance_m": 0.5800000190734874,
+      "minimum_footprint_clearance_m": 0.044067921593422724,
+      "minimum_safe_ackermann_primitives": 5,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_1c94a38492b5da58",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "minimum_center_clearance_m": 0.5800000190734875,
+      "minimum_footprint_clearance_m": 0.046854018404506495,
+      "minimum_safe_ackermann_primitives": 5,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_057072e9946094a6",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "minimum_center_clearance_m": 0.5655843257904043,
+      "minimum_footprint_clearance_m": 0.05541086852987788,
+      "minimum_safe_ackermann_primitives": 5,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_7efa7a25cdde7183",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "U_TURN",
+      "minimum_center_clearance_m": 1.1833878564834592,
+      "minimum_footprint_clearance_m": 0.8455131311573199,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_842ca7cd5ad8ab36",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "U_TURN",
+      "minimum_center_clearance_m": 1.1038400387763982,
+      "minimum_footprint_clearance_m": 0.6434689309929436,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_944fec2b79a33a10",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "holdout",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "U_TURN",
+      "minimum_center_clearance_m": 1.083701095581056,
+      "minimum_footprint_clearance_m": 0.7460112050244212,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_392acd3f80495ac8",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "U_TURN",
+      "minimum_center_clearance_m": 1.6714570856094364,
+      "minimum_footprint_clearance_m": 1.1451115795665532,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_06c3a10b0db54fa8",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "holdout",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "U_TURN",
+      "minimum_center_clearance_m": 1.0518750381469726,
+      "minimum_footprint_clearance_m": 0.5395597213873047,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_91fa420cb33dabd2",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "minimum_center_clearance_m": 0.480000001192094,
+      "minimum_footprint_clearance_m": 0.13535819726843107,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_e06d4359b0f9207c",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "minimum_center_clearance_m": 0.38000000715255855,
+      "minimum_footprint_clearance_m": 0.035358203228895504,
+      "minimum_safe_ackermann_primitives": 6,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_540ad37f4a8cffc4",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "minimum_center_clearance_m": 0.4800000011920933,
+      "minimum_footprint_clearance_m": 0.13535819726843,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_57c5f580a2b1f3df",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "minimum_center_clearance_m": 0.4800000011920926,
+      "minimum_footprint_clearance_m": 0.13535819726842996,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_4726f0f5e8621c76",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "minimum_center_clearance_m": 0.3800000071525585,
+      "minimum_footprint_clearance_m": 0.03535820322889162,
+      "minimum_safe_ackermann_primitives": 6,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_be4e78d38b20768c",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "REVERSE_EXIT",
+      "minimum_center_clearance_m": 1.2800000667572031,
+      "minimum_footprint_clearance_m": 0.8508749263190298,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_5e3b11c508590e4f",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "REVERSE_EXIT",
+      "minimum_center_clearance_m": 0.6799999952316288,
+      "minimum_footprint_clearance_m": 0.22100041384691999,
+      "minimum_safe_ackermann_primitives": 9,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_a9117f13d3284f91",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "REVERSE_EXIT",
+      "minimum_center_clearance_m": 0.8800000309944164,
+      "minimum_footprint_clearance_m": 0.3781061879155398,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_6d9dfc0942460a85",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "holdout",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "REVERSE_EXIT",
+      "minimum_center_clearance_m": 1.2640000629425054,
+      "minimum_footprint_clearance_m": 0.7503348381801664,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_6eeda98b37d2dff6",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "holdout",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "REVERSE_EXIT",
+      "minimum_center_clearance_m": 0.8946935486793524,
+      "minimum_footprint_clearance_m": 0.3590462681652489,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_7889fd8df2a18a4d",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "SHARP_TURN",
+      "minimum_center_clearance_m": 1.479999995231628,
+      "minimum_footprint_clearance_m": 0.9829545109651278,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_6b0dc7b5c2f0c68e",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "SHARP_TURN",
+      "minimum_center_clearance_m": 0.7851215815544133,
+      "minimum_footprint_clearance_m": 0.40125494830488123,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_a3b31811d187412f",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "SHARP_TURN",
+      "minimum_center_clearance_m": 1.914270906448365,
+      "minimum_footprint_clearance_m": 1.3924291468188532,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_045ac0df4750e83a",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "SHARP_TURN",
+      "minimum_center_clearance_m": 1.2800000667572018,
+      "minimum_footprint_clearance_m": 0.9116087929698717,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_8f88923ccc19bc86",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "SHARP_TURN",
+      "minimum_center_clearance_m": 1.4799999952316296,
+      "minimum_footprint_clearance_m": 0.992015771766351,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_d8d02ef831649618",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NORMAL",
+      "minimum_center_clearance_m": 0.780000007152557,
+      "minimum_footprint_clearance_m": 0.42093460355491846,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_48667c45aa2e32f1",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NORMAL",
+      "minimum_center_clearance_m": 0.9800000071525571,
+      "minimum_footprint_clearance_m": 0.5435822040100117,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_21b80355009b0305",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NORMAL",
+      "minimum_center_clearance_m": 1.2800000667572031,
+      "minimum_footprint_clearance_m": 0.772937201550121,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_a50387fbb24739eb",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NORMAL",
+      "minimum_center_clearance_m": 0.7365207266807561,
+      "minimum_footprint_clearance_m": 0.3580025044210999,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_0075fefa93ae219f",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    },
+    {
+      "cohort": "development",
+      "failure_count": 0,
+      "failures": [],
+      "maneuver_mode": "NORMAL",
+      "minimum_center_clearance_m": 1.3799999952316295,
+      "minimum_footprint_clearance_m": 1.0157250928719284,
+      "minimum_safe_ackermann_primitives": 10,
+      "perturbations": 27,
+      "position_delta_m": 0.02,
+      "scenario_id": "p6_c344e792d09ac2d6",
+      "schema": "DEPCarP6StartRobustnessV1",
+      "status": "PASS",
+      "yaw_delta_rad": 0.035
+    }
+  ],
+  "robust": 34,
+  "scenario_manifest_sha256": "21bd62111b43cef21d162a93aa91a538bd8a8ad9caa18ed70ec0656622f131e3",
+  "scenarios": 35,
+  "schema": "DEPCarP6StartRobustnessAuditV1",
+  "status": "PARTIAL"
+}

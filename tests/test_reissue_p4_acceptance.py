@@ -78,3 +78,23 @@ def test_index_summary_enforces_development_splits():
     index["entries"][2]["split"] = "test"
     with pytest.raises(RuntimeError, match="unexpected split"):
         reissue.index_summary(index)
+
+
+def test_p5_artifact_inventory_quarantines_v1_and_ignores_bounded_pilot(tmp_path):
+    legacy = tmp_path / "models/dep_car/p5"
+    current = tmp_path / "models/dep_car/p5_v2"
+    pilot = current / "pilot"
+    legacy.mkdir(parents=True)
+    pilot.mkdir(parents=True)
+    (legacy / "fusion_candidate_capacity.pth").write_bytes(b"legacy-failed")
+    (pilot / "fusion_candidate_capacity.pth").write_bytes(b"bounded-smoke")
+
+    inventory = reissue.p5_artifact_inventory(tmp_path)
+
+    assert inventory["current_formal_checkpoints"] == []
+    assert len(inventory["legacy_checkpoints"]) == 1
+    assert inventory["legacy_authorized_for_current_generation"] is False
+
+    (current / "fusion_candidate_capacity.pth").write_bytes(b"formal-v2")
+    inventory = reissue.p5_artifact_inventory(tmp_path)
+    assert len(inventory["current_formal_checkpoints"]) == 1

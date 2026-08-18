@@ -12,6 +12,10 @@ add_message_files(FILES
   RoutePoint.msg
   AckermannRoute.msg
   LocalRouteCommand.msg
+  PolicyCandidate.msg
+  PolicyCandidateArray.msg
+  PolicyQuery.msg
+  PolicyState.msg
 )
 generate_messages(DEPENDENCIES std_msgs geometry_msgs nav_msgs)
 catkin_package(CATKIN_DEPENDS message_runtime std_msgs geometry_msgs nav_msgs)

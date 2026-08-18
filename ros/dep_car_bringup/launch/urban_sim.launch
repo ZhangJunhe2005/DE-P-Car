@@ -3,16 +3,27 @@
   <arg name="map_yaml" default=""/>
   <arg name="gazebo_model_path" default="$(find dep_car_bringup)/../../../data/arena_maps"/>
   <arg name="gui" default="true"/><arg name="paused" default="false"/>
+  <arg name="gazebo_seed" default="49105"/>
   <arg name="enable_depth_camera" default="true"/>
   <arg name="x" default="0.0"/><arg name="y" default="0.0"/><arg name="z" default="0.0833333333"/><arg name="yaw" default="0.0"/>
   <arg name="enable_stack" default="true"/><arg name="enable_rviz" default="false"/>
+  <arg name="rviz_start_delay_s" default="0.0"/>
+  <arg name="policy_mode" default="disabled"/>
+  <arg name="policy_modality" default="fusion"/>
+  <arg name="policy_checkpoint" default=""/>
+  <arg name="policy_checkpoint_contract" default=""/>
+  <arg name="p6_authority" default=""/>
+  <arg name="policy_device" default="cuda"/>
+  <arg name="fusion_sensor_mode" default="normal"/>
+  <arg name="policy_python" default="$(optenv DEP_CAR_POLICY_PYTHON /home/zjh/miniconda3/envs/yopo/bin/python)"/>
+  <arg name="active_fallback_to_baseline" default="false"/>
   <env name="GAZEBO_MODEL_PATH" value="$(arg gazebo_model_path):$(optenv GAZEBO_MODEL_PATH)"/>
   <arg unless="$(arg paused)" name="pause_arg" value=""/>
   <arg if="$(arg paused)" name="pause_arg" value="-u"/>
   <param name="/use_sim_time" value="true"/>
   <param name="gazebo/enable_ros_network" value="true"/>
   <node pkg="dep_car_bringup" type="gzserver_exec.sh" name="gazebo" output="screen" required="true"
-        args="$(arg pause_arg) -e ode $(arg world)"/>
+        args="$(arg pause_arg) --seed $(arg gazebo_seed) -e ode $(arg world)"/>
   <node pkg="dep_car_bringup" type="gzclient_exec.sh" name="gazebo_gui" output="screen" if="$(arg gui)"/>
   <param name="robot_description" command="/usr/bin/python3 $(find dep_car_vehicle)/scripts/render_scaled_urban_urdf.py --scale 0.3333333333333333 --source '$(find spawn_car)/model/urban/urdf/urban_description.urdf.xacro' enable_velodyne:=true enable_camera:=$(arg enable_depth_camera) enable_imu:=true enable_gps:=false gpu:=false organize_cloud:=true"/>
   <node pkg="gazebo_ros" type="spawn_model" name="spawn_urban_car" output="screen" launch-prefix="/usr/bin/python3"
@@ -28,8 +39,30 @@
     <include file="$(find dep_car_vehicle)/launch/urban_adapter.launch"/>
     <include file="$(find dep_car_perception)/launch/lidar.launch"/>
     <node pkg="dep_car_dynamic" type="dynamic_tracker_node.py" name="dep_car_dynamic_tracker" output="screen"/>
-    <node pkg="dep_car_global_planner" type="hybrid_astar_node.py" name="dep_car_hybrid_astar" output="screen"/>
-    <include file="$(find dep_car_local_planner)/launch/local_planner.launch"/>
+    <node pkg="dep_car_global_planner" type="hybrid_astar_node.py" name="dep_car_hybrid_astar" output="screen">
+      <param name="planning_timeout_s" value="5.0"/>
+      <param name="terminal_planning_timeout_s" value="15.0"/>
+      <param name="terminal_hybrid_radius" value="2.0"/>
+      <param name="terminal_hybrid_heading_trigger" value="0.55"/>
+      <param name="terminal_hybrid_capture_radius" value="0.80"/>
+      <param name="local_subgoal_distance" value="1.50"/>
+      <param name="exact_route_lookahead" value="0.50"/>
+      <param name="duplicate_goal_window_s" value="0.5"/>
+      <param name="route_mode" value="topology_corridor"/>
+    </node>
+    <include file="$(find dep_car_local_planner)/launch/local_planner.launch">
+      <arg name="policy_mode" value="$(arg policy_mode)"/>
+      <arg name="modality" value="$(arg policy_modality)"/>
+      <arg name="checkpoint" value="$(arg policy_checkpoint)"/>
+      <arg name="checkpoint_contract" value="$(arg policy_checkpoint_contract)"/>
+      <arg name="p6_authority" value="$(arg p6_authority)"/>
+      <arg name="device" value="$(arg policy_device)"/>
+      <arg name="fusion_sensor_mode" value="$(arg fusion_sensor_mode)"/>
+      <arg name="policy_python" value="$(arg policy_python)"/>
+      <arg name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
+    </include>
   </group>
-  <node pkg="dep_car_bringup" type="rviz_exec.sh" name="rviz" args="-d $(find dep_car_bringup)/rviz/dep_car.rviz" if="$(arg enable_rviz)"/>
+  <node pkg="dep_car_bringup" type="rviz_exec.sh" name="rviz"
+        args="--delay $(arg rviz_start_delay_s) -d $(find dep_car_bringup)/rviz/dep_car.rviz"
+        if="$(arg enable_rviz)"/>
 </launch>

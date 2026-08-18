@@ -1,0 +1,43 @@
+schema: DEPCarP5ScorePerformanceContractV1
+revision: 1
+status: AUTHORIZED_AFTER_ACCEPTED_CANDIDATE
+base_authority:
+  training_config: dep_car/config/training.yaml
+  training_config_sha256: b906715c105b87e87879cebef7ce5b21e53c9d485c65be8296fe3fe836850bd1
+  candidate_trainer: tools/train_dep_car.py
+  candidate_trainer_sha256: 954e72f4af0a38be0130209d624c14827387df8c7d9d083a9d2f47e7702881b0
+  p4_implementation_aggregate_sha256: af633ead446bee39004667ae57184c1c337eeb729537699396840a44f75e9941
+score_training:
+  stage: score_calibration
+  epochs: 40
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  device: cuda
+  seed: 49105
+  workers: 8
+  torch_threads: 8
+data_loader:
+  view_schema: P3ScoreTrainingDatasetV1
+  view_revision: 1
+  prefetch_factor: 4
+  pin_memory_on_cuda: true
+  persistent_workers: true
+  integrity_policy: full_sha256_preflight_then_full_stat_identity_per_access
+  modality_selective_decode: true
+  unused_bev_distance_field: omitted
+metrics:
+  transfer_policy: one_device_to_host_transfer_per_metric_per_epoch
+  preserve_candidate_grouping: [overall, maneuver, candidate_context, requested_gear]
+precision:
+  neural_encoders_and_towers: AMP_when_enabled
+  ackermann_rollout: float32
+  physical_objective: float32
+  hard_veto: float32
+benchmark:
+  allowed_smoke_batch_sizes: [16, 64, 128]
+  maximum_samples: 512
+  maximum_steps: 64

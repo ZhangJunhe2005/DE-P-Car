@@ -11,12 +11,12 @@
     "lattice_implementation": "dep_car/src/dep_car/core/lattice.py",
     "lattice_implementation_sha256": "b52a98f06cc7c93e6af7890695ee7d9eb3158479a8923ad4cafc71c82b22588c",
     "losses_implementation": "dep_car/src/dep_car/training/losses.py",
-    "losses_implementation_sha256": "a497e33f9a2fbdb2eacc7d046e61c9b25e961370a7e98654fbec5f5fb185ede6",
+    "losses_implementation_sha256": "9c0c498d58aaaa38c88067dbd269a8e98592e42f97d4ef2b2013a789201cd063",
     "occupancy_implementation": "dep_car/src/dep_car/core/occupancy.py",
     "occupancy_implementation_sha256": "4e71546be4d44809f42d7e93dfcbf716187428f2575ebd5640d80039a86ef742",
     "p4_dataset_implementation": "dep_car/src/dep_car/training/p4_dataset.py",
     "p4_dataset_implementation_sha256": "ca3593703aebcd11d9e7b4005614a2798cbfdf1cc2e9438f57d97d1cca0a3fff",
-    "p4_implementation_aggregate_sha256": "c040cee4f7bd0ba43b19731e3721d3fe8d3344407fbacff9c299b5c985807077",
+    "p4_implementation_aggregate_sha256": "af633ead446bee39004667ae57184c1c337eeb729537699396840a44f75e9941",
     "p4_implementation_files": {
       "dep_car/src/dep_car/core/lattice.py": "b52a98f06cc7c93e6af7890695ee7d9eb3158479a8923ad4cafc71c82b22588c",
       "dep_car/src/dep_car/core/occupancy.py": "4e71546be4d44809f42d7e93dfcbf716187428f2575ebd5640d80039a86ef742",
@@ -24,14 +24,14 @@
       "dep_car/src/dep_car/core/types.py": "1d975c3832b02a2e2e25dc39f96019724d2e31f625368931117d3bab1c3ccda0",
       "dep_car/src/dep_car/core/vehicle.py": "9873351fe39a90e9328e7a4c50b51230e1835eaa0e720e4103cd83a1a9f98ec5",
       "dep_car/src/dep_car/model/ackermann_rollout.py": "aa2e145d1b586b743964c3b84bd7a9db80b5d2d7f909eeff6676ff7cd47ab7a6",
-      "dep_car/src/dep_car/model/checkpoint.py": "a4da1af5be813ae432326020c71ed6f98dda19d3a49eb8d8a2bdc18cb7976292",
-      "dep_car/src/dep_car/model/dep_car_net.py": "0559cd05e53ebe17a37f2b194b047932702e9c5122365ab8bf4babe3feddcd21",
+      "dep_car/src/dep_car/model/checkpoint.py": "683d4ba17f48fb26eaddfc4b2608e343d022dd3f8596fde64086bac8574d5ad1",
+      "dep_car/src/dep_car/model/dep_car_net.py": "aeea8aec0e83c58f50ffa4fe866eb09c7272192be4f8c4a00d98470089ff29c7",
       "dep_car/src/dep_car/model/implementation_contract.py": "15bb95a4e3699a9f1af4e83a015b1e0a05f20e2b3df6e38e8d0d6d51f3b32935",
       "dep_car/src/dep_car/model/lidar_dep.py": "2da50340d2b33921972a3ddb3c399f066736c27294011f660dfa2f871fa61b5c",
       "dep_car/src/dep_car/model/symmetry.py": "4ac6ef629e1ec18dddd6a7f02ca712a49d7ecc1aa9a78d1c59b24c4d7e39fc53",
       "dep_car/src/dep_car/training/dataset.py": "0dc476aa6fa4cfe1246db39e2c70bb43a5fbeba57e86d1e182cf050e5a48fe4c",
-      "dep_car/src/dep_car/training/losses.py": "a497e33f9a2fbdb2eacc7d046e61c9b25e961370a7e98654fbec5f5fb185ede6",
-      "dep_car/src/dep_car/training/metrics.py": "9b9507a13f9b88ebebead7c343dcbda62ddcff163f5a9f50de0ca5c4229fd14f",
+      "dep_car/src/dep_car/training/losses.py": "9c0c498d58aaaa38c88067dbd269a8e98592e42f97d4ef2b2013a789201cd063",
+      "dep_car/src/dep_car/training/metrics.py": "f1255295137bbc5202dd47a90d252769e28817d3c1f164e4f2d3f9cd5bb19c94",
       "dep_car/src/dep_car/training/p4_dataset.py": "ca3593703aebcd11d9e7b4005614a2798cbfdf1cc2e9438f57d97d1cca0a3fff",
       "dep_car/src/dep_car/training/stages.py": "94f17ed03b0af50859524dd2d9a5e9f2b4c8c0163e0da1d35fab545cc16abe27",
       "third_party/DE-P/DE-P/policy/backbone_variant.py": "45249f2c46d44d806dff5e80062c67b863c063308f1a1eb3343102f6431fd733",
@@ -174,7 +174,7 @@
       }
     }
   },
-  "generated_at_utc": "2026-08-16T10:27:51.316213+00:00",
+  "generated_at_utc": "2026-08-17T03:17:47.158053+00:00",
   "geometry_contract": {
     "allowance_policy": "training_one_diagonal",
     "allowance_schema": "FixedGridCellDiagonalAllowanceV1",
@@ -963,7 +963,7 @@
           "clearance_m": {
             "count": 38895,
             "maximum": 1.1048740148544312,
-            "mean": 0.2477073591918439,
+            "mean": 0.24770735865548638,
             "median": 0.19159944355487823,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1018,7 +1018,7 @@
           "clearance_m": {
             "count": 50595,
             "maximum": 0.8915994763374329,
-            "mean": 0.07348169761073249,
+            "mean": 0.0734816976142667,
             "median": 0.09159941971302032,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1073,7 +1073,7 @@
           "clearance_m": {
             "count": 32535,
             "maximum": 1.491599440574646,
-            "mean": 0.3249673230936217,
+            "mean": 0.3249673230716375,
             "median": 0.2915993928909302,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1128,7 +1128,7 @@
           "clearance_m": {
             "count": 23160,
             "maximum": 1.491599440574646,
-            "mean": 0.4188706849484555,
+            "mean": 0.4188706859058358,
             "median": 0.3915994167327881,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1183,7 +1183,7 @@
           "clearance_m": {
             "count": 78525,
             "maximum": 1.5020967721939087,
-            "mean": 0.21497461821576738,
+            "mean": 0.21497461830305847,
             "median": 0.09159941971302032,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1238,7 +1238,7 @@
           "clearance_m": {
             "count": 62040,
             "maximum": 0.8915994763374329,
-            "mean": 0.16066807767173347,
+            "mean": 0.16066807773033892,
             "median": 0.09159941971302032,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1293,7 +1293,7 @@
           "clearance_m": {
             "count": 14520,
             "maximum": 1.1915994882583618,
-            "mean": 0.6093344274538854,
+            "mean": 0.6093344274579904,
             "median": 0.5915994048118591,
             "minimum": 0.0,
             "p10": 0.19159944355487823,
@@ -1350,7 +1350,7 @@
           "clearance_m": {
             "count": 245910,
             "maximum": 1.491599440574646,
-            "mean": 0.22902823662833982,
+            "mean": 0.2290282366709994,
             "median": 0.10150136053562164,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1405,7 +1405,7 @@
           "clearance_m": {
             "count": 54360,
             "maximum": 1.5020967721939087,
-            "mean": 0.23918640173182187,
+            "mean": 0.2391864017471726,
             "median": 0.09159941971302032,
             "minimum": 0.0,
             "p10": 0.0,
@@ -1461,7 +1461,7 @@
         "clearance_m": {
           "count": 300270,
           "maximum": 1.5020967721939087,
-          "mean": 0.23086724104111928,
+          "mean": 0.23086724107883494,
           "median": 0.10150136053562164,
           "minimum": 0.0,
           "p10": 0.0,

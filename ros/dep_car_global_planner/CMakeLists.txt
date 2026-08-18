@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.0.2)
 project(dep_car_global_planner)
-find_package(catkin REQUIRED COMPONENTS rospy geometry_msgs nav_msgs dep_car_core dep_car_msgs)
-catkin_package(CATKIN_DEPENDS rospy geometry_msgs nav_msgs dep_car_core dep_car_msgs)
+find_package(catkin REQUIRED COMPONENTS rospy geometry_msgs nav_msgs std_msgs visualization_msgs dep_car_core dep_car_msgs)
+catkin_package(CATKIN_DEPENDS rospy geometry_msgs nav_msgs std_msgs visualization_msgs dep_car_core dep_car_msgs)
 catkin_install_python(PROGRAMS scripts/hybrid_astar_node.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})

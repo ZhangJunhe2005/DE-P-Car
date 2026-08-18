@@ -51,6 +51,9 @@ class DeterministicPlanner:
         occupancy: OccupancyGrid2D,
         tracks: Iterable[DynamicTrack] = (),
         requested_gear: Gear = Gear.FORWARD,
+        target_heading: float = None,
+        target_steering: float = None,
+        spatial_scales: Sequence[float] = (1.0,),
         learned_offsets: Optional[Tuple[Iterable[float], Iterable[float], Iterable[float]]] = None,
     ) -> PlanningResult:
         self._generation += 1
@@ -60,36 +63,46 @@ class DeterministicPlanner:
         any_static_safe = False
         any_dynamic_rejected = False
 
-        for factor in self.config.retime_factors:
-            candidates = self.lattice.generate(
-                state,
-                speed_offsets=offsets[0],
-                steering_offsets=offsets[1],
-                learned_scores=offsets[2],
-                gear=requested_gear,
-                speed_scale=1.0 / factor,
-                duration_scale=factor,
-            )
-            for candidate in candidates:
-                goal_cost(candidate, subgoal_body)
-                evaluate_static(candidate, occupancy, self.config.footprint)
-                if candidate.feasible:
-                    any_static_safe = True
-                    evaluate_dynamic(candidate, tracks, self.config.dynamic)
-                    if not candidate.feasible:
-                        any_dynamic_rejected = True
-            feasible = [candidate for candidate in candidates if candidate.feasible]
-            last_candidates = candidates
-            if feasible:
-                selected = min(feasible, key=lambda candidate: candidate.total_cost)
-                return PlanningResult(
-                    selected=selected,
-                    candidates=candidates,
-                    retime_factor=factor,
-                    blocked_by_static=False,
-                    blocked_by_dynamic=False,
-                    generation=self._generation,
+        scales = tuple(float(value) for value in spatial_scales)
+        if not scales or any(value <= 0.0 or value > 1.0 for value in scales):
+            raise ValueError("spatial_scales must contain values in (0,1]")
+        for spatial_scale in scales:
+            for factor in self.config.retime_factors:
+                duration_scale = factor * spatial_scale
+                candidates = self.lattice.generate(
+                    state,
+                    speed_offsets=offsets[0],
+                    steering_offsets=offsets[1],
+                    learned_scores=offsets[2],
+                    gear=requested_gear,
+                    speed_scale=1.0 / factor,
+                    duration_scale=duration_scale,
                 )
+                for candidate in candidates:
+                    goal_cost(
+                        candidate,
+                        subgoal_body,
+                        target_heading=target_heading,
+                        target_steering=target_steering,
+                    )
+                    evaluate_static(candidate, occupancy, self.config.footprint)
+                    if candidate.feasible:
+                        any_static_safe = True
+                        evaluate_dynamic(candidate, tracks, self.config.dynamic)
+                        if not candidate.feasible:
+                            any_dynamic_rejected = True
+                feasible = [candidate for candidate in candidates if candidate.feasible]
+                last_candidates = candidates
+                if feasible:
+                    selected = min(feasible, key=lambda candidate: candidate.total_cost)
+                    return PlanningResult(
+                        selected=selected,
+                        candidates=candidates,
+                        retime_factor=duration_scale,
+                        blocked_by_static=False,
+                        blocked_by_dynamic=False,
+                        generation=self._generation,
+                    )
 
         return PlanningResult(
             selected=None,

@@ -1,5 +1,5 @@
 schema: DEPCarTrainingContractV1
-phase: P4_ACCEPTED_P5_AUTHORIZED_NOT_STARTED
+phase: P4_REISSUED_P5_V2_AUTHORIZED_NOT_STARTED
 dataset:
   root: data/p3_v3/bundle_v2_curated/samples
   maps: data/p3_pilot/maps
@@ -43,8 +43,8 @@ training:
     train: [score_geometry_encoder, score_tower, score_head]
     freeze: [depth_encoder, lidar_encoder, state_encoder, gear_embedding, speed_embedding, steering_embedding, depth_missing_token, lidar_missing_token, candidate_tower, candidate_head]
 loss:
-  objective_id: dep_car_objective_v3_signed_sdf_cvar_continuous_swept_route_capacity_score
-  objective_revision: 3
+  objective_id: dep_car_objective_v4_fp32_physics_all_candidate_kinematic_margin
+  objective_revision: 4
   sdf_schema: SignedDistanceFieldV1KnownFreePositiveUnknownUnsafe
   footprint_schema: FiveCircleContinuousSweptFootprintV3
   sweep_interpolation_schema: PiecewiseLinearSE2SubstepsV1
@@ -65,11 +65,13 @@ loss:
   forward_diversity_scales: [0.8, 0.3, 1.0]
   reverse_diversity_scales: [0.5, 0.1, 0.5]
   maximum_lateral_acceleration_mps2: 3.0
+  kinematic_safety_margin_fraction: 0.10
   score_temperature: 0.25
   weights:
     safety: 2.0
     guidance: 1.0
     kinematic: 0.5
+    kinematic_all: 2.0
     comfort: 0.05
     diversity: 0.20
     anchor: 0.01
