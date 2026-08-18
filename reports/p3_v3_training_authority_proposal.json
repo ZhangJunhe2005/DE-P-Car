@@ -5,7 +5,7 @@
   "bundle_authority_sha256": "7d3b967928c080b428fe43e09dc07a9b430e03814238768fc13fd24a101fb9ba",
   "formal_training_started": false,
   "reaudit": "reports/p3_development_reaudit_v3.json",
-  "reaudit_sha256": "aba7f5803fa0e159b1f9f411e9425c732b1410431904d521be8931a89aab05b0",
+  "reaudit_sha256": "31670a776c66cb268a2be4392837bd65e3bce966f90a4407b80047b6e4691f3c",
   "schema": "DEPCarP3V3TrainingAuthorityProposalV1",
   "status": "READY_FOR_EXPLICIT_P5_CONFIG_APPROVAL",
   "training_yaml_changes": {

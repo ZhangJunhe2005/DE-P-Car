@@ -1,0 +1,27 @@
+schema: DEPCarRouteV2ScoreShadowAcceptanceContractV1
+architecture_id: dep_car_multimodal_v2_route_ackermann_3x5
+population:
+  split: validation
+  geometry_valid_only: true
+  maximum_samples: 0
+execution:
+  modality: fusion
+  batch_size: 128
+  workers: 8
+  device: cuda
+thresholds:
+  maximum_overall_zero_feasible_rate: 0.08
+  minimum_overall_selected_hard_feasible_rate: 0.95
+  minimum_overall_selected_future_capable_rate: 0.80
+  maximum_overall_mean_oracle_regret: 0.05
+  minimum_sharp_turn_selected_hard_feasible_rate: 0.95
+  minimum_sharp_turn_selected_future_capable_rate: 0.85
+  minimum_three_point_turn_selected_hard_feasible_rate: 0.95
+  minimum_three_point_turn_selected_future_capable_rate: 0.80
+  minimum_reverse_exit_selected_hard_feasible_rate: 0.75
+  minimum_reverse_exit_selected_future_capable_rate: 0.60
+authority:
+  training_config: dep_car/config/p5_route_v2_training.yaml
+  bundle: data/p3_v4/bundle_v1/bundle_authority.json
+  test_split_sealed: true
+scope: P6_SHADOW_ONLY

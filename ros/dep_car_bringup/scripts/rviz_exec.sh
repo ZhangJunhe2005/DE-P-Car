@@ -4,6 +4,16 @@
 set -eo pipefail
 
 child_pid=""
+startup_delay="0"
+
+if [[ "${1:-}" == "--delay" ]]; then
+  if [[ $# -lt 2 ]]; then
+    echo "rviz_exec.sh: --delay requires seconds" >&2
+    exit 2
+  fi
+  startup_delay="$2"
+  shift 2
+fi
 
 shutdown_child() {
   trap - INT TERM
@@ -15,6 +25,9 @@ shutdown_child() {
 }
 
 trap shutdown_child INT TERM
+if [[ "$startup_delay" != "0" && "$startup_delay" != "0.0" ]]; then
+  sleep "$startup_delay"
+fi
 /opt/ros/noetic/lib/rviz/rviz "$@" &
 child_pid=$!
 set +e

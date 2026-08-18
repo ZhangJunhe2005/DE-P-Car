@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -ne 1 ]]; then
-  echo "usage: $0 OUTPUT_BAG" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "usage: $0 OUTPUT_BAG [bz2|lz4|none]" >&2
   exit 2
 fi
 
 output_bag="$1"
+compression="${2:-bz2}"
+case "$compression" in
+  bz2) compression_args=(--bz2) ;;
+  lz4) compression_args=(--lz4) ;;
+  none) compression_args=() ;;
+  *)
+    echo "unsupported rosbag compression: $compression" >&2
+    exit 2
+    ;;
+esac
 mkdir -p "$(dirname -- "$output_bag")"
-exec rosbag record --lz4 -O "$output_bag" \
+exec rosbag record "${compression_args[@]}" -O "$output_bag" \
   /camera/depth/image_raw \
   /camera/depth/camera_info \
   /velodyne_points \

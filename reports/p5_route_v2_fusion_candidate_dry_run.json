@@ -1,0 +1,50 @@
+{
+  "architecture_id": "dep_car_multimodal_v2_route_ackermann_3x5",
+  "batch_size": 128,
+  "bounded_smoke": false,
+  "dataset_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+  "dataset_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+  "device": "cuda",
+  "epochs": 40,
+  "formal_modalities": [
+    "fusion"
+  ],
+  "formal_training_authority_gate": {
+    "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+    "bundle_authority_file_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+    "bundle_authority_sha256": "7b69093f37d631b61e1f300a72ec1eb6ea47105f2c3c2b99cc7a09906b8de32d",
+    "development_reaudit": "/home/zjh/DE-P-Car/reports/p3_v4_corner_reaudit.json",
+    "development_reaudit_sha256": "90fbe73c8c7a9df9e3d2ac07e32c7ac8c8e0f2e36f7d21759158360c6182bdf8",
+    "errors": [],
+    "passed": true,
+    "proposal": "/home/zjh/DE-P-Car/reports/p3_v4_training_authority_proposal.json",
+    "proposal_sha256": "51077c4bd5ba266c42d35ba60551d6be1559cd122b2c3ee27dc53da5d5428549",
+    "samples": {
+      "train": 35940,
+      "validation": 9440
+    },
+    "schema": "DEPCarRouteV2FormalTrainingAuthorityGateV1",
+    "scope": "fusion_only_candidate_then_score",
+    "test_split_sealed": true
+  },
+  "formal_training_authorized": true,
+  "maximum_samples": null,
+  "maximum_steps": null,
+  "modality": "fusion",
+  "objective_id": "dep_car_objective_v5_route_tube_future_viability",
+  "output": "/home/zjh/DE-P-Car/models/dep_car/p5_route_v2/fusion_candidate_capacity.pth",
+  "prefetch_factor": 4,
+  "production_qualified": false,
+  "resume": null,
+  "schema": "DEPCarRouteV2TrainingPlanV1",
+  "sensor_dropout_probability": 0.1,
+  "source": "/home/zjh/DE-P-Car/models/dep_car/p5_v2/fusion_candidate_capacity.best.pth",
+  "source_sha256": "1bbf50e69f70e0dfabd8c9de2704789870ba9d0bd32d4ba4c3c54fce2dc0a9bc",
+  "stage": "candidate_capacity",
+  "status": "DRY_RUN_READY",
+  "test_split_sealed": true,
+  "trainer_sha256": "a26d6de1d0ac2ba9b05c948250939add94b7c83fe3d25c2b3126a574a61d7269",
+  "training_config": "/home/zjh/DE-P-Car/dep_car/config/p5_route_v2_training.yaml",
+  "training_config_sha256": "a1d30757ad360906272a7ba3a73924e0a1f1492af2b90cf475a632d3190ac240",
+  "workers": 8
+}

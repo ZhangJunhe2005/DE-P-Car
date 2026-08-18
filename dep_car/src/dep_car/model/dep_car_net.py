@@ -244,6 +244,22 @@ class DEPCarNetV1(nn.Module):
         steering = self.steering_embedding(self.steering_query_ids.to(device))
         return torch.cat((speed, steering), dim=-1)[None, :, :].expand(batch, -1, -1)
 
+    def _rollout_fp32(self, vehicle_state, requested_gear, raw_residuals):
+        """Execute the physical rollout outside mixed-precision autocast.
+
+        CNN and MLP layers may safely use AMP, but hard Ackermann limits are
+        evaluated with a 1e-6 runtime tolerance.  FP16 time/control arithmetic
+        can move a value just beyond a limit after it was clamped, causing a
+        physically bounded candidate to be vetoed.  Casting here retains the
+        gradient to the candidate head while making every executable physical
+        tensor float32 in both training and deployment inference.
+        """
+
+        with torch.autocast(device_type=vehicle_state.device.type, enabled=False):
+            return self.rollout(
+                vehicle_state.float(), requested_gear, raw_residuals.float()
+            )
+
     def _forward_raw(self, depth, lidar_bev, vehicle_state, requested_gear, modality_mask):
         batch = vehicle_state.shape[0]
         depth_present = modality_mask[:, 0] > 0.5
@@ -265,7 +281,7 @@ class DEPCarNetV1(nn.Module):
                 0, depth_indices, present_depth
             )
 
-        canonical = self.rollout(
+        canonical = self._rollout_fp32(
             vehicle_state,
             requested_gear,
             vehicle_state.new_zeros((batch, 15, 4)),
@@ -295,9 +311,10 @@ class DEPCarNetV1(nn.Module):
         # Score calibration consumes the bounded physical residual contract,
         # not unbounded logits whose magnitude can grow while tanh leaves the
         # executable trajectory unchanged.
-        score_geometry_input = self.rollout.bound_residuals(
-            raw_residuals, requested_gear
-        ).detach()
+        with torch.autocast(device_type=vehicle_state.device.type, enabled=False):
+            score_geometry_input = self.rollout.bound_residuals(
+                raw_residuals.float(), requested_gear
+            ).detach()
         score_geometry = self.score_geometry_encoder(score_geometry_input)
         raw_score = self.score_head(self.score_tower(torch.cat((fused, score_geometry), dim=-1))).squeeze(-1)
         return raw_residuals, raw_score
@@ -344,14 +361,17 @@ class DEPCarNetV1(nn.Module):
             raw_residuals = 0.5 * (raw_residuals + mirrored_residuals)
             raw_score = 0.5 * (raw_score + mirrored_score)
 
-        rollout = self.rollout(vehicle_state, requested_gear, raw_residuals)
-        return DEPCarNetworkOutput(
-            raw_residuals=raw_residuals,
-            residuals=rollout.residuals,
-            controls=rollout.controls,
-            trajectories=rollout.trajectory,
-            scores=F.softplus(raw_score),
+        rollout = self._rollout_fp32(
+            vehicle_state, requested_gear, raw_residuals
         )
+        with torch.autocast(device_type=vehicle_state.device.type, enabled=False):
+            return DEPCarNetworkOutput(
+                raw_residuals=raw_residuals.float(),
+                residuals=rollout.residuals,
+                controls=rollout.controls,
+                trajectories=rollout.trajectory,
+                scores=F.softplus(raw_score.float()),
+            )
 
     def candidate_parameters(self):
         modules = (

@@ -43,7 +43,7 @@ SOURCE_PREFIX = "network.image_backbone."
 TARGET_PREFIX = "depth_encoder.image_backbone."
 EXPECTED_TRANSFER_TENSORS = 246
 INITIALIZATION_SEED = 49101
-CHECKPOINT_VERSION = "dep_car_p4_depth_transfer_initialization_v1"
+CHECKPOINT_VERSION = "dep_car_p4_depth_transfer_initialization_v2_fp32_margin"
 CONTRACT_SCHEMA = "DEPCarCheckpointContractV2"
 STATUS = "INITIALIZATION_ONLY_RETRAINING_REQUIRED"
 

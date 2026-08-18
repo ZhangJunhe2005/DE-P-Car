@@ -37,11 +37,12 @@
     "total_maps": 36
   },
   "errors": [],
-  "generated_at_utc": "2026-08-16T12:15:43.883189+00:00",
+  "generated_at_utc": "2026-08-17T03:25:40.731747+00:00",
   "issuer": {
     "tool": "tools/reissue_p4_acceptance.py",
-    "tool_sha256": "d15e3b7300f6140ec7653892ebf02486b3f92545c6aefe30fc1ddcf1ff8225a4"
+    "tool_sha256": "52470edcf7a5d30778cb966828992b26ea307c9d94c1de7452cf0989652f9d16"
   },
+  "legacy_p5_v1_training_attempted": true,
   "next_stage_requirements": [
     "run candidate_capacity separately for depth_only, lidar_only, and fusion",
     "accept each candidate checkpoint before starting its score_calibration stage",
@@ -55,18 +56,18 @@
     "overall_median_feasible_candidates": 14.0,
     "overall_zero_feasible_rate": 0.0652412828454391,
     "report": "reports/p3_development_reaudit_v3.json",
-    "report_sha256": "aba7f5803fa0e159b1f9f411e9425c732b1410431904d521be8931a89aab05b0",
+    "report_sha256": "31670a776c66cb268a2be4392837bd65e3bce966f90a4407b80047b6e4691f3c",
     "samples_audited": 20018,
     "status": "PASS",
     "test_accessed": false,
     "validation_coverage_status": "PASS"
   },
   "p4_machine_verification": {
-    "candidate_initial_loss": 0.9953363537788391,
-    "candidate_terminal_loss": 0.7569515109062195,
+    "candidate_initial_loss": 1.0891393423080444,
+    "candidate_terminal_loss": 0.8111197352409363,
     "checkpoint_roundtrip_max_abs_error": 0.0,
     "device": "cuda",
-    "direct_residual_oracle_floor": 0.7307183742523193,
+    "direct_residual_oracle_floor": 0.7610390782356262,
     "direct_residual_oracle_gate": {
       "errors": [],
       "exact_production_path": true,
@@ -74,14 +75,14 @@
       "expected_starting_raw_sha256": "b09b7e3f8a58a1d41ada633a2ef4a6ddc11dfe3d3292a28c6d6edf03b4629184",
       "finite": true,
       "independent_from_network_terminal": true,
-      "network_comparison_tolerance": 8.569515109062196e-06,
-      "network_terminal_loss": 0.7569515109062195,
-      "network_terminal_raw_sha256": "2cf8d5a90fface3acd1e8cbad76591411e3f2f40c1380417c66276ca0f5a42b0",
+      "network_comparison_tolerance": 9.111197352409364e-06,
+      "network_terminal_loss": 0.8111197352409363,
+      "network_terminal_raw_sha256": "429236174d00ced7cd9ca7057b7470a684502ea4c75adb6f7cf6ab32c9e4fd15",
       "no_worse_than_network_terminal": true,
       "significantly_converged": true,
       "starts_at_network_step0": true
     },
-    "elapsed_seconds": 236.58817880699644,
+    "elapsed_seconds": 230.40239463299986,
     "errors": [],
     "modalities_passed": [
       "depth_only",
@@ -89,15 +90,37 @@
       "lidar_only"
     ],
     "report": "reports/p4_model_implementation_acceptance.json",
-    "report_sha256": "9bc429917a50c7da06698809065a676fd67aade1a750e714a96bfe7e371e0bc5",
-    "score_initial_loss": 2.7096855640411377,
-    "score_terminal_loss": 1.8760210275650024,
+    "report_sha256": "e99e213686203b8b70bc4fef4eb464da2117b15ce16e05cf6145fcaf73266946",
+    "score_initial_loss": 2.709782838821411,
+    "score_terminal_loss": 2.0931334495544434,
     "smoke_samples": 16,
     "status": "PASS",
     "test_accessed": false,
     "torch_threads": 8
   },
   "p5_entry_verification": {
+    "artifact_inventory": {
+      "bounded_pilot_subdirectories_excluded": true,
+      "current_formal_checkpoints": [],
+      "current_generation": "p5_v2_fp32_margin_best",
+      "legacy_authorized_for_current_generation": false,
+      "legacy_checkpoints": [
+        {
+          "path": "models/dep_car/p5/depth_only_candidate_capacity.pth",
+          "sha256": "f1189e163b562ab15a9b4aeb0ec2450a1dc68be3e57cc9be0fcd1604ae4b1911"
+        },
+        {
+          "path": "models/dep_car/p5/fusion_candidate_capacity.pth",
+          "sha256": "b58ecb4c2ad612395fb34098c109f2e4c90cd32b90a685b7dd66690d8e33d07a"
+        },
+        {
+          "path": "models/dep_car/p5/lidar_only_candidate_capacity.pth",
+          "sha256": "540af4f4fb831e35b2bfc5d23a8d1df31dfc7ba22dc77dd38c55e0dfc005b02e"
+        }
+      ],
+      "legacy_generation": "p5_v1_failed_candidate_diagnostic_only",
+      "schema": "DEPCarP5GenerationArtifactInventoryV1"
+    },
     "dry_runs": {
       "depth_only": {
         "all_gates_passed": true,
@@ -106,11 +129,11 @@
         "formal_training_authorized": true,
         "permanent_smoke": false,
         "report": "reports/p5_depth_only_candidate_dry_run.json",
-        "report_sha256": "efc244c052d151cab932ea2b6254f6cf56a4a755c25035d316e56398c9f011fc",
+        "report_sha256": "d80f6c90e774d06d3aebe75bf495516371ee83f5fa1fe53a8ad1f8e4ccf33880",
         "sealed_test_split": true,
         "status": "DRY_RUN_READY",
-        "trainer_sha256": "0ec39f0e3f951673d34c088f99fc94dc061284fca7211aa9b8d02ba20eda0562",
-        "training_config_sha256": "383ffbdb4eb6714b5819f671688d2a65f0ffe67a85a7efd3fd29590f8cd157f5",
+        "trainer_sha256": "954e72f4af0a38be0130209d624c14827387df8c7d9d083a9d2f47e7702881b0",
+        "training_config_sha256": "b906715c105b87e87879cebef7ce5b21e53c9d485c65be8296fe3fe836850bd1",
         "validation_requested_gear_gate": "DEFERRED_TO_LOADER_AND_CANDIDATE_ACCEPTANCE"
       },
       "fusion": {
@@ -120,11 +143,11 @@
         "formal_training_authorized": true,
         "permanent_smoke": false,
         "report": "reports/p5_fusion_candidate_dry_run.json",
-        "report_sha256": "86316e899c22a08d0cdbd83524d10574ffbadb3535fadb92df3daffbc98e892d",
+        "report_sha256": "9aa0078fd9818a707d79e319b9919712cbe872f5f38ed467926622cd9fe37921",
         "sealed_test_split": true,
         "status": "DRY_RUN_READY",
-        "trainer_sha256": "0ec39f0e3f951673d34c088f99fc94dc061284fca7211aa9b8d02ba20eda0562",
-        "training_config_sha256": "383ffbdb4eb6714b5819f671688d2a65f0ffe67a85a7efd3fd29590f8cd157f5",
+        "trainer_sha256": "954e72f4af0a38be0130209d624c14827387df8c7d9d083a9d2f47e7702881b0",
+        "training_config_sha256": "b906715c105b87e87879cebef7ce5b21e53c9d485c65be8296fe3fe836850bd1",
         "validation_requested_gear_gate": "DEFERRED_TO_LOADER_AND_CANDIDATE_ACCEPTANCE"
       },
       "lidar_only": {
@@ -134,11 +157,11 @@
         "formal_training_authorized": true,
         "permanent_smoke": false,
         "report": "reports/p5_lidar_only_candidate_dry_run.json",
-        "report_sha256": "cbe99af60e64dfe47fc5499b25eee4ac63a83c0895c792a5e34ef5d21ef6cf09",
+        "report_sha256": "9a9b7715accbbc43e40b436ef853df2d66f62193e57b8b26fdbe6764c2091430",
         "sealed_test_split": true,
         "status": "DRY_RUN_READY",
-        "trainer_sha256": "0ec39f0e3f951673d34c088f99fc94dc061284fca7211aa9b8d02ba20eda0562",
-        "training_config_sha256": "383ffbdb4eb6714b5819f671688d2a65f0ffe67a85a7efd3fd29590f8cd157f5",
+        "trainer_sha256": "954e72f4af0a38be0130209d624c14827387df8c7d9d083a9d2f47e7702881b0",
+        "training_config_sha256": "b906715c105b87e87879cebef7ce5b21e53c9d485c65be8296fe3fe836850bd1",
         "validation_requested_gear_gate": "DEFERRED_TO_LOADER_AND_CANDIDATE_ACCEPTANCE"
       }
     },
@@ -159,6 +182,7 @@
   },
   "p5_formal_training_allowed": true,
   "p5_formal_training_started": false,
+  "p5_training_generation": "p5_v2_fp32_margin_best",
   "production_qualified": false,
   "proposal_application": {
     "changes": {
@@ -173,10 +197,10 @@
     },
     "mismatches": {},
     "proposal": "reports/p3_v3_training_authority_proposal.json",
-    "proposal_sha256": "ace06896a9b75f0931f7bbd6791a545be889a6833f6421e67b2bee179f46da19",
+    "proposal_sha256": "3fedd47b8eef0c9bc258951fa980e99055070a46bf96cd693a04fbadc8bcf30e",
     "status": "APPLIED_EXACTLY",
     "training_yaml": "dep_car/config/training.yaml",
-    "training_yaml_sha256": "383ffbdb4eb6714b5819f671688d2a65f0ffe67a85a7efd3fd29590f8cd157f5"
+    "training_yaml_sha256": "b906715c105b87e87879cebef7ce5b21e53c9d485c65be8296fe3fe836850bd1"
   },
   "schema": "DEPCarP4AcceptanceV2",
   "scope": "P0-P4 development acceptance and authenticated P5 entry readiness; formal P5 training and P6/P8 qualification are not claimed",

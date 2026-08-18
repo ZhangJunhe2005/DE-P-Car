@@ -59,6 +59,42 @@ def stop_process(process, timeout, log):
             log.flush()
 
 
+def wait_for_finalized_bag(bag_path, timeout, log):
+    """Wait until rosbag has renamed its compressed .active file.
+
+    With BZ2 the rosrun wrapper can finish before the recorder's final chunk
+    compression and rename are visible to the extraction process.  LZ4 was
+    fast enough to hide this race; BZ2 makes it reproducible under parallel
+    collection.
+    """
+
+    bag_path = Path(bag_path)
+    active_path = Path(str(bag_path) + ".active")
+    deadline = time.monotonic() + float(timeout)
+    previous_size = None
+    stable_observations = 0
+    while time.monotonic() < deadline:
+        if bag_path.is_file() and not active_path.exists():
+            size = bag_path.stat().st_size
+            if size > 0 and size == previous_size:
+                stable_observations += 1
+                if stable_observations >= 2:
+                    return True
+            else:
+                stable_observations = 0
+            previous_size = size
+        else:
+            previous_size = None
+            stable_observations = 0
+        time.sleep(0.5)
+    log.write(
+        "rosbag did not finalize within %.1fs: bag=%s active=%s\n"
+        % (float(timeout), bag_path.is_file(), active_path.exists())
+    )
+    log.flush()
+    return False
+
+
 class ProcessRegistry:
     """Track child process groups so Ctrl+C can stop all parallel workers."""
 
@@ -156,7 +192,17 @@ def task_commands(task, collection, work_root, env, ros_master_port):
         "rosrun", "dep_car_dataset", "reset_pilot_pose.py",
         "--x", str(task["start"][0]), "--y", str(task["start"][1]), "--yaw", str(task["start"][2]),
     ]
-    recorder = ["rosrun", "dep_car_dataset", "record_multimodal_episode.sh", str(bag)]
+    # BZ2 reduced the representative V4 corner bag by about 26% while keeping
+    # the raw ROS messages and their authority contract intact.  Keep this a
+    # command-level default rather than a required config key so an existing
+    # resumable collection state retains the same config hash.
+    bag_compression = str(collection.get("bag_compression", "bz2"))
+    if bag_compression not in ("bz2", "lz4", "none"):
+        raise ValueError("unsupported rosbag compression: " + bag_compression)
+    recorder = [
+        "rosrun", "dep_car_dataset", "record_multimodal_episode.sh",
+        str(bag), bag_compression,
+    ]
     runner = [
         "rosrun", "dep_car_dataset", "run_pilot_episode.py",
         "--task-id", task["task_id"], "--maneuver-mode", task["maneuver_mode"],
@@ -233,6 +279,8 @@ def task_is_pending(
 
     previous = state.get("tasks", {}).get(task["task_id"], {})
     status = previous.get("status")
+    if str(status).startswith("EXCLUDED_"):
+        return False
     if status == "COMPLETE":
         candidate_messages = int(previous.get("candidate_messages", 0))
         zero_feasible_messages = int(previous.get("zero_feasible_messages", 0))
@@ -321,9 +369,12 @@ def collect_one_task(
             runner_cmd, task_environment, task_log_root / "episode.log", registry,
             timeout=runner_timeout,
         )
-        stop_process(recorder, 15.0, recorder_log)
+        bag_finalize_timeout = float(collection.get("bag_finalize_timeout_s", 180.0))
+        stop_process(recorder, bag_finalize_timeout, recorder_log)
         registry.discard(recorder)
         recorder = None
+        if not wait_for_finalized_bag(bag_path, bag_finalize_timeout, recorder_log):
+            raise RuntimeError("rosbag did not finish BZ2 finalization")
         stop_process(launch, float(collection["shutdown_timeout_s"]), launch_log)
         registry.discard(launch)
         launch = None
@@ -365,7 +416,11 @@ def collect_one_task(
                 "error": type(exc).__name__ + ": " + str(exc),
             })
     finally:
-        stop_process(recorder, 15.0, recorder_log)
+        stop_process(
+            recorder,
+            float(collection.get("bag_finalize_timeout_s", 180.0)),
+            recorder_log,
+        )
         stop_process(launch, float(collection["shutdown_timeout_s"]), launch_log)
         registry.discard(recorder)
         registry.discard(launch)
@@ -526,9 +581,20 @@ def main():
     if not pending:
         totals = {
             name: sum(item.get("status") == name for item in state["tasks"].values())
-            for name in ("COMPLETE", "FAILED", "INTERRUPTED", "RUNNING")
+            for name in (
+                "COMPLETE", "FAILED", "INTERRUPTED", "RUNNING",
+                "EXCLUDED_INVALID_GOAL",
+            )
         }
-        status = "PASS" if totals["FAILED"] == 0 and totals["INTERRUPTED"] == 0 and totals["RUNNING"] == 0 else "PARTIAL"
+        status = (
+            "PASS_WITH_EXCLUSIONS"
+            if totals["EXCLUDED_INVALID_GOAL"] and not any(
+                totals[name] for name in ("FAILED", "INTERRUPTED", "RUNNING")
+            )
+            else "PASS"
+            if not any(totals[name] for name in ("FAILED", "INTERRUPTED", "RUNNING"))
+            else "PARTIAL"
+        )
         print(json.dumps({
             "status": status, "parallel_workers": 0, "this_run": {},
             "state_totals": totals, "worker_errors": [],
@@ -576,9 +642,21 @@ def main():
         executor.shutdown(wait=True)
     totals = {
         name: sum(item.get("status") == name for item in state["tasks"].values())
-        for name in ("COMPLETE", "FAILED", "INTERRUPTED", "RUNNING")
+        for name in (
+            "COMPLETE", "FAILED", "INTERRUPTED", "RUNNING",
+            "EXCLUDED_INVALID_GOAL",
+        )
     }
-    status = "PASS" if not worker_errors and totals["FAILED"] == 0 and totals["INTERRUPTED"] == 0 and totals["RUNNING"] == 0 else "PARTIAL"
+    status = (
+        "PASS_WITH_EXCLUSIONS"
+        if not worker_errors
+        and totals["EXCLUDED_INVALID_GOAL"]
+        and not any(totals[name] for name in ("FAILED", "INTERRUPTED", "RUNNING"))
+        else "PASS"
+        if not worker_errors
+        and not any(totals[name] for name in ("FAILED", "INTERRUPTED", "RUNNING"))
+        else "PARTIAL"
+    )
     print(json.dumps({
         "status": status, "parallel_workers": active_workers,
         "this_run": dict(run_counts), "state_totals": totals, "worker_errors": worker_errors,

@@ -1,0 +1,21 @@
+{
+  "applied": false,
+  "approval_boundary": "This proposal does not edit training.yaml and does not authorize or start P5 training.",
+  "bundle_authority": "data/p3_v4/bundle_v1/bundle_authority.json",
+  "bundle_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+  "formal_training_started": false,
+  "reaudit": "reports/p3_v4_corner_reaudit.json",
+  "reaudit_sha256": "90fbe73c8c7a9df9e3d2ac07e32c7ac8c8e0f2e36f7d21759158360c6182bdf8",
+  "schema": "DEPCarP3V3TrainingAuthorityProposalV1",
+  "status": "READY_FOR_EXPLICIT_P5_CONFIG_APPROVAL",
+  "training_yaml_changes": {
+    "dataset.content_aggregate_sha256": "13b37687f7a97ba5af277ee705f78cbffe224499a64898cad99fc04e6e42c441",
+    "dataset.index": "data/p3_v4/bundle_v1/training_index.json",
+    "dataset.map_contract_aggregate_sha256": "dde82b4f82849eeb7b2ceaeab9914ad6f97510cefa4d3975fcaca879e6e17a43",
+    "dataset.maps": "data/p3_pilot/maps",
+    "dataset.root": "data/p3_v4/bundle_v1/samples",
+    "qualification.blocked_gates": [],
+    "qualification.corrected_footprint_p3_status": "PASS",
+    "qualification.p5_formal_training_allowed": true
+  }
+}

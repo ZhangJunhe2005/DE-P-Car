@@ -1,5 +1,8 @@
 # P5 AMP encoder/token dtype regression
 
+> 历史 v1 报告：仅修复 encoder/token 拼接 dtype，未解决 FP16 物理计算与
+> 全 15 候选运动学约束。当前权威为 `p5_v2_candidate_iteration.md`。
+
 Date: 2026-08-16
 
 Status: **PASS**

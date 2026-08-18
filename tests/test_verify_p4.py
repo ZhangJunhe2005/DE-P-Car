@@ -16,6 +16,7 @@ if str(TOOLS) not in sys.path:
 
 import verify_p4
 from dep_car.model.dep_car_net import DEPCarNetV1
+from dep_car.model.implementation_contract import build_p4_implementation_contract
 from dep_car.training.losses import DEPCarObjectiveV1
 from dep_car.training.stages import parameter_partitions
 
@@ -31,6 +32,7 @@ def _training_authority(samples=2):
 
 def _p3_reaudit_payload(status="PASS", samples=2):
     errors = [] if status == "PASS" else ["overall_zero_feasible_rate_lt_0_10"]
+    implementation = build_p4_implementation_contract(ROOT)
     return {
         "schema": "DEPCarP3DevelopmentReauditV3",
         "status": status,
@@ -39,6 +41,13 @@ def _p3_reaudit_payload(status="PASS", samples=2):
         "sample_files_audited": samples,
         "sample_files_discovered": samples,
         "sample_failures": {},
+        "audit_implementation": {
+            "p4_implementation_schema": implementation["schema"],
+            "p4_implementation_aggregate_sha256": implementation[
+                "aggregate_sha256"
+            ],
+            "p4_implementation_files": implementation["files"],
+        },
         "scope": {
             "test_split_used_for_tuning": False,
             "test_npz_opened": False,
@@ -351,6 +360,7 @@ def test_direct_oracle_reconstructs_loss_per_independent_sample():
     )
     candidate_cost = torch.arange(30, dtype=torch.float32).reshape(2, 15) / 30.0
     safety = torch.full((2, 15), 0.1, dtype=torch.float32)
+    kinematic = torch.full((2, 15), 0.2, dtype=torch.float32)
     batch = {
         "geometry_valid": torch.ones(2, dtype=torch.bool),
         "requested_gear": torch.tensor([1, -1]),
@@ -372,10 +382,12 @@ def test_direct_oracle_reconstructs_loss_per_independent_sample():
         top_k
         + objective.config.weights.safety * safety.mean(dim=1)
         + objective.config.weights.diversity * diversity
+        + objective.config.weights.kinematic_all * kinematic.mean(dim=1)
     )
     result = {
         "candidate_cost": candidate_cost,
         "safety_per_candidate": safety,
+        "kinematic_per_candidate": kinematic,
         "candidate": expected.mean(),
     }
 

@@ -6,8 +6,15 @@ import numpy as np
 import rospy
 import tf2_ros
 from dep_car.core.vehicle import DYNAMIC_EGO_RADIUS_M
-from dep_car.perception.pointcloud import SelfFilterConfig, lidar_environment_mask
+from dep_car.perception.bev import LidarBEVConfig, build_lidar_bev
+from dep_car.perception.pointcloud import (
+    ObstacleFilterConfig,
+    SelfFilterConfig,
+    filter_lidar_obstacles,
+    lidar_environment_mask,
+)
 from dep_car.perception.range_image import build_range_image
+from dep_car.runtime.occupancy import ego_unknown_clearance_mask
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs import point_cloud2
 from sensor_msgs.msg import Image, PointCloud2
@@ -41,6 +48,7 @@ class LidarPreprocessor:
         self.range_pub = rospy.Publisher("/dep_car/lidar/range_image", Image, queue_size=1)
         self.mask_pub = rospy.Publisher("/dep_car/lidar/validity_mask", Image, queue_size=1)
         self.grid_pub = rospy.Publisher("/dep_car/local_costmap", OccupancyGrid, queue_size=1)
+        self.bev_pub = rospy.Publisher("/dep_car/lidar/bev", Image, queue_size=1)
         rospy.Subscriber("/velodyne_points", PointCloud2, self.callback, queue_size=1, buff_size=2 ** 24)
 
     @staticmethod
@@ -52,6 +60,25 @@ class LidarPreprocessor:
         message.is_bigendian = False
         message.step = message.width * 4
         message.data = np.asarray(array, dtype=np.float32).tobytes()
+        return message
+
+    @staticmethod
+    def bev_message(array, header):
+        values = np.asarray(array, dtype=np.float32)
+        if values.shape != (6, 160, 160):
+            raise ValueError("LiDAR BEV must be [6,160,160]")
+        # ROS Image stores interleaved channels.  The policy node restores CHW
+        # before applying the frozen P3 height normalization.
+        interleaved = values.transpose(1, 2, 0).copy()
+        message = Image()
+        message.header = header
+        message.header.frame_id = "chassis"
+        message.height = 160
+        message.width = 160
+        message.encoding = "32FC6"
+        message.is_bigendian = False
+        message.step = message.width * 6 * 4
+        message.data = interleaved.tobytes()
         return message
 
     @staticmethod
@@ -97,16 +124,20 @@ class LidarPreprocessor:
             occupied = (grid == 100).astype(np.uint8)
             kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * radius + 1, 2 * radius + 1))
             grid[cv2.dilate(occupied, kernel) > 0] = 100
-        # The lidar cannot observe through the vehicle body.  Explicitly clear
-        # only the physical ego box (not the planning safety margin), matching
-        # standard rolling-costmap footprint clearing.
+        # The lidar cannot observe through the vehicle body.  The unknown-only
+        # self-clear mask must cover the exact five-circle envelope used by the
+        # P6 hard veto; otherwise the stationary nose/tail can collide with an
+        # unknown cell and reject every forward and reverse primitive.  Known
+        # occupied returns are deliberately preserved below.
         coordinates = (np.arange(size, dtype=np.float32) + 0.5 - center) * self.resolution
-        xx, yy = np.meshgrid(coordinates, coordinates)
-        unknown_under_ego = (xx * xx + yy * yy <= self.unknown_ego_clearance ** 2) & (grid < 0)
+        self_clearance = ego_unknown_clearance_mask(
+            coordinates,
+            coordinates,
+            resolution=self.resolution,
+            blind_radius=self.unknown_ego_clearance,
+        )
+        unknown_under_ego = self_clearance & (grid < 0)
         grid[unknown_under_ego] = 0
-        ego_x = np.abs(coordinates) <= (0.5 * self.self_filter.length + self.self_filter.padding)
-        ego_y = np.abs(coordinates) <= (0.5 * self.self_filter.width + self.self_filter.padding)
-        grid[np.ix_(ego_y, ego_x)] = 0
         message = OccupancyGrid()
         message.header = header
         message.header.frame_id = self.body_frame
@@ -134,6 +165,15 @@ class LidarPreprocessor:
         normalized, mask = build_range_image(sensor_points, self.bins, self.channels, self.min_range, self.max_range)
         self.range_pub.publish(self.image_message(normalized, cloud.header))
         self.mask_pub.publish(self.image_message(mask, cloud.header))
+        obstacle_filter = ObstacleFilterConfig(
+            minimum_height=self.min_height,
+            maximum_height=self.max_height,
+            self_filter=self.self_filter,
+        )
+        bev_points = filter_lidar_obstacles(body_points, obstacle_filter)
+        self.bev_pub.publish(
+            self.bev_message(build_lidar_bev(bev_points, LidarBEVConfig()), cloud.header)
+        )
         self.grid_pub.publish(self.occupancy_message(body_points, cloud.header))
 
 

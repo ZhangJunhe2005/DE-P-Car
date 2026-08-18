@@ -99,6 +99,16 @@ def load_config(path):
         raise ValueError("route_checkpoints must be positive")
     if int(preflight.get("minimum_feasible_candidates_per_probe", 0)) < 2:
         raise ValueError("V3 task preflight requires at least two feasible candidates")
+    corner = wave.get("corner_curriculum")
+    if corner is not None:
+        if not isinstance(corner, dict) or corner.get("schema") != "P3V4RightAngleCurriculumV1":
+            raise ValueError("corner_curriculum schema mismatch")
+        minimum = float(corner.get("minimum_absolute_turn_rad", 0.0))
+        maximum = float(corner.get("maximum_absolute_turn_rad", 0.0))
+        if not 0.0 < minimum < maximum < math.pi:
+            raise ValueError("corner curriculum turn interval is invalid")
+        if int(corner.get("minimum_tasks_per_side_per_split", 0)) < 1:
+            raise ValueError("corner curriculum requires both turn directions")
     return payload
 
 
@@ -239,6 +249,28 @@ def preflight_route(path, spec, sdf, preflight):
     return evidence
 
 
+def preflight_endpoint_poses(planner, grid, start, goal):
+    """Apply the same static endpoint gate as the runtime ROS wrapper."""
+
+    start_valid, start_reason, start_clearance, safe_primitives = (
+        planner.validate_start_pose(grid, tuple(start))
+    )
+    goal_valid, goal_reason, goal_clearance = planner.validate_goal_pose(
+        grid, tuple(goal)
+    )
+    return {
+        "schema": "P3V4RuntimeEndpointFootprintPreflightV1",
+        "evaluator": "HybridAStar.validate_start_pose+validate_goal_pose",
+        "start_valid": bool(start_valid),
+        "start_reason": str(start_reason),
+        "start_footprint_clearance_m": float(start_clearance),
+        "start_safe_ackermann_primitives": int(safe_primitives),
+        "goal_valid": bool(goal_valid),
+        "goal_reason": str(goal_reason),
+        "goal_footprint_clearance_m": float(goal_clearance),
+    }
+
+
 def generate_map_mode(arguments):
     record, target_mode, seed, wave = arguments
     torch.set_num_threads(1)
@@ -260,6 +292,19 @@ def generate_map_mode(arguments):
             break
         try:
             start, goal = sampler.propose(target_mode)
+            endpoint_preflight = preflight_endpoint_poses(
+                planner, grid, start, goal
+            )
+            if not endpoint_preflight["start_valid"]:
+                failures[
+                    "endpoint_" + endpoint_preflight["start_reason"].lower()
+                ] += 1
+                continue
+            if not endpoint_preflight["goal_valid"]:
+                failures[
+                    "endpoint_" + endpoint_preflight["goal_reason"].lower()
+                ] += 1
+                continue
             route = planner.plan(grid, start, goal)
             if not route:
                 failures["no_path"] += 1
@@ -268,6 +313,26 @@ def generate_map_mode(arguments):
             if observed != target_mode:
                 failures["classified_as_" + observed] += 1
                 continue
+            corner = wave.get("corner_curriculum")
+            if target_mode == "SHARP_TURN" and corner is not None:
+                signed_turn = math.atan2(
+                    math.sin(float(goal[2]) - float(start[2])),
+                    math.cos(float(goal[2]) - float(start[2])),
+                )
+                absolute_turn = abs(signed_turn)
+                if not (
+                    float(corner["minimum_absolute_turn_rad"])
+                    <= absolute_turn
+                    <= float(corner["maximum_absolute_turn_rad"])
+                ):
+                    failures["outside_right_angle_band"] += 1
+                    continue
+                route_evidence["corner_curriculum"] = {
+                    "schema": corner["schema"],
+                    "side": "LEFT" if signed_turn > 0.0 else "RIGHT",
+                    "signed_turn_rad": signed_turn,
+                    "absolute_turn_rad": absolute_turn,
+                }
             preflight = preflight_route(route, spec, sdf, wave["preflight"])
             if preflight is None:
                 failures["continuous_preflight"] += 1
@@ -296,6 +361,7 @@ def generate_map_mode(arguments):
                 "task_seed": int(seed),
                 "route_evidence": {
                     **route_evidence,
+                    "endpoint_footprint_preflight": endpoint_preflight,
                     "p3_v3_preflight": preflight,
                 },
             })
@@ -310,7 +376,7 @@ def generate_map_mode(arguments):
     }
 
 
-def select_proposals(results, quotas, maximum_per_map):
+def select_proposals(results, quotas, maximum_per_map, corner_curriculum=None):
     pools = defaultdict(list)
     failures = Counter()
     for result in results:
@@ -320,6 +386,7 @@ def select_proposals(results, quotas, maximum_per_map):
     for values in pools.values():
         values.sort(key=lambda row: row["proposal_id"])
     map_counts = Counter()
+    corner_side_counts = Counter()
     selected = []
     deficits = {}
     for split in ALLOWED_SPLITS:
@@ -339,11 +406,30 @@ def select_proposals(results, quotas, maximum_per_map):
                 chosen = min(
                     eligible,
                     key=lambda row: (
+                        corner_side_counts[
+                            (
+                                split,
+                                row.get("route_evidence", {})
+                                .get("corner_curriculum", {})
+                                .get("side", "UNKNOWN"),
+                            )
+                        ]
+                        if mode == "SHARP_TURN" and corner_curriculum is not None
+                        else 0,
                         map_counts[row["map_uuid"]], row["map_uuid"], row["proposal_id"]
                     ),
                 )
                 selected.append(chosen)
                 map_counts[chosen["map_uuid"]] += 1
+                if mode == "SHARP_TURN" and corner_curriculum is not None:
+                    corner_side_counts[
+                        (
+                            split,
+                            chosen.get("route_evidence", {})
+                            .get("corner_curriculum", {})
+                            .get("side", "UNKNOWN"),
+                        )
+                    ] += 1
                 pool.remove(chosen)
     return selected, deficits, failures, map_counts
 
@@ -418,7 +504,10 @@ def main(argv=None):
     with ProcessPoolExecutor(max_workers=workers) as executor:
         results = list(executor.map(generate_map_mode, jobs, chunksize=1))
     selected, deficits, failures, map_counts = select_proposals(
-        results, wave["task_quotas"], wave["maximum_tasks_per_map"]
+        results,
+        wave["task_quotas"],
+        wave["maximum_tasks_per_map"],
+        wave.get("corner_curriculum"),
     )
     tasks = []
     for number, row in enumerate(sorted(
@@ -448,6 +537,32 @@ def main(argv=None):
             "V3 task quotas could not be filled after continuous preflight: "
             + json.dumps(deficits, sort_keys=True)
         )
+    corner = wave.get("corner_curriculum")
+    if corner is not None:
+        minimum_per_side = int(corner["minimum_tasks_per_side_per_split"])
+        side_counts = Counter(
+            (
+                row["map_split"],
+                row.get("route_evidence", {})
+                .get("corner_curriculum", {})
+                .get("side", "UNKNOWN"),
+            )
+            for row in selected
+            if row["maneuver_mode"] == "SHARP_TURN"
+        )
+        side_deficits = {
+            "%s:%s" % (split, side): minimum_per_side - side_counts[(split, side)]
+            for split in ALLOWED_SPLITS
+            for side in ("LEFT", "RIGHT")
+            if side_counts[(split, side)] < minimum_per_side
+        }
+        if side_deficits and not args.allow_partial:
+            raise RuntimeError(
+                "V4 corner side coverage could not be filled: "
+                + json.dumps(side_deficits, sort_keys=True)
+            )
+    else:
+        side_counts = Counter()
     aggregate_quotas = Counter()
     for rows in wave["task_quotas"].values():
         aggregate_quotas.update({name: int(value) for name, value in rows.items()})
@@ -482,6 +597,9 @@ def main(argv=None):
         "tasks_by_split": dict(sorted(Counter(task.map_split for task in tasks).items())),
         "tasks_by_mode": dict(sorted(Counter(task.maneuver_mode for task in tasks).items())),
         "maps_used": dict(sorted((key, int(value)) for key, value in map_counts.items())),
+        "corner_side_counts": {
+            "%s:%s" % key: int(value) for key, value in sorted(side_counts.items())
+        },
         "parallel_workers": workers,
         "test_maps_opened": False,
         "task_manifest_sha256": manifest["task_manifest_sha256"],

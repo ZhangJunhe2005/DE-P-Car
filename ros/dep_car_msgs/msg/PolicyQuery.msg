@@ -1,0 +1,9 @@
+std_msgs/Header header
+int8 requested_gear
+geometry_msgs/Point subgoal_body
+geometry_msgs/Pose2D[] route_corridor_body
+bool route_corridor_valid
+float64 heading_error
+float64 reference_curvature
+bool recovery_mode
+uint64 generation

@@ -1,0 +1,12 @@
+uint8 candidate_id
+int8 gear
+float64 speed_anchor
+float64 steering_anchor
+float64 duration
+float64 learned_score
+float64[] time
+float64[] x
+float64[] y
+float64[] yaw
+float64[] speed
+float64[] steering

@@ -2,6 +2,7 @@
 """Headless deterministic wrapper around the pinned arena-tools generator."""
 
 import argparse
+from concurrent.futures import ProcessPoolExecutor, as_completed
 import hashlib
 import json
 import sys
@@ -119,10 +120,38 @@ def main():
     parser.add_argument("--corridor-radius", type=int, default=8); parser.add_argument("--iterations", type=int, default=45)
     parser.add_argument("--obstacles", type=int, default=90); parser.add_argument("--obstacle-radius", type=int, default=3)
     parser.add_argument("--resume", action="store_true", help="reuse deterministic maps whose provenance already matches")
+    parser.add_argument("--workers", type=int, default=1, help="parallel deterministic map workers")
     args = parser.parse_args()
+    if args.workers < 1:
+        raise ValueError("workers must be positive")
     args.output.mkdir(parents=True, exist_ok=True)
-    manifests = [generate_one(args.output, args.type, args.seed + i, i, args.width, args.height, args.resolution, args.corridor_radius, args.iterations, args.obstacles, args.obstacle_radius, args.resume) for i in range(args.count)]
-    print(json.dumps({"status": "PASS", "generated": len(manifests), "maps": manifests}, indent=2))
+    jobs = [
+        (
+            args.output, args.type, args.seed + index, index, args.width,
+            args.height, args.resolution, args.corridor_radius, args.iterations,
+            args.obstacles, args.obstacle_radius, args.resume,
+        )
+        for index in range(args.count)
+    ]
+    if args.workers == 1:
+        manifests = []
+        for index, job in enumerate(jobs, 1):
+            manifests.append(generate_one(*job))
+            print("prepared map %d/%d" % (index, len(jobs)), flush=True)
+    else:
+        indexed = {}
+        with ProcessPoolExecutor(max_workers=min(args.workers, max(1, args.count))) as pool:
+            futures = {pool.submit(generate_one, *job): index for index, job in enumerate(jobs)}
+            completed = 0
+            for future in as_completed(futures):
+                indexed[futures[future]] = future.result()
+                completed += 1
+                print("prepared map %d/%d" % (completed, len(jobs)), flush=True)
+        manifests = [indexed[index] for index in range(len(jobs))]
+    print(json.dumps({
+        "status": "PASS", "generated": len(manifests),
+        "parallel_workers": min(args.workers, max(1, args.count)), "maps": manifests,
+    }, indent=2))
 
 
 if __name__ == "__main__": main()

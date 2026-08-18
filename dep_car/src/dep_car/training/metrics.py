@@ -21,6 +21,19 @@ def candidate_batch_metrics(output, objective_result):
     if kinematic_violation.shape != clearance.shape:
         raise ValueError("kinematic violation tensor must have shape [B,15]")
     kinematic_violation = kinematic_violation.bool()
+    component_counts = {}
+    components = objective_result.get("kinematic_violation_by_constraint", {})
+    if components is not None:
+        if not isinstance(components, dict):
+            raise ValueError("kinematic violation components must be a mapping")
+        for name, component in sorted(components.items()):
+            if component.shape != clearance.shape:
+                raise ValueError(
+                    f"kinematic violation component {name} must have shape [B,15]"
+                )
+            component_counts[
+                "kinematic_violation_component_" + str(name)
+            ] = component.bool().sum(dim=1)
     feasible = objective_result.get("hard_feasible")
     if feasible is None:
         feasible = (clearance > 0.0) & ~kinematic_violation
@@ -49,6 +62,7 @@ def candidate_batch_metrics(output, objective_result):
         "selected_cost": selected_cost,
         "oracle_regret": regret,
         "kinematic_violation_count": kinematic_violation.sum(dim=1),
+        **component_counts,
     }
 
 
@@ -74,6 +88,14 @@ class CandidateMetricAccumulator:
     def _summarize(rows):
         values = {name: torch.cat(chunks) for name, chunks in rows.items()}
         valid_regret = values["oracle_regret"][torch.isfinite(values["oracle_regret"])]
+        component_prefix = "kinematic_violation_component_"
+        component_rates = {
+            name[len(component_prefix):]: float(
+                tensor.float().sum() / float(15 * len(tensor))
+            )
+            for name, tensor in sorted(values.items())
+            if name.startswith(component_prefix)
+        }
         return {
             "frames": int(len(values["zero_feasible"])),
             "zero_feasible_rate": float(values["zero_feasible"].float().mean()),
@@ -85,6 +107,7 @@ class CandidateMetricAccumulator:
                 values["kinematic_violation_count"].float().sum()
                 / float(15 * len(values["kinematic_violation_count"]))
             ),
+            "kinematic_violation_by_constraint": component_rates,
             "mean_oracle_regret": float(valid_regret.mean()) if len(valid_regret) else None,
         }
 

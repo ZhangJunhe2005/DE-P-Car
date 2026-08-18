@@ -11,6 +11,7 @@ import tempfile
 import time
 from collections import Counter, defaultdict
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 # cuBLAS reads this setting before its first CUDA operation.  It does not make
@@ -28,6 +29,7 @@ sys.path.insert(0, str(ROOT / "dep_car" / "src"))
 
 from dep_car.model.checkpoint import verify_checkpoint
 from dep_car.model.dep_car_net import DEPCarNetV1, DEPCarNetworkOutput
+from dep_car.model.implementation_contract import build_p4_implementation_contract
 from dep_car.training.losses import DEPCarObjectiveV1, candidate_diversity_loss
 from dep_car.training.metrics import candidate_batch_metrics
 from dep_car.training.p4_dataset import P3TrainingDatasetV1, p3_training_collate
@@ -288,6 +290,17 @@ def summarize_p3_development_reaudit(report_path, training_authority):
         and sample_files_discovered == expected_samples
         and not report.get("sample_failures")
     )
+    current_implementation = build_p4_implementation_contract(ROOT)
+    reported_implementation = report.get("audit_implementation", {})
+    implementation_matches = bool(
+        isinstance(reported_implementation, dict)
+        and reported_implementation.get("p4_implementation_schema")
+        == current_implementation["schema"]
+        and reported_implementation.get("p4_implementation_aggregate_sha256")
+        == current_implementation["aggregate_sha256"]
+        and reported_implementation.get("p4_implementation_files")
+        == current_implementation["files"]
+    )
     p5_gate_errors = []
     if report.get("status") != "PASS":
         p5_gate_errors.extend(
@@ -303,6 +316,8 @@ def summarize_p3_development_reaudit(report_path, training_authority):
         p5_gate_errors.append("p3_reaudit_training_authority_mismatch")
     if not test_not_accessed:
         p5_gate_errors.append("p3_reaudit_accessed_or_used_sealed_test_data")
+    if not implementation_matches:
+        p5_gate_errors.append("p3_reaudit_implementation_contract_mismatch")
     return {
         "path": str(report_path.resolve()),
         "sha256": sha256_file(report_path),
@@ -317,6 +332,13 @@ def summarize_p3_development_reaudit(report_path, training_authority):
         "training_authority_matches": authority_matches,
         "test_access_evidence": test_access_evidence,
         "test_not_accessed": test_not_accessed,
+        "implementation_contract_matches": implementation_matches,
+        "reported_implementation_aggregate_sha256": reported_implementation.get(
+            "p4_implementation_aggregate_sha256"
+        ),
+        "current_implementation_aggregate_sha256": current_implementation[
+            "aggregate_sha256"
+        ],
         "p5_gate_eligible": not p5_gate_errors,
         "p5_gate_errors": p5_gate_errors,
         "p4_implementation_status_is_independent": True,
@@ -606,6 +628,8 @@ def candidate_loss_breakdown(objective, output, objective_result):
         "top_k_kinematic": weights.kinematic * top_kinematic,
         "top_k_comfort": weights.comfort * top_comfort,
         "all_candidate_safety": weights.safety * float(objective_result["safety"].detach()),
+        "all_candidate_kinematic": weights.kinematic_all
+        * float(objective_result["kinematic"].detach()),
         "diversity": weights.diversity * float(objective_result["diversity"].detach()),
         "anchor": weights.anchor * float(objective_result["anchor"].detach()),
     }
@@ -659,6 +683,8 @@ def candidate_loss_per_sample(objective, output, objective_result, batch):
         top_k
         + weights.safety
         * objective_result["safety_per_candidate"].mean(dim=1)
+        + weights.kinematic_all
+        * objective_result["kinematic_per_candidate"].mean(dim=1)
         + weights.diversity * diversity
         + weights.anchor * anchor
     )
@@ -1306,7 +1332,7 @@ def main():
     metadata = batch["metadata"]
     report = {
         "schema": "DEPCarP4ImplementationAcceptanceV3",
-        "date": "2026-08-16",
+        "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "status": "PASS" if not qualification_errors else "FAIL",
         "errors": qualification_errors,
         "scope": "P4 implementation/smoke qualification only; formal P5 training and P6 closed-loop qualification are not claimed",

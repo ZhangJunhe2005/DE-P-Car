@@ -5,6 +5,10 @@ steering_limit: 0.6124077385268893
 effort_limit: 1.4814814814814814
 speed_kp: 0.8024691358024691
 speed_ki: 0.09876543209876543
+active_stop_deadband: 0.02
+active_stop_minimum_effort_fraction: 0.10
+brake_deadband: 0.005
+brake_minimum_effort_fraction: 0.10
 command_timeout: 0.35
 simulator_positive_right: true
 command_topic: /dep_car/cmd_ackermann

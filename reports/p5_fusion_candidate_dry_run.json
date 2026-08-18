@@ -35,7 +35,7 @@
   },
   "max_steps": null,
   "modality": "fusion",
-  "output": "/home/zjh/DE-P-Car/models/dep_car/p5/fusion_candidate_capacity.pth",
+  "output": "/home/zjh/DE-P-Car/models/dep_car/p5_v2/fusion_candidate_capacity.pth",
   "p3_footprint_gate": {
     "errors": [],
     "geometry_sha256": "e7b35a60cf31655f0695cefd9d2fe85cdc3bbba7414145bddc327ae3e8395418",
@@ -43,7 +43,7 @@
     "overall_zero_feasible_rate": 0.0652412828454391,
     "passed": true,
     "path": "/home/zjh/DE-P-Car/reports/p3_development_reaudit_v3.json",
-    "report_sha256": "aba7f5803fa0e159b1f9f411e9425c732b1410431904d521be8931a89aab05b0",
+    "report_sha256": "31670a776c66cb268a2be4392837bd65e3bce966f90a4407b80047b6e4691f3c",
     "rollout_sha256": "5fba67c43e04bfab3f8ec25e4086159b83c2a58ec6e337248b56807efd60264c",
     "samples_audited": 20018,
     "schema": "DEPCarP3DevelopmentReauditV3",
@@ -51,6 +51,12 @@
     "status": "PASS"
   },
   "permanent_smoke": false,
+  "precision_contract": {
+    "ackermann_rollout": "float32",
+    "hard_veto": "float32",
+    "neural_encoders_and_towers": "AMP_when_enabled",
+    "physical_objective": "float32"
+  },
   "qualification_status": "UNQUALIFIED",
   "samples": {
     "train": 16394,
@@ -67,12 +73,12 @@
   "stage": "candidate_capacity",
   "status": "DRY_RUN_READY",
   "torch_threads": 8,
-  "trainer_sha256": "0ec39f0e3f951673d34c088f99fc94dc061284fca7211aa9b8d02ba20eda0562",
+  "trainer_sha256": "954e72f4af0a38be0130209d624c14827387df8c7d9d083a9d2f47e7702881b0",
   "training_config": {
-    "file_sha256": "383ffbdb4eb6714b5819f671688d2a65f0ffe67a85a7efd3fd29590f8cd157f5",
-    "loss_config_sha256": "20a8ce55afaa870c00bf5c8ac19b8b6584e7145b6a62e96e0cb1bba541c9913a",
+    "file_sha256": "b906715c105b87e87879cebef7ce5b21e53c9d485c65be8296fe3fe836850bd1",
+    "loss_config_sha256": "2115e56265bd24e88c7a9fcd1fd005db621038380a3e16eff77fc22151fa75be",
     "path": "/home/zjh/DE-P-Car/dep_car/config/training.yaml",
-    "semantic_sha256": "0ce9cedcdbcc2054c6223dda29c47913c664a19c3369457b653670b1eee7abf5"
+    "semantic_sha256": "d19388597c6bae98346a7704e283be928f9b449b9cf99f5404585dd6b1581cf9"
   },
   "training_yaml_qualification_gate": {
     "blocked_gates": [],

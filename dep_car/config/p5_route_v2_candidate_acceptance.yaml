@@ -1,0 +1,25 @@
+schema: DEPCarRouteV2CandidateAcceptanceContractV1
+architecture_id: dep_car_multimodal_v2_route_ackermann_3x5
+population:
+  split: validation
+  maneuver_mode: SHARP_TURN
+  geometry_valid_only: true
+  maximum_samples: 0
+execution:
+  modality: fusion
+  batch_size: 16
+  workers: 8
+  device: cuda
+thresholds:
+  clearance_margin_m: 0.08
+  route_tube_radius_m: 0.45
+  minimum_route_progress_m: 0.25
+  minimum_capacity_capable_rate: 0.75
+  maximum_zero_hard_feasible_rate: 0.08
+  followup: at_least_one_same_gear_canonical_primitive_above_margin
+authority:
+  bundle: data/p3_v4/bundle_v1/bundle_authority.json
+  bundle_file_sha256: 9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4
+  training_config: dep_car/config/p5_route_v2_training.yaml
+  candidate_dry_run: reports/p5_route_v2_fusion_candidate_dry_run.json
+  test_split_sealed: true

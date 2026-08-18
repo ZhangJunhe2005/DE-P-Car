@@ -14,8 +14,16 @@ from dep_car.core.occupancy import (
 from dep_car.core.state_contract import (
     ACCELERATION_LIMIT_MPS2,
     DECELERATION_LIMIT_MPS2,
+    FORWARD_SPEED_LIMIT_MPS,
+    REVERSE_SPEED_LIMIT_MPS,
 )
 from dep_car.core.vehicle import PLANNER_ROLLOUT_WHEELBASE_M, STEERING_OPERATING_LIMIT_RAD
+
+
+# FP32 time reconstruction can change a saturated rate by roughly 1e-6 after
+# differencing.  This matches the frozen rollout test tolerance while staying
+# three orders of magnitude below the learned 10% operating margin.
+KINEMATIC_NUMERICAL_TOLERANCE = 1.0e-5
 
 
 @dataclass(frozen=True)
@@ -23,6 +31,7 @@ class DEPCarLossWeights:
     safety: float = 2.0
     guidance: float = 1.0
     kinematic: float = 0.5
+    kinematic_all: float = 2.0
     comfort: float = 0.05
     diversity: float = 0.20
     anchor: float = 0.01
@@ -45,6 +54,7 @@ class DEPCarLossConfig:
     forward_diversity_scales: tuple = (0.8, 0.3, 1.0)
     reverse_diversity_scales: tuple = (0.5, 0.1, 0.5)
     maximum_lateral_acceleration_mps2: float = 3.0
+    kinematic_safety_margin_fraction: float = 0.10
     score_temperature: float = 0.25
     weights: DEPCarLossWeights = DEPCarLossWeights()
 
@@ -65,9 +75,11 @@ class DEPCarLossConfig:
             raise ValueError("safety aggregation weights must be finite, non-negative and sum to one")
         if not 1 <= self.capacity_top_k <= 15:
             raise ValueError("capacity_top_k must be in [1,15]")
+        if not 0.0 <= self.kinematic_safety_margin_fraction < 0.5:
+            raise ValueError("kinematic safety margin fraction must be in [0,0.5)")
         for name, value in vars(self.weights).items():
-            if value < 0.0:
-                raise ValueError(f"loss weight {name} must be non-negative")
+            if not math.isfinite(value) or value < 0.0:
+                raise ValueError(f"loss weight {name} must be finite and non-negative")
 
 
 def _angle_difference(lhs, rhs):
@@ -404,7 +416,7 @@ def kinematic_loss(
     return terms
 
 
-def kinematic_violation_mask(
+def kinematic_violation_components(
     trajectories,
     requested_gear,
     *,
@@ -416,9 +428,9 @@ def kinematic_violation_mask(
     acceleration_limit_mps2=ACCELERATION_LIMIT_MPS2,
     deceleration_limit_mps2=DECELERATION_LIMIT_MPS2,
     lateral_acceleration_limit_mps2=3.0,
-    tolerance=1.0e-6,
+    tolerance=KINEMATIC_NUMERICAL_TOLERANCE,
 ):
-    """Return the explicit runtime-style kinematic veto for every candidate."""
+    """Return each explicit runtime-style kinematic veto component."""
 
     time = trajectories[..., 0]
     speed = trajectories[..., 4]
@@ -434,15 +446,34 @@ def kinematic_violation_mask(
         speed.new_tensor(reverse_speed_limit_mps),
     )
     lateral_acceleration = speed.square() * torch.tan(steering).abs() / wheelbase_m
-    return (
-        (gear * speed < -tolerance).any(dim=-1)
-        | (speed.abs() > speed_limit + tolerance).any(dim=-1)
-        | (steering.abs() > steering_limit_rad + tolerance).any(dim=-1)
-        | (steering_rate.abs() > steering_rate_limit_rad_s + tolerance).any(dim=-1)
-        | (directed_acceleration > acceleration_limit_mps2 + tolerance).any(dim=-1)
-        | (directed_acceleration < -deceleration_limit_mps2 - tolerance).any(dim=-1)
-        | (lateral_acceleration > lateral_acceleration_limit_mps2 + tolerance).any(dim=-1)
+    return {
+        "opposite_motion": (gear * speed < -tolerance).any(dim=-1),
+        "speed_limit": (speed.abs() > speed_limit + tolerance).any(dim=-1),
+        "steering_limit": (
+            steering.abs() > steering_limit_rad + tolerance
+        ).any(dim=-1),
+        "steering_rate": (
+            steering_rate.abs() > steering_rate_limit_rad_s + tolerance
+        ).any(dim=-1),
+        "acceleration": (
+            directed_acceleration > acceleration_limit_mps2 + tolerance
+        ).any(dim=-1),
+        "deceleration": (
+            directed_acceleration < -deceleration_limit_mps2 - tolerance
+        ).any(dim=-1),
+        "lateral_acceleration": (
+            lateral_acceleration > lateral_acceleration_limit_mps2 + tolerance
+        ).any(dim=-1),
+    }
+
+
+def kinematic_violation_mask(trajectories, requested_gear, **kwargs):
+    """Return the union of all runtime-style kinematic veto components."""
+
+    components = kinematic_violation_components(
+        trajectories, requested_gear, **kwargs
     )
+    return torch.stack(tuple(components.values()), dim=0).any(dim=0)
 
 
 def comfort_loss(trajectories):
@@ -523,8 +554,8 @@ def _valid_mean(values, geometry_valid):
 class DEPCarObjectiveV1:
     """Versioned P4 objective supporting the two P5 training stages."""
 
-    objective_id = "dep_car_objective_v3_signed_sdf_cvar_continuous_swept_route_capacity_score"
-    objective_revision = 3
+    objective_id = "dep_car_objective_v4_fp32_physics_all_candidate_kinematic_margin"
+    objective_revision = 4
     stages = ("candidate_capacity", "score_calibration", "joint_smoke")
 
     def __init__(self, config=DEPCarLossConfig(), footprint=FootprintConfig()):
@@ -588,16 +619,32 @@ class DEPCarObjectiveV1:
             progress_weight=cfg.guidance_progress_weight,
             endpoint_weight=cfg.guidance_endpoint_weight,
         )
+        # A differentiable operating margin is applied to every candidate,
+        # while the hard veto below retains the calibrated physical limits.
+        # This aligns the all-15 training objective with the acceptance gate
+        # instead of allowing twelve non-top-k candidates to remain illegal.
+        operating_scale = 1.0 - cfg.kinematic_safety_margin_fraction
         kinematic_per = kinematic_loss(
             output.trajectories,
             requested_gear,
-            lateral_acceleration_limit_mps2=cfg.maximum_lateral_acceleration_mps2,
+            steering_limit_rad=STEERING_OPERATING_LIMIT_RAD * operating_scale,
+            steering_rate_limit_rad_s=0.75 * operating_scale,
+            forward_speed_limit_mps=FORWARD_SPEED_LIMIT_MPS * operating_scale,
+            reverse_speed_limit_mps=REVERSE_SPEED_LIMIT_MPS * operating_scale,
+            acceleration_limit_mps2=ACCELERATION_LIMIT_MPS2 * operating_scale,
+            deceleration_limit_mps2=DECELERATION_LIMIT_MPS2 * operating_scale,
+            lateral_acceleration_limit_mps2=(
+                cfg.maximum_lateral_acceleration_mps2 * operating_scale
+            ),
         )
-        kinematic_violation = kinematic_violation_mask(
+        kinematic_violation_by_constraint = kinematic_violation_components(
             output.trajectories,
             requested_gear,
             lateral_acceleration_limit_mps2=cfg.maximum_lateral_acceleration_mps2,
         )
+        kinematic_violation = torch.stack(
+            tuple(kinematic_violation_by_constraint.values()), dim=0
+        ).any(dim=0)
         comfort_per = comfort_loss(output.trajectories)
         diversity_per = candidate_diversity_loss(
             output.trajectories,
@@ -616,9 +663,13 @@ class DEPCarObjectiveV1:
         top_k = torch.topk(
             capacity_per_candidate, cfg.capacity_top_k, dim=1, largest=False
         ).values.mean(dim=1)
+        all_candidate_kinematic = _valid_mean(
+            kinematic_per.mean(dim=1), geometry_valid
+        )
         candidate_loss = (
             _valid_mean(top_k, geometry_valid)
             + weights.safety * _valid_mean(safe_per.mean(dim=1), geometry_valid)
+            + weights.kinematic_all * all_candidate_kinematic
             + weights.diversity * _valid_mean(diversity_per, geometry_valid)
             + weights.anchor * _valid_mean(anchor_per, geometry_valid)
         )
@@ -644,7 +695,7 @@ class DEPCarObjectiveV1:
             "score": score_loss,
             "safety": _valid_mean(safe_per.mean(dim=1), geometry_valid),
             "guidance": _valid_mean(guide_per.mean(dim=1), geometry_valid),
-            "kinematic": _valid_mean(kinematic_per.mean(dim=1), geometry_valid),
+            "kinematic": all_candidate_kinematic,
             "comfort": _valid_mean(comfort_per.mean(dim=1), geometry_valid),
             "diversity": _valid_mean(diversity_per, geometry_valid),
             "anchor": _valid_mean(anchor_per, geometry_valid),
@@ -654,6 +705,10 @@ class DEPCarObjectiveV1:
             "guidance_per_candidate": guide_per.detach(),
             "kinematic_per_candidate": kinematic_per.detach(),
             "kinematic_violation": kinematic_violation.detach(),
+            "kinematic_violation_by_constraint": {
+                name: value.detach()
+                for name, value in kinematic_violation_by_constraint.items()
+            },
             "hard_feasible": ((minimum_clearance.detach() > 0.0) & ~kinematic_violation).detach(),
             "comfort_per_candidate": comfort_per.detach(),
         }

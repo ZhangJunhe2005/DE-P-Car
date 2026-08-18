@@ -14,6 +14,10 @@ from dep_car.core.occupancy import (
     TRAINING_ONE_DIAGONAL_MULTIPLIER,
     densify_trajectory_se2,
 )
+from dep_car.runtime.occupancy import (
+    RUNTIME_DISTANCE_FIELD_SAMPLING_SCHEMA,
+    RuntimeOccupancyGrid2D,
+)
 
 
 def obstacle_grid(*points, resolution=0.01, extent=2.0):
@@ -162,3 +166,14 @@ def test_grid_allowance_is_a_closed_two_policy_contract_with_runtime_default():
         grid.swept_footprint_clearance(
             stationary_trajectory(), allowance_policy=0.75
         )
+
+
+def test_runtime_distance_field_is_continuous_across_a_cell_boundary():
+    data = np.zeros((40, 40), dtype=np.int8)
+    data[:, 30] = 100
+    grid = RuntimeOccupancyGrid2D(data, 0.1, (-2.0, -2.0))
+    left = grid.point_clearance((0.999, 0.0))
+    right = grid.point_clearance((1.001, 0.0))
+
+    assert RUNTIME_DISTANCE_FIELD_SAMPLING_SCHEMA == "BilinearCellCentreDistanceV1"
+    assert abs(left - right) < 0.01

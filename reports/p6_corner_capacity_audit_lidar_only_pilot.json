@@ -1,0 +1,46 @@
+{
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_score_v1/lidar_only_score_calibration.best.pth",
+  "conclusion": "CAPACITY_FAIL",
+  "decision": "retrain Candidate and Score",
+  "metrics": {
+    "best_progress_inside_tube_m_percentiles": {
+      "p10": 0.0,
+      "p50": 0.5149731636047363,
+      "p90": 0.8503419160842896
+    },
+    "capacity_capable": 34,
+    "capacity_capable_rate": 0.5573770491803278,
+    "feasible_candidates_median": 14.0,
+    "followup_capable": 36,
+    "maximum_route_progress_m_percentiles": {
+      "p10": 0.0,
+      "p50": 0.5295346975326538,
+      "p90": 0.8963366150856018
+    },
+    "minimum_route_cross_track_m_percentiles": {
+      "p10": 0.0002587558119557798,
+      "p50": 0.03651425242424011,
+      "p90": 0.1488865464925766
+    },
+    "oracle_regret_mean": 0.11692413773204459,
+    "route_tube_capable": 36,
+    "samples": 61,
+    "selected_capable": 29,
+    "selected_capable_rate": 0.47540983606557374,
+    "zero_hard_feasible": 4,
+    "zero_hard_feasible_rate": 0.06557377049180328,
+    "zero_margin_feasible": 9,
+    "zero_margin_feasible_rate": 0.14754098360655737
+  },
+  "modality": "lidar_only",
+  "population": "validation/SHARP_TURN/geometry_valid",
+  "schema": "DEPCarP6CornerCandidateCapacityAuditV1",
+  "status": "PASS",
+  "thresholds": {
+    "clearance_margin_m": 0.08,
+    "followup": "at_least_one_same_gear_canonical_primitive_above_margin",
+    "minimum_capacity_capable_rate": 0.75,
+    "minimum_route_progress_m": 0.25,
+    "route_tube_radius_m": 0.45
+  }
+}

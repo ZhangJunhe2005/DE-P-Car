@@ -1,0 +1,72 @@
+{
+  "checkpoint_sha256": "587f7bbd227ab8fd167d2c3996b3e87a92db8cca51a7361dde9c997373a28212",
+  "groups": {
+    "DEAD_END_ESCAPE": {
+      "mean_oracle_regret": 0.0027194823512640357,
+      "samples": 775,
+      "selected_future_capable_rate": 0.8283870967741935,
+      "selected_hard_feasible_rate": 0.9625806451612903,
+      "selected_margin_capable_rate": 0.8554838709677419,
+      "zero_feasible_rate": 0.007741935483870968
+    },
+    "NARROW_CORRIDOR": {
+      "mean_oracle_regret": 0.0022943448400457394,
+      "samples": 1042,
+      "selected_future_capable_rate": 0.8675623800383877,
+      "selected_hard_feasible_rate": 0.9990403071017274,
+      "selected_margin_capable_rate": 0.8800383877159309,
+      "zero_feasible_rate": 0.0
+    },
+    "NORMAL": {
+      "mean_oracle_regret": 0.011843689733354496,
+      "samples": 291,
+      "selected_future_capable_rate": 0.9656357388316151,
+      "selected_hard_feasible_rate": 1.0,
+      "selected_margin_capable_rate": 1.0,
+      "zero_feasible_rate": 0.0
+    },
+    "REVERSE_EXIT": {
+      "mean_oracle_regret": 0.006031460929335209,
+      "samples": 118,
+      "selected_future_capable_rate": 0.652542372881356,
+      "selected_hard_feasible_rate": 0.8050847457627118,
+      "selected_margin_capable_rate": 0.7203389830508474,
+      "zero_feasible_rate": 0.03389830508474576
+    },
+    "SHARP_TURN": {
+      "mean_oracle_regret": 0.012555031156569682,
+      "samples": 4046,
+      "selected_future_capable_rate": 0.9142362827483935,
+      "selected_hard_feasible_rate": 0.9787444389520514,
+      "selected_margin_capable_rate": 0.9320316361838853,
+      "zero_feasible_rate": 0.010133465150766189
+    },
+    "THREE_POINT_TURN": {
+      "mean_oracle_regret": 0.017701455945777295,
+      "samples": 2708,
+      "selected_future_capable_rate": 0.843426883308715,
+      "selected_hard_feasible_rate": 0.9955686853766618,
+      "selected_margin_capable_rate": 0.8833087149187593,
+      "zero_feasible_rate": 0.0014771048744460858
+    },
+    "U_TURN": {
+      "mean_oracle_regret": 0.003861527650728138,
+      "samples": 109,
+      "selected_future_capable_rate": 1.0,
+      "selected_hard_feasible_rate": 1.0,
+      "selected_margin_capable_rate": 1.0,
+      "zero_feasible_rate": 0.0
+    }
+  },
+  "overall": {
+    "mean_oracle_regret": 0.011858454856997653,
+    "samples": 9089,
+    "selected_future_capable_rate": 0.8797447463967433,
+    "selected_hard_feasible_rate": 0.9833865111673451,
+    "selected_margin_capable_rate": 0.9052701067224117,
+    "zero_feasible_rate": 0.006051270766861041
+  },
+  "schema": "DEPCarRouteV2ScoreGroupDiagnosticV1",
+  "status": "DIAGNOSTIC_COMPLETE",
+  "test_split_accessed": false
+}

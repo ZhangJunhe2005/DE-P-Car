@@ -339,8 +339,8 @@ def _validate_p4_contract(contract):
     training = _require_mapping(contract["training_contract"], "training_contract")
     _require(
         training.get("objective_id")
-        == "dep_car_objective_v3_signed_sdf_cvar_continuous_swept_route_capacity_score"
-        and training.get("objective_revision") == 3
+        == "dep_car_objective_v4_fp32_physics_all_candidate_kinematic_margin"
+        and training.get("objective_revision") == 4
         and training.get("sdf_schema")
         == "SignedDistanceFieldV1KnownFreePositiveUnknownUnsafe"
         and training.get("stage_order") == ["candidate_capacity", "score_calibration"],

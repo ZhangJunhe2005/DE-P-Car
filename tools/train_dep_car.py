@@ -79,7 +79,7 @@ CHECKPOINT_SCHEMA = "DEPCarP5CheckpointV1"
 # only with an explicit ``allow_untrained=True``.  Extra P5 execution fields do
 # not weaken the architecture/input/rollout/transfer checks.
 CONTRACT_SCHEMA = P4_CONTRACT_SCHEMA
-CHECKPOINT_VERSION = "dep_car_p5_two_stage_unqualified_v1"
+CHECKPOINT_VERSION = "dep_car_p5_two_stage_unqualified_v2_fp32_margin_best"
 TRAINING_STAGES = ("candidate_capacity", "score_calibration")
 DEFAULT_SAMPLE_ROOT = ROOT / "data/p3_pilot/run/samples"
 DEFAULT_MAPS_ROOT = ROOT / "data/p3_pilot/maps"
@@ -90,9 +90,9 @@ DEFAULT_CANDIDATE_INITIALIZATION = (
 DEFAULT_P3_FOOTPRINT_REAUDIT = ROOT / "reports/p3_development_reaudit_v3.json"
 DEFAULT_TRAINING_CONFIG = ROOT / "dep_car/config/training.yaml"
 EXPECTED_P3_FOOTPRINT_REAUDIT_SCHEMA = "DEPCarP3DevelopmentReauditV3"
-SMOKE_MAX_STEPS = 10
-SMOKE_MAX_SAMPLES = 32
-FORMAL_INITIALIZATION_VERSION = "dep_car_p4_depth_transfer_initialization_v1"
+SMOKE_MAX_STEPS = 64
+SMOKE_MAX_SAMPLES = 512
+FORMAL_INITIALIZATION_VERSION = "dep_car_p4_depth_transfer_initialization_v2_fp32_margin"
 FORMAL_INITIALIZATION_STATUS = "INITIALIZATION_ONLY_RETRAINING_REQUIRED"
 
 
@@ -1311,6 +1311,10 @@ def _inspect_source(args: argparse.Namespace) -> dict:
         payload = _load_checkpoint(path, checkpoint_bytes)
         if payload.get("schema") != CHECKPOINT_SCHEMA:
             raise TrainingConfigurationError("--resume requires a P5 training checkpoint")
+        if payload.get("artifact_role", "last") != "last":
+            raise TrainingConfigurationError(
+                "--resume requires the last checkpoint; best is initialization-only"
+            )
         if (
             payload.get("status") != "TRAINED_UNQUALIFIED"
             or payload.get("qualification_status") != "UNQUALIFIED"
@@ -2106,6 +2110,12 @@ def _public_plan(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
         "device": str(plan["device"]),
         "amp_requested": plan["amp_requested"],
         "amp_enabled": plan["amp_enabled"],
+        "precision_contract": {
+            "neural_encoders_and_towers": "AMP_when_enabled",
+            "ackermann_rollout": "float32",
+            "physical_objective": "float32",
+            "hard_veto": "float32",
+        },
         "epochs": args.epochs,
         "max_steps": args.max_steps,
         "source_kind": plan["source"]["kind"],
@@ -2312,6 +2322,14 @@ def _forward_objective(
                 batch["requested_gear"],
                 modality_mask=mask,
             )
+        # Physical rollout tensors returned by DEPCarNetV1 are FP32.  Keep the
+        # complete signed-SDF footprint objective, kinematic limits and hard
+        # veto in the same FP32 precision island.  Only encoders/towers remain
+        # under AMP; gradients still cross the FP32 casts to their parameters.
+        with torch.autocast(
+            device_type=batch["state"].device.type,
+            enabled=False,
+        ):
             losses = objective(
                 output,
                 map_distance_field=batch["map_distance_field"],
@@ -2561,6 +2579,127 @@ def _artifact_paths(output: Path) -> dict:
     }
 
 
+def _best_checkpoint_path(output: Path) -> Path:
+    output = Path(output)
+    return output.with_name(output.stem + ".best" + output.suffix)
+
+
+def _finite_selection_value(value: Any, name: str) -> float:
+    if (
+        not isinstance(value, (int, float))
+        or isinstance(value, bool)
+        or not math.isfinite(float(value))
+    ):
+        raise FloatingPointError(f"best-checkpoint metric {name} is not finite")
+    return float(value)
+
+
+def _checkpoint_selection(
+    stage: str,
+    validation: Mapping[str, Any],
+    thresholds: Mapping[str, Any],
+    *,
+    epoch: int,
+    global_step: int,
+) -> dict:
+    """Build a deterministic, qualification-first checkpoint ordering."""
+
+    total = _finite_selection_value(validation.get("total"), "validation.total")
+    candidate = validation.get("candidate_metrics", {})
+    overall = candidate.get("overall", {})
+    if stage == "score_calibration":
+        regret = overall.get("mean_oracle_regret")
+        regret = (
+            _finite_selection_value(regret, "validation.mean_oracle_regret")
+            if regret is not None
+            else 1.0e9
+        )
+        key = [total, regret]
+        summary = {
+            "validation_total_loss": total,
+            "validation_mean_oracle_regret": regret,
+        }
+    else:
+        required_groups = (
+            ("overall", {"overall": overall}, ("overall",)),
+            ("maneuver", candidate.get("by_maneuver", {}), thresholds["required_maneuvers"]),
+            ("requested_gear", candidate.get("by_requested_gear", {}), thresholds["required_requested_gears"]),
+            ("candidate_context", candidate.get("by_candidate_context", {}), thresholds["required_candidate_contexts"]),
+        )
+        rows = []
+        missing = 0
+        for group_name, group_rows, required in required_groups:
+            group_rows = group_rows if isinstance(group_rows, Mapping) else {}
+            for value in required:
+                row = group_rows.get(value)
+                if not isinstance(row, Mapping):
+                    missing += 1
+                    continue
+                rows.append((f"{group_name}.{value}", row))
+        if not rows:
+            raise FloatingPointError("best-checkpoint selection has no candidate metrics")
+        maximum_zero = float(thresholds["maximum_validation_zero_feasible_rate"])
+        minimum_mean = float(thresholds["minimum_validation_mean_feasible_candidates"])
+        maximum_kinematic = float(thresholds["maximum_validation_kinematic_violation_rate"])
+        values = []
+        failures = 3 * missing
+        for name, row in rows:
+            zero = _finite_selection_value(row.get("zero_feasible_rate"), name + ".zero")
+            mean = _finite_selection_value(row.get("mean_feasible_candidates"), name + ".mean")
+            kinematic = _finite_selection_value(row.get("kinematic_violation_rate"), name + ".kinematic")
+            # Candidate acceptance intentionally requires zero-feasible to be
+            # strictly below its ceiling (unlike the inclusive kinematic cap).
+            failures += int(zero >= maximum_zero)
+            failures += int(mean < minimum_mean)
+            failures += int(kinematic > maximum_kinematic)
+            values.append((zero, mean, kinematic))
+        worst_zero = max(value[0] for value in values)
+        worst_mean = min(value[1] for value in values)
+        worst_kinematic = max(value[2] for value in values)
+        normalized_excess = max(
+            max(0.0, worst_zero / maximum_zero - 1.0),
+            max(0.0, 1.0 - worst_mean / minimum_mean),
+            max(0.0, worst_kinematic / maximum_kinematic - 1.0),
+        )
+        key = [
+            float(failures),
+            normalized_excess,
+            worst_kinematic,
+            worst_zero,
+            -worst_mean,
+            total,
+        ]
+        summary = {
+            "qualification_failures": failures,
+            "missing_required_groups": missing,
+            "worst_kinematic_violation_rate": worst_kinematic,
+            "worst_zero_feasible_rate": worst_zero,
+            "worst_mean_feasible_candidates": worst_mean,
+            "maximum_normalized_gate_excess": normalized_excess,
+            "validation_total_loss": total,
+        }
+    return {
+        "schema": "DEPCarP5BestCheckpointSelectionV1",
+        "stage": stage,
+        "epoch": int(epoch),
+        "global_step": int(global_step),
+        "ordering": (
+            "qualification_failures,max_normalized_excess,worst_kinematic,"
+            "worst_zero,-worst_mean,total"
+            if stage == "candidate_capacity"
+            else "validation_total_loss,mean_oracle_regret"
+        ),
+        "key": key,
+        "summary": summary,
+    }
+
+
+def _selection_improved(candidate: Mapping[str, Any], best: Optional[Mapping[str, Any]]) -> bool:
+    if best is None:
+        return True
+    return tuple(candidate["key"]) < tuple(best["key"])
+
+
 def _capture_rng_state() -> dict:
     numpy_state = np.random.get_state()
     return {
@@ -2629,8 +2768,14 @@ def _write_artifacts(
     completed_epochs,
     global_step,
     partial_epoch,
+    output: Optional[Path] = None,
+    artifact_role: str = "last",
+    best_selection: Optional[Mapping[str, Any]] = None,
+    best_artifacts: Optional[Mapping[str, Any]] = None,
 ) -> dict:
-    paths = _artifact_paths(plan["output"])
+    if artifact_role not in ("last", "best"):
+        raise TrainingConfigurationError("artifact role must be last or best")
+    paths = _artifact_paths(plan["output"] if output is None else Path(output))
     status = "TRAINED_UNQUALIFIED"
     implementation = build_p4_implementation_contract(ROOT)
     if (
@@ -2712,6 +2857,15 @@ def _write_artifacts(
             "partial_epoch": bool(partial_epoch),
         },
         "seed": int(args.seed),
+        "artifact_role": artifact_role,
+        "best_selection": copy.deepcopy(best_selection),
+        "best_artifacts": copy.deepcopy(best_artifacts),
+        "precision_contract": {
+            "neural_encoders_and_towers": "AMP_when_enabled",
+            "ackermann_rollout": "float32",
+            "physical_objective": "float32",
+            "hard_veto": "float32",
+        },
     }
     _atomic_torch_save(paths["checkpoint"], checkpoint)
     history_document = {
@@ -2722,6 +2876,8 @@ def _write_artifacts(
         "qualification_status": "UNQUALIFIED",
         "production_qualified": False,
         "history": list(history),
+        "artifact_role": artifact_role,
+        "best_selection": copy.deepcopy(best_selection),
     }
     metrics_document = {
         "schema": "DEPCarP5TrainingMetricsV1",
@@ -2734,6 +2890,8 @@ def _write_artifacts(
         "global_step": int(global_step),
         "partial_epoch": bool(partial_epoch),
         "metrics": dict(metrics),
+        "artifact_role": artifact_role,
+        "best_selection": copy.deepcopy(best_selection),
     }
     _atomic_write_json(paths["history"], history_document)
     _atomic_write_json(paths["metrics"], metrics_document)
@@ -2755,6 +2913,8 @@ def _write_artifacts(
         "production_qualified": False,
         "training_stage": plan["stage"],
         "modality": plan["modality"],
+        "artifact_role": artifact_role,
+        "best_selection": copy.deepcopy(best_selection),
     })
     contract["implementation_contract"] = implementation
     contract["training_contract"] = {
@@ -2812,6 +2972,12 @@ def _write_artifacts(
             "map_distance_field",
             "chassis_to_map",
         ],
+        "precision_contract": {
+            "neural_encoders_and_towers": "AMP_when_enabled",
+            "ackermann_rollout": "float32",
+            "physical_objective": "float32",
+            "hard_veto": "float32",
+        },
     }
     contract["training_source"] = {
         "kind": plan["source"]["kind"],
@@ -2865,6 +3031,9 @@ def _write_artifacts(
         "implementation_aggregate_sha256": implementation["aggregate_sha256"],
         "effective_training_contract": plan["effective_training_contract"],
         "effective_optimizer_hyperparameters": _optimizer_contract(optimizer),
+        "artifact_role": artifact_role,
+        "best_selection": copy.deepcopy(best_selection),
+        "best_artifacts": copy.deepcopy(best_artifacts),
     }
     contract["artifacts"] = {
         "history": paths["history"].name,
@@ -2914,6 +3083,8 @@ def _restore_or_initialize(model, optimizer, scaler, plan):
     history = []
     completed_epochs = 0
     global_step = 0
+    best_selection = None
+    best_artifacts = None
     if plan["source"]["kind"] == "resume":
         optimizer.load_state_dict(payload["optimizer_state_dict"])
         for group in optimizer.param_groups:
@@ -2930,6 +3101,30 @@ def _restore_or_initialize(model, optimizer, scaler, plan):
         history = list(payload.get("history", ()))
         completed_epochs = int(payload.get("completed_epochs", 0))
         global_step = int(payload.get("global_step", 0))
+        best_selection = payload.get("best_selection")
+        best_artifacts = payload.get("best_artifacts")
+        if best_selection is not None and (
+            not isinstance(best_selection, Mapping)
+            or best_selection.get("schema")
+            != "DEPCarP5BestCheckpointSelectionV1"
+            or best_selection.get("stage") != plan["stage"]
+        ):
+            raise TrainingConfigurationError("resume best-checkpoint selection is invalid")
+        if best_artifacts is not None and not isinstance(best_artifacts, Mapping):
+            raise TrainingConfigurationError("resume best-checkpoint artifacts are invalid")
+        if (
+            best_selection is not None
+            and best_artifacts is None
+            and payload.get("artifact_role") == "best"
+        ):
+            inferred = _artifact_paths(plan["source"]["path"])
+            if plan["stage"] == "candidate_capacity":
+                inferred["candidate_acceptance"] = _candidate_acceptance_path(
+                    plan["source"]["path"]
+                )
+            best_artifacts = {
+                name: str(path) for name, path in inferred.items()
+            }
         sampler_state = payload.get("sampler_state", {})
         if (
             sampler_state.get("strategy") != "epoch_seed_v1"
@@ -2943,12 +3138,13 @@ def _restore_or_initialize(model, optimizer, scaler, plan):
         # record instead of reporting the same epoch twice.
         if payload.get("partial_epoch") and history and not history[-1].get("completed", True):
             history.pop()
-    return history, completed_epochs, global_step
+    return history, completed_epochs, global_step, best_selection, best_artifacts
 
 
 def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
     _require_training_gate(args, plan)
     _reject_existing_output_artifacts(plan["output"])
+    _reject_existing_output_artifacts(_best_checkpoint_path(plan["output"]))
     _seed_everything(args.seed)
     torch.set_num_threads(args.torch_threads)
     train_base, _, train_loader, validation_loader = _make_loaders(args, plan)
@@ -2961,7 +3157,7 @@ def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
         args.weight_decay,
     )
     scaler = _make_grad_scaler(plan["amp_enabled"])
-    history, completed_epochs, global_step = _restore_or_initialize(
+    history, completed_epochs, global_step, best_selection, best_artifacts = _restore_or_initialize(
         model, optimizer, scaler, plan
     )
     if completed_epochs >= args.epochs:
@@ -2973,6 +3169,10 @@ def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
     partial_epoch = False
     steps_this_run = 0
     started = time.time()
+    artifacts = None
+    thresholds = plan["training_config"]["raw"]["qualification"][
+        "candidate_acceptance"
+    ]
     for epoch in range(completed_epochs, args.epochs):
         train_base.set_epoch(epoch)
         train_loader.generator.manual_seed(args.seed + epoch)
@@ -3011,12 +3211,24 @@ def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
         partial_epoch = not train_completed
         if train_completed:
             completed_epochs = epoch + 1
+        selection = _checkpoint_selection(
+            plan["stage"],
+            validation_metrics,
+            thresholds,
+            epoch=epoch + 1,
+            global_step=global_step,
+        )
+        best_improved = _selection_improved(selection, best_selection)
+        if best_improved:
+            best_selection = selection
         record = {
             "epoch": epoch + 1,
             "completed": train_completed,
             "global_step": global_step,
             "train": train_metrics,
             "validation": validation_metrics,
+            "checkpoint_selection": selection,
+            "best_checkpoint_improved": best_improved,
         }
         history.append(record)
         last_metrics = {
@@ -3024,9 +3236,26 @@ def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
             "validation": validation_metrics,
             "trainable_parameters": ownership,
             "elapsed_seconds": time.time() - started,
+            "best_selection": copy.deepcopy(best_selection),
         }
         print(json.dumps(record, sort_keys=True), flush=True)
-        artifacts = _write_artifacts(
+        if best_improved:
+            best_artifacts = _write_artifacts(
+                model=model,
+                optimizer=optimizer,
+                scaler=scaler,
+                args=args,
+                plan=plan,
+                history=history,
+                metrics=last_metrics,
+                completed_epochs=completed_epochs,
+                global_step=global_step,
+                partial_epoch=partial_epoch,
+                output=_best_checkpoint_path(plan["output"]),
+                artifact_role="best",
+                best_selection=best_selection,
+            )
+        last_artifacts = _write_artifacts(
             model=model,
             optimizer=optimizer,
             scaler=scaler,
@@ -3037,13 +3266,61 @@ def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
             completed_epochs=completed_epochs,
             global_step=global_step,
             partial_epoch=partial_epoch,
+            artifact_role="last",
+            best_selection=best_selection,
+            best_artifacts=best_artifacts,
         )
+        artifacts = dict(last_artifacts)
+        if best_artifacts is not None:
+            artifacts.update(
+                {"best_" + name: value for name, value in best_artifacts.items()}
+            )
         if partial_epoch or (
             args.max_steps is not None and steps_this_run >= args.max_steps
         ):
             break
-    if not last_metrics:
+    if not last_metrics or artifacts is None or best_selection is None:
         raise TrainingConfigurationError("no new optimizer step was requested by this run")
+    if best_artifacts is None:
+        raise TrainingConfigurationError("training did not materialize a best checkpoint")
+    selected_record = next(
+        (
+            row
+            for row in history
+            if int(row.get("epoch", -1)) == int(best_selection["epoch"])
+            and int(row.get("global_step", -1)) == int(best_selection["global_step"])
+        ),
+        None,
+    )
+    if selected_record is None:
+        raise TrainingConfigurationError("best checkpoint selection is absent from history")
+    best_payload = _load_checkpoint(Path(best_artifacts["checkpoint"]))
+    model.load_state_dict(best_payload["model_state_dict"], strict=True)
+    finalized_best_metrics = {
+        "train": selected_record["train"],
+        "validation": selected_record["validation"],
+        "trainable_parameters": ownership,
+        "elapsed_seconds": last_metrics["elapsed_seconds"],
+        "best_selection": copy.deepcopy(best_selection),
+    }
+    best_artifacts = _write_artifacts(
+        model=model,
+        optimizer=optimizer,
+        scaler=scaler,
+        args=args,
+        plan=plan,
+        history=history,
+        metrics=finalized_best_metrics,
+        completed_epochs=completed_epochs,
+        global_step=global_step,
+        partial_epoch=partial_epoch,
+        output=_best_checkpoint_path(plan["output"]),
+        artifact_role="best",
+        best_selection=best_selection,
+    )
+    artifacts.update(
+        {"best_" + name: value for name, value in best_artifacts.items()}
+    )
     return {
         "status": "TRAINED_UNQUALIFIED",
         "qualification_status": "UNQUALIFIED",
@@ -3052,6 +3329,7 @@ def run_training(args: argparse.Namespace, plan: Mapping[str, Any]) -> dict:
         "completed_epochs": completed_epochs,
         "global_step": global_step,
         "partial_epoch": partial_epoch,
+        "best_selection": best_selection,
         "artifacts": artifacts,
     }
 
