@@ -100,6 +100,12 @@ def build_lidar_bev(points, config: LidarBEVConfig = LidarBEVConfig()):
         return output
 
     cells = np.floor((points[:, :2] + config.extent) / config.resolution).astype(np.int32)
+    # ``points`` is float32.  A value strictly below +extent can round to
+    # exactly 2*extent during the addition above and produce index ``size``.
+    # The geometric filter already established that every point belongs to
+    # the half-open BEV domain, so saturating this one-ULP numerical boundary
+    # to the final cell preserves that contract without dropping a scan.
+    cells = np.clip(cells, 0, size - 1)
     x, y = cells[:, 0], cells[:, 1]
     counts = np.zeros((size, size), dtype=np.float32)
     minimum = np.full((size, size), np.inf, dtype=np.float32)

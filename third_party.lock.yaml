@@ -22,3 +22,11 @@ repositories:
     commit: 664b950d88c91b34e3cdce62512c8864b574b9d4
     role: indoor/outdoor random occupancy-map generator
     modified: false
+  far_planner:
+    repository: https://github.com/MichaelFYang/far_planner.git
+    branch: melodic-noetic
+    commit: 2799b6964c141cacd1c32a14b19bc7abffbe0e52
+    role: Reference implementation for dynamic visibility-graph planning in known and unknown environments
+    modified: false
+    local_checkout: third_party/far_planner
+    integration: independent OccupancyGrid adapter in dep_car.runtime.far_visibility; upstream vehicle/local-planner stack is not linked

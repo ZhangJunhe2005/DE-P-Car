@@ -1,0 +1,46 @@
+schema: DEPCarP6FarVisibilityMemoryConfigV3
+scenario_manifest: data/p6_static/scenario_manifest.json
+interactive_default_scenario: p6_c344e792d09ac2d6
+fixed_default_scenario: p6_c344e792d09ac2d6
+# Frozen M5 recovery probe in the scenario's initial odom frame.  The point is
+# deliberately behind/inside a known wall in the frozen world: the stress probe
+# checks that the car detects impossible local progress, replays its ingress
+# trail in reverse and automatically resumes the same mission.  It is not a
+# goal-arrival test and the online stack is not given the frozen occupancy map.
+fixed_recovery_probe:
+  goal: [4.0, 4.8, 0.0]
+  frame: odom
+  expected_terminal_state: AUTOMATIC_GOAL_RESUME
+  contract: accumulated_map_topology_dead_end_escape
+# Exact replay of the two RViz clicks from the 2026-08-20 failure log.  These
+# coordinates are regression inputs only: runtime policy never reads this
+# section and contains no map UUID/coordinate-specific branch.
+regression_sequences:
+  # Exact RViz clicks from the latest 2026-08-21 report.  This is a replay
+  # fixture only; the runtime receives only the standard goal topic.
+  latest_interactive_turnaround_20260821:
+    scenario_id: p6_c344e792d09ac2d6
+    coordinate_frame: map
+    goals:
+      - [4.925, -4.487, 1.887]
+      - [-4.635, 2.517, 3.120]
+    goal_timeout_s: 180.0
+  logged_t_junction_turnaround:
+    scenario_id: p6_c344e792d09ac2d6
+    coordinate_frame: map
+    goals:
+      - [6.536, -4.331, -0.984]
+      - [-4.264, 1.838, 1.565]
+    # No-global-search navigation may deliberately inspect and back out of
+    # several local branches.  Keep the exact two-goal replay bounded, but do
+    # not impose the old A*-era 90 s deadline.
+    goal_timeout_s: 180.0
+checkpoint: models/dep_car/p5_route_v2/fusion_score_calibration.best.pth
+checkpoint_contract: models/dep_car/p5_route_v2/fusion_score_calibration.best.contract.json
+runtime:
+  ros_master_port: 11431
+  gazebo_master_port: 11461
+  startup_timeout_s: 120
+  shutdown_timeout_s: 20
+  fixed_goal_delay_s: 6.0
+  policy_python: /home/zjh/miniconda3/envs/yopo/bin/python

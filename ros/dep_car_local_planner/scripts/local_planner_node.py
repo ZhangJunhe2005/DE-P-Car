@@ -14,6 +14,7 @@ from dep_car.runtime.route_guidance import (
     apply_runtime_route_preference,
     corner_severity,
     corner_speed_limit,
+    monotonic_route_reference_body,
     route_reference_body,
     route_turn_angle,
     segment_is_visible,
@@ -23,6 +24,9 @@ from dep_car.runtime.forward_preference import (
     ForwardPreferenceState,
     ForwardPreferenceSupervisor,
     corridor_direction_body,
+    navigation_authority_reference,
+    route_requires_far_revalidation,
+    terminal_capture_route_authorized,
 )
 from dep_car.core.planner import DeterministicPlanner
 from dep_car.core.recovery import RecoveryManager, RecoveryState
@@ -39,6 +43,7 @@ from dep_car.runtime.maneuver import (
     ManeuverConfig,
     ManeuverState,
     MeasuredPoseReplanGate,
+    RouteRecoveryReplanGate,
 )
 from dep_car_msgs.msg import (
     AckermannCommand,
@@ -78,8 +83,49 @@ class LocalPlannerNode:
         self.gear_supervisor = GearSupervisor()
         self.grid = self.grid_stamp = self.joint_state = None
         self.odom = self.goal = self.mission_goal = self.route_command = self.route = None
+        # Route geometry and its command are published on separate ROS topics.
+        # Keep a bounded stamp-keyed buffer for each half: with a busy FAR
+        # callback, route N+1 can arrive before command N and a single pending
+        # slot phase-locks forever on adjacent generations.
+        self.pending_routes = {}
+        self.pending_route_commands = {}
+        self.deferred_route_transaction = None
+        self.route_transaction_buffer_limit = 16
         self.policy_raw = self.policy_inference_state = None
         self.global_planner_state = "IDLE"
+        self.global_route_id = ""
+        self.global_route_source = "NONE"
+        self.global_route_revision = 0
+        self.global_route_progress_m = 0.0
+        self.global_route_carrot_m = 0.0
+        self.route_authority_epoch = 0
+        self.global_turnaround_transaction_id = 0
+        self.route_reference_authority_epoch = 0
+        self.route_reference_index = 0
+        self.local_turnaround_transaction_sequence = 0
+        self.local_turnaround_transaction_id = 0
+        self.global_wait_states = frozenset((
+            "RECEIVED",
+            "PLANNING",
+            "TIMEOUT",
+            "NO_PATH",
+            "INVALID_GOAL",
+            "INVALID_START",
+            "START_BLOCKED",
+            "INVALID_STATUS",
+            "MAPPING_WAIT",
+            "FAR_MAPPING_WAIT",
+            "SAFE_STOP",
+            "MEMORY_HOLD",
+        ))
+        self.forward_capture_replan_requested = False
+        # A course-capture revalidation is a route transaction barrier.  The
+        # latch may only be released by a synchronized FAR transaction newer
+        # than the request (or by an explicit global wait transition).  This
+        # prevents an old route callback from releasing the stop, while also
+        # handling FAR replans which complete too quickly to expose a
+        # FAR_MAPPING_WAIT status to this node.
+        self.forward_capture_replan_after_stamp = -math.inf
         self.tracks = []
         self.last_position = None
         self.query_generation = 0
@@ -121,15 +167,73 @@ class LocalPlannerNode:
                         "~forward_reacquired_bearing",
                         math.radians(75.0),
                     )
-                )
+                ),
+                forward_capture_maximum_bearing_rad=float(
+                    rospy.get_param(
+                        "~forward_capture_maximum_bearing",
+                        math.radians(145.0),
+                    )
+                ),
+                forward_capture_divergence_rad=float(
+                    rospy.get_param(
+                        "~forward_capture_divergence",
+                        math.radians(18.0),
+                    )
+                ),
+                behind_confirmation_cycles=int(
+                    rospy.get_param("~turnaround_behind_confirmation_cycles", 8)
+                ),
+                forward_confirmation_cycles=int(
+                    rospy.get_param("~forward_reacquired_confirmation_cycles", 8)
+                ),
             )
         )
         self.maneuver_spatial_scales = (1.0, 0.75, 0.50, 0.35, 0.25)
         self.maneuver_minimum_yaw_progress = float(
             rospy.get_param("~maneuver_minimum_yaw_progress", 0.035)
         )
+        self.turnaround_alignment_release_bearing = float(
+            rospy.get_param(
+                "~turnaround_alignment_release_bearing",
+                math.radians(50.0),
+            )
+        )
+        self.turnaround_alignment_minimum_spatial_scale = float(
+            rospy.get_param(
+                "~turnaround_alignment_minimum_spatial_scale", 0.75
+            )
+        )
+        if not 0.0 < self.turnaround_alignment_release_bearing < 0.5 * math.pi:
+            raise ValueError(
+                "turnaround_alignment_release_bearing must be between 0 and pi/2"
+            )
+        if not 0.0 < self.turnaround_alignment_minimum_spatial_scale <= 1.0:
+            raise ValueError(
+                "turnaround_alignment_minimum_spatial_scale must be in (0,1]"
+            )
+        self.maneuver_retry_observation_hold = float(
+            rospy.get_param("~maneuver_retry_observation_hold_s", 0.75)
+        )
+        if self.maneuver_retry_observation_hold < 0.0:
+            raise ValueError("maneuver_retry_observation_hold_s must be nonnegative")
+        self.maneuver_retry_not_before = 0.0
+        self.turnaround_rearm_distance = float(
+            rospy.get_param("~turnaround_rearm_forward_distance_m", 1.25)
+        )
+        if self.turnaround_rearm_distance <= 0.0:
+            raise ValueError("turnaround rearm distance must be positive")
+        self.turnaround_rearm_remaining = 0.0
+        self.forward_restoration_budget_replans = 0
+        self.forward_restoration_budget_replan_pending = False
         self.exact_replan_gate = MeasuredPoseReplanGate(
             float(rospy.get_param("~exact_replan_minimum_displacement", 0.25))
+        )
+        self.static_recovery_replan_gate = RouteRecoveryReplanGate(
+            float(
+                rospy.get_param(
+                    "~static_recovery_replan_minimum_displacement", 0.25
+                )
+            )
         )
         self.maneuver_forward_speed = float(
             rospy.get_param("~maneuver_forward_speed", 0.45)
@@ -137,6 +241,33 @@ class LocalPlannerNode:
         self.maneuver_reverse_speed = float(
             rospy.get_param("~maneuver_reverse_speed", 0.35)
         )
+        self.forward_course_capture_speed = float(
+            rospy.get_param("~forward_course_capture_speed", 0.35)
+        )
+        if self.forward_course_capture_speed <= 0.0:
+            raise ValueError("forward_course_capture_speed must be positive")
+        self.forward_course_revalidation_timeout = float(
+            rospy.get_param("~forward_course_revalidation_timeout_s", 2.5)
+        )
+        if self.forward_course_revalidation_timeout <= 0.0:
+            raise ValueError(
+                "forward_course_revalidation_timeout_s must be positive"
+            )
+        self.memory_margin_egress_maximum_overlap = float(
+            rospy.get_param("~memory_margin_egress_maximum_overlap", 0.06)
+        )
+        self.memory_margin_egress_minimum_improvement = float(
+            rospy.get_param("~memory_margin_egress_minimum_improvement", 0.02)
+        )
+        self.memory_margin_egress_worsening_tolerance = float(
+            rospy.get_param("~memory_margin_egress_worsening_tolerance", 0.01)
+        )
+        if min(
+            self.memory_margin_egress_maximum_overlap,
+            self.memory_margin_egress_minimum_improvement,
+            self.memory_margin_egress_worsening_tolerance,
+        ) < 0.0:
+            raise ValueError("memory margin-egress thresholds cannot be negative")
         self.terminal_maneuver_radius = float(
             rospy.get_param("~terminal_maneuver_radius", 1.50)
         )
@@ -215,6 +346,14 @@ class LocalPlannerNode:
         self.learned_route_authority = bool(
             rospy.get_param("~learned_route_authority", False)
         )
+        self.odometry_twist_in_body_frame = bool(
+            rospy.get_param("~odometry_twist_in_body_frame", False)
+        )
+        self.route_transaction_stamp_tolerance = float(
+            rospy.get_param("~route_transaction_stamp_tolerance", 0.02)
+        )
+        if self.route_transaction_stamp_tolerance < 0.0:
+            raise ValueError("route_transaction_stamp_tolerance cannot be negative")
         self.command_pub = rospy.Publisher(
             "/dep_car/cmd_ackermann", AckermannCommand, queue_size=1
         )
@@ -246,7 +385,12 @@ class LocalPlannerNode:
             "/dep_car/replan_request", String, queue_size=1
         )
         rospy.Subscriber("/dep_car/local_costmap", OccupancyGrid, self.on_grid, queue_size=1)
-        rospy.Subscriber("/base_pose_ground_truth", Odometry, self.on_odom, queue_size=1)
+        rospy.Subscriber(
+            rospy.get_param("~odometry_topic", "/base_pose_ground_truth"),
+            Odometry,
+            self.on_odom,
+            queue_size=1,
+        )
         rospy.Subscriber(
             "/urban_model/joint_states", JointState, self.on_joint_state, queue_size=1
         )
@@ -316,27 +460,435 @@ class LocalPlannerNode:
 
     def on_goal(self, message):
         with self.lock:
-            self.goal = message
+            # Once route transactions are active, LocalRouteCommand owns the
+            # corresponding target.  Accepting this independently published
+            # compatibility topic for one callback cycle can pair a new
+            # subgoal with an old route.
+            if self.route_command is None:
+                self.goal = message
 
-    def on_route_command(self, message):
+    @staticmethod
+    def message_stamp(message):
+        return float(message.header.stamp.to_sec())
+
+    def buffer_route_transaction_half_locked(self, buffer, message):
+        stamp = self.message_stamp(message)
+        buffer[stamp] = message
+        while len(buffer) > self.route_transaction_buffer_limit:
+            del buffer[min(buffer)]
+
+    def matching_route_transaction_locked(self):
+        if not self.pending_routes or not self.pending_route_commands:
+            return None
+        matches = [
+            (
+                abs(route_stamp - command_stamp),
+                max(route_stamp, command_stamp),
+                route_stamp,
+                command_stamp,
+            )
+            for route_stamp in self.pending_routes
+            for command_stamp in self.pending_route_commands
+            if (
+                route_stamp <= 0.0
+                or command_stamp <= 0.0
+                or abs(route_stamp - command_stamp)
+                <= self.route_transaction_stamp_tolerance
+            )
+        ]
+        if not matches:
+            rospy.logwarn_throttle(
+                2.0,
+                "Buffered unmatched FAR route transaction halves "
+                "routes=%d commands=%d newest_route=%.6f newest_command=%.6f",
+                len(self.pending_routes),
+                len(self.pending_route_commands),
+                max(self.pending_routes),
+                max(self.pending_route_commands),
+            )
+            return None
+        # Prefer an exact pair, and among equally close pairs consume the most
+        # recent transaction.  Older unmatched halves remain available until
+        # the bounded buffer prunes them.
+        _, _, route_stamp, command_stamp = min(
+            matches, key=lambda row: (row[0], -row[1])
+        )
+        route = self.pending_routes.pop(route_stamp)
+        command = self.pending_route_commands.pop(command_stamp)
+        cutoff = (
+            min(route_stamp, command_stamp)
+            - self.route_transaction_stamp_tolerance
+        )
+        self.pending_routes = {
+            stamp: value
+            for stamp, value in self.pending_routes.items()
+            if stamp >= cutoff
+        }
+        self.pending_route_commands = {
+            stamp: value
+            for stamp, value in self.pending_route_commands.items()
+            if stamp >= cutoff
+        }
+        return route, command
+
+    def commit_route_transaction_locked(
+        self, route=None, message=None, *, allow_defer=True
+    ):
+        """Atomically expose a route and command carrying the same stamp."""
+
+        if route is None or message is None:
+            matched = self.matching_route_transaction_locked()
+            if matched is None:
+                return False
+            route, message = matched
+        command_stamp = self.message_stamp(message)
+        previous_source = (
+            str(self.route_command.route_source)
+            if self.route_command is not None else "NONE"
+        )
+        next_source = str(message.route_source or "NONE")
+        previous_is_far = previous_source.startswith("FAR_")
+        next_is_far = next_source.startswith("FAR_")
+        far_authority_handoff = bool(next_is_far and not previous_is_far)
+        previous_mode = (
+            int(self.route_command.navigation_mode)
+            if self.route_command is not None else None
+        )
+        next_mode = int(message.navigation_mode)
+        memory_modes = (
+            LocalRouteCommand.NAVIGATION_MEMORY_BACKTRACK,
+            LocalRouteCommand.NAVIGATION_MEMORY_RESUME,
+            LocalRouteCommand.NAVIGATION_FAR_DEAD_END_EGRESS,
+        )
+        if (
+            allow_defer
+            and self.maneuver.active
+            and next_mode not in memory_modes
+        ):
+            # Compute and transport FAR in parallel with a committed leg, but
+            # never replace its geometry mid-motion.  Only the newest complete
+            # transaction is needed; it is committed on the first stopped
+            # inter-leg control tick.
+            existing = self.deferred_route_transaction
+            existing_source = (
+                str(existing[1].route_source or "NONE")
+                if existing is not None else "NONE"
+            )
+            if not (
+                existing_source.startswith("FAR_")
+                and not next_source.startswith("FAR_")
+            ):
+                self.deferred_route_transaction = (route, message)
+            rospy.loginfo_throttle(
+                1.0,
+                "Queued complete route transaction until committed maneuver "
+                "leg boundary source=%s stamp=%.6f",
+                next_source,
+                command_stamp,
+            )
+            return False
+        revalidation_fallback_expired = bool(
+            self.forward_capture_replan_requested
+            and not next_is_far
+            and next_mode not in memory_modes
+            and command_stamp > 0.0
+            and command_stamp
+            >= self.forward_capture_replan_after_stamp
+            + self.forward_course_revalidation_timeout
+        )
+        continuing_forward_restoration = bool(
+            self.maneuver.purpose == "forward_restoration"
+            and self.maneuver.leg_count > 0
+        )
+        if (
+            self.forward_capture_replan_requested
+            and not next_is_far
+            and next_mode not in memory_modes
+            and not revalidation_fallback_expired
+        ):
+            # A local exploration transaction is not the answer to a
+            # measured-pose FAR re-anchor.  Replacing the last FAR corridor
+            # here leaves ForwardPreferenceSupervisor in ROUTE_REVALIDATION
+            # while its visible green route points somewhere unrelated.  Keep
+            # the previous transaction frozen until FAR answers, while still
+            # allowing an explicit memory/egress authority to pre-empt it.
+            rospy.loginfo_throttle(
+                2.0,
+                "Retained FAR route during course revalidation; rejected "
+                "intermediate route_source=%s",
+                next_source,
+            )
+            return False
+        if revalidation_fallback_expired:
+            # A speculative FAR replacement may never become motion-
+            # authorized while the vehicle is deliberately stationary.  Do
+            # not turn a safety handshake into an unbounded liveness stop:
+            # fall back to the currently published topology/local corridor,
+            # whose every primitive remains subject to the normal hard veto.
+            if continuing_forward_restoration:
+                # FAR failed to replace its corridor and the authority is now
+                # switching to topology/local guidance.  This is not another
+                # leg of the old FAR turnaround: retaining its turn sign and
+                # leg counter made an unrelated rear topology edge spend the
+                # remainder of the same eight-leg budget.  End that transaction
+                # and let the fallback direction start one freshly confirmed
+                # manoeuvre of its own.
+                self.maneuver.reset()
+                self.local_turnaround_transaction_id = 0
+                self.forward_restoration_budget_replans = 0
+                self.forward_restoration_budget_replan_pending = False
+                self.forward_preference.reset(
+                    preserve_forward_evidence=True
+                )
+                continuing_forward_restoration = False
+            else:
+                self.forward_preference.approve_revalidated_route()
+            self.forward_capture_replan_requested = False
+            self.forward_capture_replan_after_stamp = -math.inf
+            self.replan_pub.publish(
+                String(data="forward_course_revalidation_fallback")
+            )
+            rospy.logwarn(
+                "FAR course revalidation timed out after %.2fs; accepting "
+                "bounded fallback route_source=%s",
+                self.forward_course_revalidation_timeout,
+                next_source,
+            )
+        memory_transition = (
+            previous_mode != next_mode
+            and (
+                next_mode in memory_modes
+                or previous_mode in memory_modes
+            )
+        )
+        if memory_transition:
+            # Memory reverse/resume is an exclusive mission-level authority.
+            # Entering or leaving it cancels every stale local manoeuvre and
+            # deadlock timer from the previous route transaction.
+            self.maneuver.reset()
+            self.local_turnaround_transaction_id = 0
+            self.maneuver_retry_not_before = 0.0
+            self.turnaround_rearm_remaining = 0.0
+            self.forward_restoration_budget_replans = 0
+            self.forward_restoration_budget_replan_pending = False
+            self.forward_preference.reset()
+            self.forward_capture_replan_requested = False
+            self.forward_capture_replan_after_stamp = -math.inf
+            self.exact_replan_gate.reset()
+            self.static_recovery_replan_gate.reset()
+            self.recovery.start_authority_transaction()
+        stale_fallback_turnaround_replaced_by_far = bool(
+            far_authority_handoff
+            and continuing_forward_restoration
+            and previous_source
+            in ("EXPLORED_TOPOLOGY", "LOCAL_SAFE_EXPLORATION")
+        )
+        if stale_fallback_turnaround_replaced_by_far:
+            # The car is stopped at a committed leg boundary (otherwise the
+            # complete FAR transaction is deferred above).  A turnaround that
+            # was created from drifting historical topology must not donate
+            # its turn sign, gear phase or remaining leg budget to the newly
+            # measured FAR corridor.  End it here and let FAR make a fresh
+            # decision from the current pose.
+            self.maneuver.reset()
+            self.local_turnaround_transaction_id = 0
+            self.maneuver_retry_not_before = 0.0
+            self.turnaround_rearm_remaining = 0.0
+            self.forward_restoration_budget_replans = 0
+            self.forward_restoration_budget_replan_pending = False
+            self.forward_preference.reset(preserve_forward_evidence=True)
+            continuing_forward_restoration = False
+            rospy.logwarn(
+                "Cancelled stale fallback turnaround source=%s at atomic FAR "
+                "handoff; FAR will re-evaluate gear and turn side from the "
+                "measured pose",
+                previous_source,
+            )
+        fresh_course_capture_reanchor = bool(
+            self.forward_capture_replan_requested
+            # A newer local-exploration command is not FAR's answer.  The
+            # old timestamp-only check let LOCAL_SAFE_EXPLORATION clear the
+            # barrier while the replacement visibility route was still
+            # settling, which removed the rolling FAR carrot from control.
+            and next_is_far
+            and command_stamp > 0.0
+            and command_stamp > self.forward_capture_replan_after_stamp + 1.0e-6
+        )
+        if fresh_course_capture_reanchor:
+            # FAR is allowed to solve a measured-pose replan immediately.  In
+            # that case its status can remain PASS throughout, so waiting for
+            # a MAPPING_WAIT edge would leave ROUTE_REVALIDATION latched
+            # forever even though a fresh certified route is already here.
+            if continuing_forward_restoration:
+                self.forward_preference.approve_continuation_route()
+            else:
+                self.forward_preference.approve_revalidated_route()
+            self.forward_capture_replan_requested = False
+            self.forward_capture_replan_after_stamp = -math.inf
+            if self.forward_restoration_budget_replan_pending:
+                if not self.maneuver.renew_leg_budget():
+                    rospy.logerr(
+                        "Fresh FAR route could not renew the exhausted "
+                        "forward-restoration leg budget"
+                    )
+                else:
+                    self.forward_restoration_budget_replans += 1
+                    rospy.logwarn(
+                        "Renewed forward-restoration leg budget once from "
+                        "a fresh measured-pose FAR route"
+                    )
+                self.forward_restoration_budget_replan_pending = False
+            rospy.loginfo(
+                "Accepted fresh FAR route transaction after course-capture "
+                "revalidation stamp=%.6f",
+                command_stamp,
+            )
         goal = PoseStamped()
         goal.header = message.header
         goal.pose = message.target
+        self.route = route
+        self.route_command = message
+        self.goal = goal
+        preserve_far_reference_cursor = bool(
+            next_is_far
+            and previous_is_far
+            and str(message.route_id) == self.global_route_id
+            and int(message.route_revision) == self.global_route_revision
+        )
+        self.global_route_id = str(message.route_id)
+        self.global_route_source = next_source
+        self.global_route_revision = int(message.route_revision)
+        self.route_authority_epoch = int(message.authority_epoch)
+        self.route_reference_authority_epoch = self.route_authority_epoch
+        if not preserve_far_reference_cursor:
+            self.route_reference_index = max(0, int(message.segment_index))
+        if far_authority_handoff:
+            # Route, target and authority metadata arrive in this one stamped
+            # transaction.  Clear every exploratory direction latch before
+            # the next 10 Hz planning tick so the accepted FAR carrot takes
+            # effect immediately, rather than waiting for another FAR replan
+            # or for an asynchronously delivered status message.
+            if continuing_forward_restoration:
+                # Route ownership may change while the car is stopped between
+                # two legs.  Keep the already chosen turn side and transaction
+                # identity; the new FAR corridor supplies geometry for the
+                # next leg, not permission to declare the turn complete.
+                if not fresh_course_capture_reanchor:
+                    self.forward_preference.approve_continuation_route()
+            elif not fresh_course_capture_reanchor:
+                # ``approve_revalidated_route`` above carries the one-shot
+                # permission for a confirmed rear FAR corridor to begin its
+                # multi-leg turn.  Resetting it again merely because the
+                # previous published source was exploratory recreates the
+                # revalidation loop we have just completed.
+                self.forward_preference.reset(
+                    preserve_forward_evidence=True
+                )
+            self.recovery.start_authority_transaction()
+            self.exact_replan_gate.reset()
+            self.policy_raw = None
+            self.last_position = None
+            if self.maneuver.leg_count == 0:
+                self.maneuver.reset()
+                self.local_turnaround_transaction_id = 0
+                self.maneuver_retry_not_before = 0.0
+            rospy.loginfo(
+                "Accepted atomic navigation authority handoff %s -> %s "
+                "route_id=%s revision=%d epoch=%d",
+                previous_source,
+                next_source,
+                self.global_route_id or "none",
+                self.global_route_revision,
+                self.route_authority_epoch,
+            )
+        return True
+
+    def on_route_command(self, message):
         with self.lock:
-            self.route_command = message
-            self.goal = goal
+            self.buffer_route_transaction_half_locked(
+                self.pending_route_commands, message
+            )
+            self.commit_route_transaction_locked()
 
     def on_route(self, message):
         with self.lock:
-            self.route = message
+            self.buffer_route_transaction_half_locked(
+                self.pending_routes, message
+            )
+            self.commit_route_transaction_locked()
 
     def on_global_planner_status(self, message):
         try:
-            state = str(json.loads(message.data).get("state", "IDLE"))
+            document = json.loads(message.data)
+            state = str(document.get("state", "IDLE"))
+            visibility = document.get("visibility_graph", {})
+            rolling = document.get(
+                "active_rolling_route",
+                visibility.get("rolling_route", {}),
+            )
+            turnaround = document.get("route_turnaround_transaction", {})
         except (TypeError, ValueError):
+            document = {}
+            rolling = {}
+            turnaround = {}
             state = "INVALID_STATUS"
         with self.lock:
+            previous_state = self.global_planner_state
             self.global_planner_state = state
+            status_authority_epoch = int(
+                document.get("authority_epoch", 0) or 0
+            )
+            if self.route_command is None:
+                self.global_route_id = str(rolling.get("route_id", ""))
+                self.global_route_source = str(
+                    rolling.get(
+                        "source", document.get("guidance_source", "NONE")
+                    )
+                )
+                self.global_route_revision = int(
+                    rolling.get("route_revision", 0)
+                )
+            status_route_id = str(rolling.get("route_id", ""))
+            status_source = str(
+                rolling.get("source", document.get("guidance_source", "NONE"))
+            )
+            status_revision = int(rolling.get("route_revision", 0))
+            status_matches_command = bool(
+                self.route_command is None
+                or (
+                    status_route_id == self.global_route_id
+                    and status_source == self.global_route_source
+                    and status_revision == self.global_route_revision
+                    and status_authority_epoch == self.route_authority_epoch
+                )
+            )
+            if status_matches_command:
+                self.global_route_progress_m = float(
+                    rolling.get("progress_m", 0.0)
+                )
+                self.global_route_carrot_m = float(
+                    rolling.get("carrot_m", 0.0)
+                )
+            self.global_turnaround_transaction_id = int(
+                turnaround.get("id", 0)
+            )
+            if (
+                state in self.global_wait_states
+                and previous_state not in self.global_wait_states
+                and not self.maneuver.active
+            ):
+                # A measured-pose FAR re-anchor starts a new direction
+                # transaction.  Do not carry the rejected course-capture
+                # latch into the freshly certified route.  If this wait was
+                # itself caused by our re-anchor request, however, preserve
+                # the transaction barrier until a newer synchronized route
+                # arrives; clearing it here makes a persistent rear route
+                # bounce forever between WAIT and another replan request.
+                if not self.forward_capture_replan_requested:
+                    self.forward_preference.reset(
+                        preserve_forward_evidence=True
+                    )
+                    self.forward_capture_replan_after_stamp = -math.inf
 
     def on_mission_goal(self, message):
         with self.lock:
@@ -344,12 +896,26 @@ class LocalPlannerNode:
             self.goal = None
             self.route_command = None
             self.route = None
+            self.pending_route_commands = {}
+            self.pending_routes = {}
+            self.deferred_route_transaction = None
             self.policy_raw = None
             self.last_position = None
             self.arrival.reset()
             self.maneuver.reset()
+            self.local_turnaround_transaction_id = 0
+            self.route_authority_epoch = 0
+            self.route_reference_authority_epoch = 0
+            self.route_reference_index = 0
+            self.maneuver_retry_not_before = 0.0
+            self.turnaround_rearm_remaining = 0.0
+            self.forward_restoration_budget_replans = 0
+            self.forward_restoration_budget_replan_pending = False
             self.forward_preference.reset()
+            self.forward_capture_replan_requested = False
+            self.forward_capture_replan_after_stamp = -math.inf
             self.exact_replan_gate.reset()
+            self.static_recovery_replan_gate.reset()
             self.recovery.set_mission_goal(
                 (message.pose.position.x, message.pose.position.y)
             )
@@ -479,7 +1045,7 @@ class LocalPlannerNode:
         )
 
     @staticmethod
-    def vehicle_state(odom, joint_state=None):
+    def vehicle_state(odom, joint_state=None, twist_in_body_frame=False):
         yaw = yaw_from_quaternion(odom.pose.pose.orientation)
         velocity = odom.twist.twist.linear
         steering = 0.0
@@ -491,7 +1057,11 @@ class LocalPlannerNode:
                     positions[names[0]], positions[names[1]], True
                 )
         return VehicleState(
-            speed=world_velocity_to_body_longitudinal(velocity.x, velocity.y, yaw),
+            speed=(
+                float(velocity.x)
+                if twist_in_body_frame
+                else world_velocity_to_body_longitudinal(velocity.x, velocity.y, yaw)
+            ),
             steering=steering,
             yaw_rate=odom.twist.twist.angular.z,
             stamp=odom.header.stamp.to_sec(),
@@ -547,7 +1117,7 @@ class LocalPlannerNode:
         distance = float(np.linalg.norm(np.asarray(active[2][:2]) - np.asarray(active[0][:2])))
         return 0.0 if distance < 1.0e-4 else wrap_angle(active[2][2] - active[0][2]) / distance
 
-    def route_reference(self, odom, route, start_index=0):
+    def route_reference(self, odom, route, start_index=0, grid=None):
         if route is None or not route.points:
             return np.empty((0, 2), dtype=float)
         world = np.asarray(
@@ -559,10 +1129,48 @@ class LocalPlannerNode:
             odom.pose.pose.position.y,
             yaw_from_quaternion(odom.pose.pose.orientation),
         )
+        corridor_route = not any(
+            int(point.gear) != int(Gear.NEUTRAL) for point in route.points
+        )
+        if corridor_route:
+            reference, selected = monotonic_route_reference_body(
+                world,
+                vehicle_pose,
+                max(int(start_index), self.route_reference_index),
+                grid=grid,
+                horizon_m=self.route_reference_horizon,
+            )
+            self.route_reference_index = max(
+                self.route_reference_index, int(selected)
+            )
+            return reference
         return route_reference_body(
-            world,
-            vehicle_pose,
-            start_index,
+            world, vehicle_pose, start_index,
+            horizon_m=self.route_reference_horizon,
+        )
+
+    def authority_direction_reference(
+        self, odom, route_reference, mission_goal
+    ):
+        """Return the stable direction authority for a turnaround.
+
+        A LOCAL_SAFE_EXPLORATION route is a short, disposable collision-safe
+        tube.  Its endpoint must not become the direction authority of a
+        multi-point turn: after the car passes that nearby point it would be
+        behind again and manufacture another turnaround.  Until FAR acquires
+        authority, use the distant position-only mission goal for direction
+        while the unchanged local tube and hard veto continue to own safety.
+        """
+
+        mission_body = (
+            None
+            if mission_goal is None
+            else self.subgoal_body(odom, mission_goal)
+        )
+        return navigation_authority_reference(
+            route_reference,
+            mission_body,
+            self.global_route_source,
             horizon_m=self.route_reference_horizon,
         )
 
@@ -599,12 +1207,36 @@ class LocalPlannerNode:
         )
         probes = {}
         for gear in (Gear.FORWARD, Gear.REVERSE):
+            forward_exit_capture = bool(
+                gear == Gear.FORWARD
+                and self.maneuver.purpose == "forward_restoration"
+                and self.maneuver.leg_count > 0
+                and abs(bearing) < 0.5 * math.pi
+            )
+            reverse_alignment_preservation = bool(
+                gear == Gear.REVERSE
+                and self.maneuver.purpose == "forward_restoration"
+                and self.maneuver.leg_count > 0
+                and abs(bearing)
+                <= self.turnaround_alignment_release_bearing
+            )
+            gear_turn_hint = (
+                bearing
+                if forward_exit_capture and abs(bearing) >= 0.05
+                else None
+                if forward_exit_capture
+                else None
+                if reverse_alignment_preservation
+                else turn_hint
+            )
             proposed = self.maneuver.proposed_subgoal(
                 gear,
                 directional_reference,
                 bearing if math.isfinite(bearing) else heading_error,
                 purpose="forward_restoration",
-                turn_sign_hint=turn_hint,
+                turn_sign_hint=(
+                    turn_hint if gear_turn_hint is None else gear_turn_hint
+                ),
             )
             result = self.planner.plan(
                 state,
@@ -614,8 +1246,16 @@ class LocalPlannerNode:
                 requested_gear=gear,
                 target_heading=bearing,
                 spatial_scales=self.maneuver_spatial_scales,
-                required_yaw_direction=turn_hint,
-                minimum_yaw_progress_rad=self.maneuver_minimum_yaw_progress,
+                required_yaw_direction=gear_turn_hint,
+                minimum_yaw_progress_rad=(
+                    0.0
+                    if gear_turn_hint is None
+                    else self.maneuver_minimum_yaw_progress
+                ),
+                allow_static_margin_egress=(gear == Gear.REVERSE),
+                maximum_margin_overlap_m=self.memory_margin_egress_maximum_overlap,
+                minimum_margin_improvement_m=self.memory_margin_egress_minimum_improvement,
+                margin_worsening_tolerance_m=self.memory_margin_egress_worsening_tolerance,
             )
             probes[gear] = (proposed, result)
         # A turnaround site must support both halves of a local multi-point
@@ -623,6 +1263,68 @@ class LocalPlannerNode:
         # evidence that the car can already restore forward travel there.
         feasible = all(probes[gear][1].executable for gear in probes)
         return probes, feasible
+
+    def stable_far_forward_exit_available(
+        self, bearing, forward_probe, route_command
+    ):
+        """Allow normal rolling control once a refreshed FAR course is usable.
+
+        A parking leg is a means to point the body into the route, not an
+        obligation to consume a fixed number of 0.85 m strokes.  This gate is
+        intentionally stricter than ordinary candidate feasibility: it needs
+        FAR authority, a forward route hint, a small bearing error and at
+        least a 75% geometric horizon.  The existing multi-cycle confirmation
+        in ForwardPreferenceSupervisor remains in force.
+        """
+
+        result = None if forward_probe is None else forward_probe[1]
+        return bool(
+            self.maneuver.purpose == "forward_restoration"
+            and self.maneuver.leg_count > 0
+            and str(self.global_route_source).startswith("FAR_")
+            and route_command is not None
+            # Compare the wire value directly.  A transient neutral command
+            # must simply fail this release gate, not raise from
+            # ``Gear.require_drive`` inside the control callback.
+            and int(route_command.requested_gear) == int(Gear.FORWARD)
+            and math.isfinite(float(bearing))
+            and abs(float(bearing))
+            <= self.turnaround_alignment_release_bearing
+            and result is not None
+            and result.executable
+            and result.spatial_scale is not None
+            and float(result.spatial_scale)
+            >= self.turnaround_alignment_minimum_spatial_scale
+        )
+
+    def turnaround_gear_order(self, probes):
+        """Choose a geometry-driven first leg, then strictly alternate gears.
+
+        A map ID or manoeuvre label must never decide the transmission.  Once
+        a transaction has a completed leg, alternation owns the order.  At a
+        new site, rank the two hard-safe probes by swept clearance and yaw
+        progress; a reverse leg wins exact ties so a goal directly behind the
+        vehicle cannot make it drive toward the separating wall first.
+        """
+
+        if self.maneuver.last_completed_gear in (Gear.FORWARD, Gear.REVERSE):
+            return self.maneuver.recovery_gear_order(Gear.FORWARD)
+        ranked = []
+        for gear in (Gear.FORWARD, Gear.REVERSE):
+            result = probes.get(gear, (None, None))[1]
+            if result is None or not result.executable:
+                continue
+            selected = result.selected
+            clearance = float(selected.static_clearance)
+            yaw_progress = abs(float(selected.trajectory[-1, 3]))
+            reverse_tie_break = 1 if gear == Gear.REVERSE else 0
+            ranked.append((clearance, yaw_progress, reverse_tie_break, gear))
+        ranked.sort(reverse=True)
+        ordered = [row[-1] for row in ranked]
+        ordered.extend(
+            gear for gear in (Gear.REVERSE, Gear.FORWARD) if gear not in ordered
+        )
+        return tuple(ordered)
 
     @staticmethod
     def reference_steering(odom, route, requested_gear, start_index=0):
@@ -825,6 +1527,7 @@ class LocalPlannerNode:
         reference_path=None,
         required_yaw_direction=None,
         minimum_yaw_progress_rad=0.0,
+        allow_static_margin_egress=False,
     ):
         self.publish_policy_query(
             requested_gear,
@@ -845,6 +1548,14 @@ class LocalPlannerNode:
             spatial_scales=spatial_scales,
             required_yaw_direction=required_yaw_direction,
             minimum_yaw_progress_rad=minimum_yaw_progress_rad,
+            allow_static_margin_egress=allow_static_margin_egress,
+            maximum_margin_overlap_m=self.memory_margin_egress_maximum_overlap,
+            minimum_margin_improvement_m=(
+                self.memory_margin_egress_minimum_improvement
+            ),
+            margin_worsening_tolerance_m=(
+                self.memory_margin_egress_worsening_tolerance
+            ),
         )
         baseline = apply_runtime_route_preference(
             baseline,
@@ -942,7 +1653,14 @@ class LocalPlannerNode:
         else:
             self.stop(source + "_" + decision.state.value.lower())
 
-    def publish_state(self, result, detail=""):
+    def publish_state(
+        self,
+        result,
+        detail="",
+        *,
+        executable_override=None,
+        blocked_by_static_override=None,
+    ):
         if rospy.is_shutdown():
             return
         message = PlannerState()
@@ -952,11 +1670,33 @@ class LocalPlannerNode:
             if self.maneuver.active
             else self.recovery.state.value
         )
-        message.executable = bool(result is not None and result.executable)
-        message.blocked_by_static = bool(result is not None and result.blocked_by_static)
+        message.executable = bool(
+            result is not None and result.executable
+            if executable_override is None
+            else executable_override
+        )
+        message.blocked_by_static = bool(
+            result is not None and result.blocked_by_static
+            if blocked_by_static_override is None
+            else blocked_by_static_override
+        )
         message.blocked_by_dynamic = bool(result is not None and result.blocked_by_dynamic)
         message.planning_generation = result.generation if result is not None else 0
         message.retime_factor = (result.retime_factor or 0.0) if result is not None else 0.0
+        message.maneuver_active = bool(
+            self.maneuver.active
+            or self.forward_restoration_budget_replan_pending
+            or (
+                self.maneuver.leg_count > 0
+                and not self.maneuver.exhausted
+                and self.recovery.state != RecoveryState.STATIC_DEADLOCK
+            )
+        )
+        message.maneuver_purpose = str(self.maneuver.purpose)
+        message.maneuver_leg = int(self.maneuver.leg_count)
+        message.maneuver_gear = int(self.maneuver.gear)
+        message.maneuver_travelled_m = float(self.maneuver.travelled_m)
+        message.maneuver_target_m = float(self.maneuver.target_distance_m)
         message.detail = detail
         self.state_pub.publish(message)
 
@@ -972,6 +1712,8 @@ class LocalPlannerNode:
             message.model_loaded = inference.model_loaded
             message.sensor_ready = inference.sensor_ready
             message.inference_ok = inference.inference_ok
+            message.inference_attempts = inference.inference_attempts
+            message.synchronization_failures = inference.synchronization_failures
             message.inference_latency_ms = inference.inference_latency_ms
             message.sensor_skew_s = inference.sensor_skew_s
             inference_authorized = inference.control_authorized
@@ -1087,6 +1829,19 @@ class LocalPlannerNode:
         if rospy.is_shutdown():
             return
         with self.lock:
+            if (
+                self.deferred_route_transaction is not None
+                and not self.maneuver.active
+            ):
+                deferred_route, deferred_command = (
+                    self.deferred_route_transaction
+                )
+                self.deferred_route_transaction = None
+                self.commit_route_transaction_locked(
+                    deferred_route,
+                    deferred_command,
+                    allow_defer=False,
+                )
             grid, grid_stamp, odom, joint_state, goal, tracks, route_command, mission_goal, route, global_planner_state = (
                 self.grid,
                 self.grid_stamp,
@@ -1103,7 +1858,9 @@ class LocalPlannerNode:
             self.stop("waiting_for_inputs")
             return
         now = rospy.Time.now().to_sec()
-        state = self.vehicle_state(odom, joint_state)
+        state = self.vehicle_state(
+            odom, joint_state, self.odometry_twist_in_body_frame
+        )
         mission_distance, mission_heading = self.mission_error(odom, mission_goal)
         arrival = (
             self.arrival.update(
@@ -1126,16 +1883,9 @@ class LocalPlannerNode:
             )
             self.publish_state(None, "active zero-speed capture before neutral hold")
             return
-        if global_planner_state in (
-            "RECEIVED",
-            "PLANNING",
-            "TIMEOUT",
-            "NO_PATH",
-            "INVALID_GOAL",
-            "INVALID_START",
-            "START_BLOCKED",
-            "INVALID_STATUS",
-        ):
+        if (
+            global_planner_state in self.global_wait_states
+        ) and not self.maneuver.active:
             source = "global_" + global_planner_state.lower()
             if abs(state.speed) > 0.03:
                 self.publish_active_brake(
@@ -1167,7 +1917,6 @@ class LocalPlannerNode:
         # prevents a one-cycle reverse override from immediately flipping back
         # to forward at a 90-degree corner.
         if self.maneuver.active:
-            self.maneuver.observe(position, now)
             active_bearing = None
             if (
                 self.maneuver.purpose == "forward_restoration"
@@ -1175,17 +1924,18 @@ class LocalPlannerNode:
                 and route_command is not None
             ):
                 active_reference = self.route_reference(
-                    odom, route, route_command.segment_index
+                    odom, route, route_command.segment_index, grid=grid
+                )
+                active_reference = self.authority_direction_reference(
+                    odom, active_reference, mission_goal
                 )
                 active_bearing, _ = corridor_direction_body(
                     active_reference,
                     self.forward_preference.config.direction_lookahead_m,
                 )
-                if self.forward_preference.forward_corridor_reacquired(
-                    active_reference,
-                    route_requested_gear=route_command.requested_gear,
-                ):
-                    self.maneuver.settle("forward_corridor_reacquired")
+                # Do not terminate a committed leg on one transient route
+                # bearing.  Completion is evaluated between stopped legs by
+                # ForwardPreferenceSupervisor with confirmation hysteresis.
             if (
                 mission_goal is not None
                 and self.require_mission_goal_heading
@@ -1197,8 +1947,56 @@ class LocalPlannerNode:
                 self.maneuver.settle("terminal_heading_aligned")
             if self.maneuver.state == ManeuverState.SETTLING:
                 reason = self.maneuver.finish_reason
+                maneuver_purpose = self.maneuver.purpose
+                maneuver_travelled = float(self.maneuver.travelled_m)
                 if self.maneuver.finish_if_stopped(state.speed, state.steering):
+                    zero_progress_static_recovery = bool(
+                        maneuver_purpose == "static_recovery"
+                        and reason == "certified_space_exhausted"
+                        and maneuver_travelled
+                        < self.maneuver.config.minimum_useful_leg_m
+                    )
+                    if zero_progress_static_recovery:
+                        route_key = (
+                            self.global_route_source,
+                            self.global_route_id,
+                            self.global_route_revision,
+                            self.route_authority_epoch,
+                        )
+                        self.static_recovery_replan_gate.block(
+                            route_key, position
+                        )
+                        # This route transaction has proved that it cannot
+                        # execute even one useful local recovery leg.  Release
+                        # manoeuvre ownership now so memory/FAR can observe the
+                        # persistent STATIC_BLOCKED evidence and replace the
+                        # route, instead of silently spending all eight legs.
+                        self.maneuver.reset()
+                        self.local_turnaround_transaction_id = 0
+                        self.maneuver_retry_not_before = 0.0
+                        self.gear_supervisor.update(
+                            Gear.NEUTRAL, state.speed, now
+                        )
+                        self.stop("static_recovery_far_replan_hold")
+                        self.publish_state(
+                            None,
+                            "zero-progress local recovery released; waiting "
+                            "for FAR route replacement",
+                            executable_override=False,
+                            blocked_by_static_override=True,
+                        )
+                        return
+                    self.maneuver_retry_not_before = (
+                        now + self.maneuver_retry_observation_hold
+                        if reason == "certified_space_exhausted"
+                        else 0.0
+                    )
                     self.gear_supervisor.update(Gear.NEUTRAL, state.speed, now)
+                    if self.maneuver.purpose == "forward_restoration":
+                        # Rebuild the FAR suffix from the measured pose before
+                        # selecting the next opposite-gear leg.  The memory
+                        # layer keeps this as the same turnaround transaction.
+                        self.forward_preference.request_route_revalidation()
                     self.stop("maneuver_leg_complete:" + reason)
                     self.publish_state(None, "committed maneuver leg completed: " + reason)
                 else:
@@ -1208,6 +2006,43 @@ class LocalPlannerNode:
                     self.publish_state(None, "settling committed maneuver leg: " + reason)
                 return
             maneuver_gear = self.maneuver.gear
+            # Complete the zero-speed gear transaction before evaluating a
+            # trajectory in the requested direction.  Previously the first
+            # active tick planned a REVERSE bank while the measured vehicle
+            # was still braking in FORWARD.  Hard safety then rejected the
+            # mismatched bank as ``certified_space_exhausted`` before reverse
+            # was ever engaged.
+            shift_decision = self.gear_supervisor.update(
+                maneuver_gear, state.speed, now
+            )
+            if not shift_decision.drive_enabled:
+                self.maneuver.hold_for_drive_authorization(position, now)
+                self.publish_shift_hold(
+                    shift_decision, state, "maneuver_gear_shift"
+                )
+                self.publish_state(
+                    None,
+                    "committed maneuver waiting for zero-speed gear "
+                    "engagement; geometric leg is paused",
+                    executable_override=True,
+                )
+                return
+            self.maneuver.observe(position, now)
+            if self.maneuver.purpose == "forward_restoration":
+                self.forward_preference.observe_committed_motion(
+                    progress, maneuver_gear
+                )
+            if self.maneuver.state == ManeuverState.SETTLING:
+                reason = self.maneuver.finish_reason
+                self.publish_active_brake(
+                    maneuver_gear, "maneuver_active_braking:" + reason
+                )
+                self.publish_state(
+                    None,
+                    "settling committed maneuver leg: " + reason,
+                    executable_override=True,
+                )
+                return
             maneuver_subgoal = self.maneuver.body_subgoal()
             maneuver_heading_error = (
                 self.heading_error(odom, mission_goal)
@@ -1232,12 +2067,22 @@ class LocalPlannerNode:
                 required_yaw_direction=(
                     self.maneuver.turn_sign
                     if self.maneuver.purpose == "forward_restoration"
+                    and abs(self.maneuver.lateral_target_m) > 1.0e-4
                     else None
                 ),
                 minimum_yaw_progress_rad=(
                     self.maneuver_minimum_yaw_progress
                     if self.maneuver.purpose == "forward_restoration"
+                    and abs(self.maneuver.lateral_target_m) > 1.0e-4
                     else 0.0
+                ),
+                allow_static_margin_egress=(
+                    (
+                        self.maneuver.purpose == "forward_restoration"
+                        and maneuver_gear == Gear.REVERSE
+                    )
+                    or self.maneuver.purpose
+                    == "far_dead_end_egress_realign"
                 ),
             )
             self.publish_candidates(
@@ -1295,14 +2140,39 @@ class LocalPlannerNode:
             return
 
         requested_gear = Gear.require_drive(route_command.requested_gear)
+        navigation_mode = int(route_command.navigation_mode)
+        far_dead_end_egress = bool(
+            navigation_mode
+            == LocalRouteCommand.NAVIGATION_FAR_DEAD_END_EGRESS
+        )
+        breadcrumb_backtrack = bool(
+            navigation_mode
+            == LocalRouteCommand.NAVIGATION_MEMORY_BACKTRACK
+        )
+        memory_backtrack = (
+            breadcrumb_backtrack or far_dead_end_egress
+        )
+        memory_resume = (
+            navigation_mode == LocalRouteCommand.NAVIGATION_MEMORY_RESUME
+        )
         exact_route = bool(
             route is not None
             and any(
                 int(point.gear) != int(Gear.NEUTRAL) for point in route.points
             )
         )
+        # NAVIGATION_CONNECTIVITY with a neutral route is the online mapping
+        # probe contract.  It may collect forward observations but cannot
+        # authorize a transmission reversal until FAR accepts a route.
+        map_acquisition_probe = bool(
+            navigation_mode == LocalRouteCommand.NAVIGATION_CONNECTIVITY
+            and not exact_route
+        )
         reference_path = self.route_reference(
-            odom, route, route_command.segment_index
+            odom, route, route_command.segment_index, grid=grid
+        )
+        authority_reference = self.authority_direction_reference(
+            odom, reference_path, mission_goal
         )
         reference_curvature = self.reference_curvature(
             odom, route, requested_gear, route_command.segment_index
@@ -1334,9 +2204,14 @@ class LocalPlannerNode:
         )
         rospy.loginfo_throttle(
             2.0,
-            "Local route guidance index=%d turn=%.3frad corner_soft=%.2f corner_speed=%s "
+            "Local route guidance source=%s route_id=%s revision=%d command_index=%d "
+            "reference_index=%d turn=%.3frad corner_soft=%.2f corner_speed=%s "
             "terminal_direct_visible=%s",
+            self.global_route_source,
+            self.global_route_id or "none",
+            self.global_route_revision,
             route_command.segment_index,
+            self.route_reference_index,
             turn_angle,
             turn_soft_severity,
             "none" if turn_speed_limit is None else "%.3f" % turn_speed_limit,
@@ -1346,9 +2221,14 @@ class LocalPlannerNode:
         command_source = ""
         active_subgoal = subgoal
         maneuver_started = False
+        forward_course_capture_active = False
+        forward_decision = None
         terminal_capture_active = (
             mission_goal is not None
             and not exact_route
+            and terminal_capture_route_authorized(
+                self.global_route_source
+            )
             and mission_distance <= self.terminal_capture_radius
             and (
                 not self.require_mission_goal_heading
@@ -1378,14 +2258,20 @@ class LocalPlannerNode:
         # to reach such a site.
         if (
             not exact_route
+            and not memory_backtrack
+            and not map_acquisition_probe
             and not terminal_capture_active
             and (
                 mission_goal is None
                 or mission_distance > self.terminal_maneuver_radius
             )
         ):
+            if state.speed > 0.03 and self.turnaround_rearm_remaining > 0.0:
+                self.turnaround_rearm_remaining = max(
+                    0.0, self.turnaround_rearm_remaining - progress
+                )
             bearing, route_length = corridor_direction_body(
-                reference_path,
+                authority_reference,
                 self.forward_preference.config.direction_lookahead_m,
             )
             behind_or_recovering = (
@@ -1394,13 +2280,30 @@ class LocalPlannerNode:
                 >= self.forward_preference.config.behind_bearing_rad
             ) or self.forward_preference.state != ForwardPreferenceState.FORWARD_CRUISE
             probes, turnaround_feasible = ({}, False)
+            forward_capture_feasible = False
+            # The aligned-exit gate is evaluated for both normal cruise and
+            # recovery.  Normal cruise intentionally skips the expensive
+            # bidirectional probes, so its absent forward probe must be an
+            # explicit ``None`` rather than an unbound local.
+            forward_probe = None
+            continuing_forward_restoration = bool(
+                self.maneuver.purpose == "forward_restoration"
+                and self.maneuver.leg_count > 0
+            )
             if behind_or_recovering:
                 probes, turnaround_feasible = self.turnaround_probes(
                     state,
-                    reference_path,
+                    authority_reference,
                     grid,
                     body_tracks,
-                    heading_error=heading_error,
+                    heading_error=(
+                        math.atan2(
+                            authority_reference[-1, 1],
+                            authority_reference[-1, 0],
+                        )
+                        if len(authority_reference) >= 2
+                        else heading_error
+                    ),
                 )
                 if (
                     self.forward_preference.state
@@ -1411,12 +2314,76 @@ class LocalPlannerNode:
                     # turnaround site.  Once committed, the safe alternating
                     # next leg may itself create room for the following leg.
                     turnaround_feasible = True
+                forward_probe = probes.get(Gear.FORWARD)
+                forward_capture_feasible = bool(
+                    forward_probe is not None
+                    and forward_probe[1] is not None
+                    and forward_probe[1].executable
+                )
             forward_decision = self.forward_preference.update(
-                reference_path,
+                authority_reference,
                 turnaround_feasible=turnaround_feasible,
+                forward_capture_feasible=forward_capture_feasible,
+                forward_exit_verified=bool(
+                    (
+                        self.maneuver.purpose == "forward_restoration"
+                        and self.maneuver.last_completed_gear == Gear.FORWARD
+                        and self.maneuver.last_completed_reason
+                        == "target_distance_reached"
+                    )
+                    or self.stable_far_forward_exit_available(
+                        bearing, forward_probe, route_command
+                    )
+                ),
                 progress_m=progress,
                 route_requested_gear=route_command.requested_gear,
+                turnaround_start_authorized=bool(
+                    continuing_forward_restoration
+                    or self.turnaround_rearm_remaining <= 0.0
+                ),
             )
+            if (
+                forward_decision.state
+                == ForwardPreferenceState.ROUTE_REVALIDATION
+                and not route_requires_far_revalidation(
+                    self.global_route_source
+                )
+            ):
+                # The route source changed from FAR to an explicit fallback;
+                # this is not a discontinuous FAR revision.  Give the durable
+                # topology/local corridor one bounded turnaround transaction
+                # of its own instead of opening a FAR-only request/hold loop.
+                if continuing_forward_restoration:
+                    self.forward_preference.approve_continuation_route()
+                else:
+                    self.forward_preference.approve_revalidated_route()
+                forward_decision = self.forward_preference.update(
+                    authority_reference,
+                    turnaround_feasible=turnaround_feasible,
+                    forward_capture_feasible=forward_capture_feasible,
+                    forward_exit_verified=bool(
+                        (
+                            self.maneuver.purpose == "forward_restoration"
+                            and self.maneuver.last_completed_gear == Gear.FORWARD
+                            and self.maneuver.last_completed_reason
+                            == "target_distance_reached"
+                        )
+                        or self.stable_far_forward_exit_available(
+                            bearing, forward_probe, route_command
+                        )
+                    ),
+                    progress_m=progress,
+                    route_requested_gear=route_command.requested_gear,
+                    turnaround_start_authorized=bool(
+                        continuing_forward_restoration
+                        or self.turnaround_rearm_remaining <= 0.0
+                    ),
+                )
+                rospy.loginfo(
+                    "Resolved rearward non-FAR route through bounded local "
+                    "turnaround authority route_source=%s",
+                    self.global_route_source,
+                )
             if forward_decision.state == ForwardPreferenceState.REVERSE_ESCAPE_EXHAUSTED:
                 self.stop("bounded_reverse_escape_exhausted")
                 self.publish_state(
@@ -1426,41 +2393,160 @@ class LocalPlannerNode:
                 )
                 return
             requested_gear = forward_decision.requested_gear
-            if forward_decision.start_turnaround:
-                for maneuver_gear in self.maneuver.recovery_gear_order(Gear.FORWARD):
+            if (
+                forward_decision.state
+                == ForwardPreferenceState.ROUTE_REVALIDATION
+            ):
+                self.gear_supervisor.update(Gear.NEUTRAL, state.speed, now)
+                if abs(state.speed) > 0.03:
+                    self.publish_active_brake(
+                        self.braking_gear(state, route_command),
+                        "forward_course_capture_revalidation_braking",
+                    )
+                else:
+                    self.stop("forward_course_capture_revalidation_hold")
+                if not self.forward_capture_replan_requested:
+                    # Arm the transaction barrier before publishing the
+                    # request: subscriber callbacks can run on another rospy
+                    # thread and FAR may answer within this control cycle.
+                    current_route_stamp = self.message_stamp(route_command)
+                    self.forward_capture_replan_after_stamp = max(
+                        float(now), current_route_stamp
+                    )
+                    self.forward_capture_replan_requested = True
+                    self.request_measured_pose_replan(
+                        (
+                            "abrupt_rear_route_change"
+                            if forward_decision.reason
+                            == "abrupt_rear_route_revalidation"
+                            else "forward_course_capture_diverged"
+                        )
+                    )
+                self.publish_state(
+                    None,
+                    (
+                        "rolling route reversed direction; waiting for a "
+                        "measured-pose FAR re-anchor"
+                        if forward_decision.reason
+                        == "abrupt_rear_route_revalidation"
+                        else "forward course capture diverged; waiting for a "
+                        "measured-pose FAR re-anchor"
+                    ),
+                )
+                return
+            if forward_decision.reason == "safe_forward_course_capture":
+                proposed, capture_result = probes[Gear.FORWARD]
+                result = capture_result
+                active_subgoal = proposed
+                command_source = "deterministic_forward_course_capture"
+                forward_course_capture_active = True
+            if forward_decision.state in (
+                ForwardPreferenceState.TURNAROUND_CONFIRM,
+                ForwardPreferenceState.TURNAROUND_VERIFY,
+            ):
+                self.gear_supervisor.update(Gear.NEUTRAL, state.speed, now)
+                if abs(state.speed) > 0.03:
+                    self.publish_active_brake(
+                        self.braking_gear(state, route_command),
+                        "turnaround_confirmation_active_braking",
+                    )
+                else:
+                    self.stop("turnaround_confirmation_hold")
+                self.publish_state(
+                    None,
+                    (
+                        "confirming corridor behind before starting turnaround"
+                        if forward_decision.state
+                        == ForwardPreferenceState.TURNAROUND_CONFIRM
+                        else "confirming stable forward corridor before releasing turnaround authority"
+                    ),
+                )
+                return
+            reverse_space_creation = bool(
+                forward_decision.state == ForwardPreferenceState.REVERSE_ESCAPE
+                and Gear.REVERSE in probes
+                and probes[Gear.REVERSE][1].executable
+            )
+            if forward_decision.start_turnaround or reverse_space_creation:
+                maneuver_order = (
+                    (Gear.REVERSE,)
+                    if reverse_space_creation
+                    else self.turnaround_gear_order(probes)
+                )
+                for maneuver_gear in maneuver_order:
                     proposed, shortened = probes[maneuver_gear]
                     if not shortened.executable:
                         continue
+                    starting_new_turnaround = self.maneuver.leg_count == 0
                     if not self.maneuver.begin(
                         maneuver_gear,
                         position,
                         now,
-                        reference_path[-1],
+                        authority_reference[-1],
                         forward_decision.corridor_bearing_rad,
                         purpose="forward_restoration",
                         turn_sign_hint=forward_decision.corridor_bearing_rad,
                     ):
-                        self.stop("forward_restoration_leg_limit_reached")
-                        self.publish_state(
-                            shortened,
-                            "maximum forward-restoration legs reached",
-                        )
+                        if (
+                            self.forward_restoration_budget_replans < 1
+                            and not self.forward_restoration_budget_replan_pending
+                        ):
+                            self.forward_restoration_budget_replan_pending = True
+                            self.forward_preference.request_route_revalidation()
+                            self.forward_capture_replan_after_stamp = max(
+                                float(now), self.message_stamp(route_command)
+                            )
+                            self.forward_capture_replan_requested = True
+                            self.request_measured_pose_replan(
+                                "forward_restoration_budget_exhausted"
+                            )
+                            self.stop("forward_restoration_budget_revalidation")
+                            self.publish_state(
+                                shortened,
+                                "forward-restoration scheduling budget exhausted; requesting one measured-pose FAR continuation",
+                                executable_override=False,
+                                blocked_by_static_override=False,
+                            )
+                        else:
+                            self.stop("forward_restoration_budget_exhausted")
+                            self.publish_state(
+                                shortened,
+                                "turnaround_budget_exhausted: measured-pose continuation also exhausted",
+                                executable_override=False,
+                                blocked_by_static_override=False,
+                            )
                         return
+                    if starting_new_turnaround:
+                        self.local_turnaround_transaction_sequence += 1
+                        self.local_turnaround_transaction_id = (
+                            self.local_turnaround_transaction_sequence
+                        )
                     requested_gear = maneuver_gear
                     result = shortened
                     active_subgoal = proposed
                     command_source = "deterministic_forward_restoration"
                     maneuver_started = True
                     rospy.loginfo(
-                        "Starting forward-restoration %s leg target=%.3fm "
-                        "corridor_bearing=%.3frad turn_sign=%+.0f "
-                        "reverse_escape=%.3fm leg=%d",
+                        "Starting forward-restoration %s%s leg target=%.3fm "
+                        "corridor_bearing=%.3frad turn_sign=%+.0f lateral_target=%.3fm "
+                        "reverse_escape=%.3fm leg=%d route_id=%s "
+                        "route_source=%s route_revision=%d progress=%.3fm "
+                        "carrot=%.3fm turnaround_id=%d",
                         maneuver_gear.name,
+                        " space-creation" if reverse_space_creation else "",
                         self.maneuver.target_distance_m,
                         forward_decision.corridor_bearing_rad,
                         self.maneuver.turn_sign,
+                        self.maneuver.lateral_target_m,
                         forward_decision.reverse_escape_m,
                         self.maneuver.leg_count,
+                        self.global_route_id or "none",
+                        self.global_route_source,
+                        self.global_route_revision,
+                        self.global_route_progress_m,
+                        self.global_route_carrot_m,
+                        self.global_turnaround_transaction_id
+                        or self.local_turnaround_transaction_id,
                     )
                     break
             rospy.loginfo_throttle(
@@ -1480,6 +2566,7 @@ class LocalPlannerNode:
         # the corridor's forward/reverse hint starts oscillating.
         terminal_alignment_required = (
             mission_goal is not None
+            and not memory_backtrack
             and self.require_mission_goal_heading
             and not exact_route
             and mission_distance <= self.terminal_maneuver_radius
@@ -1552,6 +2639,8 @@ class LocalPlannerNode:
                     odom, route, requested_gear, route_command.segment_index
                 ),
                 reference_path=reference_path,
+                recovery_mode=memory_backtrack or memory_resume,
+                allow_static_margin_egress=memory_backtrack,
             )
             if terminal_capture_active:
                 command_source = "deterministic_terminal_capture"
@@ -1564,6 +2653,52 @@ class LocalPlannerNode:
         # preferred direction and then the opposite direction.  The selected
         # direction becomes a committed leg rather than a one-cycle override.
         if result.blocked_by_static and not result.blocked_by_dynamic:
+            route_key = (
+                self.global_route_source,
+                self.global_route_id,
+                self.global_route_revision,
+                self.route_authority_epoch,
+            )
+            if (
+                not memory_backtrack
+                and not memory_resume
+                and self.static_recovery_replan_gate.held(route_key, position)
+            ):
+                # Keep publishing real local static evidence with manoeuvre
+                # ownership released.  Memory navigation can now invalidate
+                # the failed FAR suffix and choose a new route/egress; retrying
+                # the identical green-route micro-leg cannot add information.
+                self.publish_active_brake(
+                    self.braking_gear(state, route_command),
+                    "static_recovery_far_replan_hold",
+                )
+                self.publish_state(
+                    result,
+                    "same FAR route has a zero-progress recovery failure; "
+                    "waiting for route replacement",
+                    executable_override=False,
+                    blocked_by_static_override=True,
+                )
+                return
+            if (
+                not memory_backtrack
+                and not memory_resume
+                and now < self.maneuver_retry_not_before
+            ):
+                # The previous short leg stopped on this sensor snapshot.
+                # Wait for a bounded fresh-observation window before retrying
+                # the same gear and geometry; otherwise the 10 Hz loop emits
+                # misleading STATIC_BLOCKED/start/stop flashes while SLAM and
+                # LiDAR still describe effectively the same scene.
+                self.publish_active_brake(
+                    self.braking_gear(state, route_command),
+                    "maneuver_retry_observation_hold",
+                )
+                self.publish_state(
+                    result,
+                    "waiting for a fresh safety observation before the next maneuver leg",
+                )
+                return
             # Hybrid A* has already supplied a collision-free kinematic tail.
             # Near a segment boundary a full one-second lattice rollout can
             # extend beyond that tail and report a false static dead end.  In
@@ -1616,19 +2751,51 @@ class LocalPlannerNode:
                         "Exact route remained locally blocked at the same "
                         "measured pose; delegating space creation to local recovery",
                     )
-            gear_order = self.maneuver.recovery_gear_order(requested_gear)
-            for maneuver_gear in gear_order if not result.executable else ():
-                proposed = self.maneuver.proposed_subgoal(
-                    maneuver_gear, subgoal, heading_error
+            # Ordinary breadcrumb reverse and recovery resume are already
+            # certified mission-level gear transactions, so a local fallback
+            # must not flip them.  FAR dead-end egress is different: it is a
+            # *closed-loop objective* (reach the failed-branch entry), not an
+            # open-loop reverse command.  If its current reverse micro-
+            # primitive is blocked, a short hard-safe forward steering leg is
+            # allowed to create room before the connector resumes.  Suppressing
+            # the opposite gear here previously made one blocked reverse ray
+            # look like proof that the whole egress was impossible.
+            gear_order = (
+                ()
+                if (
+                    breadcrumb_backtrack
+                    or memory_resume
+                    or map_acquisition_probe
                 )
-                shortened = self.planner.plan(
+                else self.maneuver.recovery_gear_order(requested_gear)
+            )
+            for maneuver_gear in gear_order if not result.executable else ():
+                maneuver_purpose = (
+                    "far_dead_end_egress_realign"
+                    if far_dead_end_egress
+                    else "static_recovery"
+                )
+                proposed = self.maneuver.proposed_subgoal(
+                    maneuver_gear,
+                    subgoal,
+                    heading_error,
+                    purpose=maneuver_purpose,
+                )
+                shortened, _ = self.plan_context(
                     state,
                     proposed,
                     grid,
+                    grid_stamp,
                     body_tracks,
-                    requested_gear=maneuver_gear,
-                    target_heading=heading_error,
+                    maneuver_gear,
+                    heading_error=heading_error,
+                    recovery_mode=True,
                     spatial_scales=self.maneuver_spatial_scales,
+                    force_baseline=True,
+                    # This exception never bypasses hard safety.  It only
+                    # permits a primitive which starts inside conservative
+                    # inflation to monotonically reduce that overlap.
+                    allow_static_margin_egress=far_dead_end_egress,
                 )
                 if not shortened.executable:
                     continue
@@ -1638,21 +2805,29 @@ class LocalPlannerNode:
                     now,
                     subgoal,
                     heading_error,
+                    purpose=maneuver_purpose,
                 ):
                     self.stop("maneuver_leg_limit_reached")
                     self.publish_state(shortened, "maximum committed maneuver legs reached")
                     return
                 rospy.loginfo(
-                    "Starting committed %s maneuver leg target=%.3fm subgoal=(%.3f,%.3f)",
+                    "Starting committed %s maneuver leg target=%.3fm "
+                    "subgoal=(%.3f,%.3f) purpose=%s requested_route_gear=%s",
                     maneuver_gear.name,
                     self.maneuver.target_distance_m,
                     proposed[0],
                     proposed[1],
+                    maneuver_purpose,
+                    requested_gear.name,
                 )
                 requested_gear = maneuver_gear
                 result = shortened
                 active_subgoal = proposed
-                command_source = "deterministic_committed_maneuver"
+                command_source = (
+                    "deterministic_far_egress_realign"
+                    if far_dead_end_egress
+                    else "deterministic_committed_maneuver"
+                )
                 maneuver_started = True
                 break
         lifecycle = self.recovery.update_blockage(
@@ -1676,11 +2851,53 @@ class LocalPlannerNode:
         )
         if result.executable:
             if not maneuver_started and self.maneuver.leg_count:
-                rospy.loginfo(
-                    "Normal full-horizon local path reacquired after %d maneuver legs",
-                    self.maneuver.leg_count,
+                completed_forward_restoration = bool(
+                    self.maneuver.purpose == "forward_restoration"
                 )
-                self.maneuver.reset()
+                verified_forward_restoration_exit = bool(
+                    completed_forward_restoration
+                    and forward_decision is not None
+                    and forward_decision.reason == "forward_corridor_reacquired"
+                )
+                if (
+                    completed_forward_restoration
+                    and not verified_forward_restoration_exit
+                ):
+                    # A safe ordinary path after one reverse leg is not proof
+                    # that the body has completed the turn.  Keep the atomic
+                    # transaction alive so the next planning tick schedules
+                    # its forward/second reverse leg instead of arming the
+                    # new-turn suppression gate and waiting forever.
+                    rospy.loginfo_throttle(
+                        1.0,
+                        "Retaining forward-restoration transaction between "
+                        "legs completed=%d decision=%s",
+                        self.maneuver.leg_count,
+                        (
+                            "none"
+                            if forward_decision is None
+                            else forward_decision.reason
+                        ),
+                    )
+                else:
+                    rospy.loginfo(
+                        "Verified full-horizon local path after %d maneuver legs",
+                        self.maneuver.leg_count,
+                    )
+                    self.maneuver.reset()
+                    self.local_turnaround_transaction_id = 0
+                    self.maneuver_retry_not_before = 0.0
+                    self.forward_restoration_budget_replans = 0
+                    self.forward_restoration_budget_replan_pending = False
+                if verified_forward_restoration_exit:
+                    # Suppress source-flap reinterpretation of the same
+                    # mission as a brand-new turnaround until the car has
+                    # made meaningful forward progress (or the bounded rearm
+                    # progress.  Explicit memory/dead-end authority and a new
+                    # RViz goal reset this latch independently.
+                    self.turnaround_rearm_remaining = (
+                        self.turnaround_rearm_distance
+                    )
             decision = self.gear_supervisor.update(
                 requested_gear, state.speed, now
             )
@@ -1703,6 +2920,9 @@ class LocalPlannerNode:
                         else None,
                         self.exact_route_speed if exact_route else None,
                         turn_speed_limit,
+                        self.forward_course_capture_speed
+                        if forward_course_capture_active
+                        else None,
                     ),
                 )
             else:

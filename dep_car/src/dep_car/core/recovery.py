@@ -57,6 +57,21 @@ class RecoveryManager:
         self._recovery_started = None
         self._armed = True
 
+    def start_authority_transaction(self) -> None:
+        """Clear local deadlock evidence when mission authority changes.
+
+        A FAR goal route, breadcrumb reverse, and recovery resume are mutually
+        exclusive transactions.  Static evidence accumulated under the old
+        route must not immediately launch an opposite-gear micro manoeuvre in
+        the newly selected transaction.
+        """
+
+        self.recovery_subgoal = None
+        self.state = RecoveryState.MISSION_TRACKING
+        self._stagnant_since = None
+        self._recovery_started = None
+        self._armed = True
+
     def update_blockage(self, now: float, progress_m: float, static_blocked: bool, dynamic_only: bool) -> RecoveryState:
         if dynamic_only:
             self.state = RecoveryState.DYNAMIC_YIELD

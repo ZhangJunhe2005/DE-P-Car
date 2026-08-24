@@ -115,7 +115,7 @@ Visualization Manager:
       Length: 0.1
       Line Style: Lines
       Line Width: 0.03
-      Name: Global Path
+      Name: Local Route Corridor
       Offset:
         X: 0
         Y: 0
@@ -127,6 +127,38 @@ Visualization Manager:
       Shaft Length: 0.1
       Topic: /dep_car/global_path
       Unreliable: false
+      Value: true
+    - Alpha: 0.95
+      Buffer Length: 1
+      Class: rviz/Path
+      Color: 0; 170; 255
+      Enabled: true
+      Head Diameter: 0.1
+      Head Length: 0.1
+      Length: 0.1
+      Line Style: Lines
+      Line Width: 0.08
+      Name: FAR Visibility Route
+      Offset:
+        X: 0
+        Y: 0
+        Z: 0.07
+      Pose Color: 0; 170; 255
+      Pose Style: None
+      Radius: 0.03
+      Shaft Diameter: 0.03
+      Shaft Length: 0.1
+      Topic: /dep_car/visibility_path
+      Unreliable: false
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /dep_car/visibility_graph_markers
+      Name: FAR Visibility Graph
+      Namespaces:
+        far_visibility_edges: true
+        far_visibility_selected: true
+      Queue Size: 10
       Value: true
     - Alpha: 1
       Axes Length: 0.25
@@ -149,6 +181,19 @@ Visualization Manager:
       Name: Global Planner Status
       Namespaces:
         dep_car_global_planner_status: true
+      Queue Size: 10
+      Value: true
+    - Class: rviz/MarkerArray
+      Enabled: true
+      Marker Topic: /dep_car/navigation_memory_markers
+      Name: Navigation Memory
+      Namespaces:
+        memory_breadcrumbs: true
+        memory_failed_branches: true
+        memory_recovery_target: true
+        memory_selected_topology: true
+        memory_topology: true
+        memory_topology_nodes: true
       Queue Size: 10
       Value: true
     - Class: rviz/Marker

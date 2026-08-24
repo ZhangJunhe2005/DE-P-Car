@@ -17,7 +17,7 @@ from dep_car.perception.range_image import build_range_image
 from dep_car.runtime.occupancy import ego_unknown_clearance_mask
 from nav_msgs.msg import OccupancyGrid
 from sensor_msgs import point_cloud2
-from sensor_msgs.msg import Image, PointCloud2
+from sensor_msgs.msg import Image, LaserScan, PointCloud2
 
 
 class LidarPreprocessor:
@@ -38,6 +38,12 @@ class LidarPreprocessor:
         # FootprintConfig and must not also be baked into this grid.
         self.inflation = rospy.get_param("~inflation_radius", 0.0)
         self.body_frame = rospy.get_param("~body_frame", "chassis")
+        self.scan_bins = int(rospy.get_param("~scan_bins", 720))
+        self.scan_min_range = float(rospy.get_param("~scan_minimum_range", 0.20))
+        self.scan_max_range = float(rospy.get_param("~scan_maximum_range", 20.0))
+        self.scan_rate = float(rospy.get_param("~scan_rate", 10.0))
+        if self.scan_bins < 32 or not 0.0 < self.scan_min_range < self.scan_max_range:
+            raise ValueError("LaserScan bin/range configuration is invalid")
         self.self_filter = SelfFilterConfig(
             length=rospy.get_param("~self_filter_length", SelfFilterConfig.length),
             width=rospy.get_param("~self_filter_width", SelfFilterConfig.width),
@@ -49,6 +55,7 @@ class LidarPreprocessor:
         self.mask_pub = rospy.Publisher("/dep_car/lidar/validity_mask", Image, queue_size=1)
         self.grid_pub = rospy.Publisher("/dep_car/local_costmap", OccupancyGrid, queue_size=1)
         self.bev_pub = rospy.Publisher("/dep_car/lidar/bev", Image, queue_size=1)
+        self.scan_pub = rospy.Publisher("/dep_car/scan", LaserScan, queue_size=1)
         rospy.Subscriber("/velodyne_points", PointCloud2, self.callback, queue_size=1, buff_size=2 ** 24)
 
     @staticmethod
@@ -150,6 +157,36 @@ class LidarPreprocessor:
         message.data = grid.flatten().tolist()
         return message
 
+    def scan_message(self, obstacle_points, header):
+        """Collapse the filtered 3-D returns into a 360-degree planar scan."""
+
+        message = LaserScan()
+        message.header = header
+        message.header.frame_id = self.body_frame
+        message.angle_min = -np.pi
+        message.angle_increment = 2.0 * np.pi / self.scan_bins
+        message.angle_max = message.angle_min + (self.scan_bins - 1) * message.angle_increment
+        message.scan_time = 1.0 / max(self.scan_rate, 1.0e-3)
+        message.time_increment = 0.0
+        message.range_min = self.scan_min_range
+        message.range_max = self.scan_max_range
+        ranges = np.full(self.scan_bins, np.inf, dtype=np.float32)
+        if len(obstacle_points):
+            radial = np.linalg.norm(obstacle_points[:, :2], axis=1)
+            angles = np.arctan2(obstacle_points[:, 1], obstacle_points[:, 0])
+            valid = (
+                np.isfinite(radial)
+                & (radial >= self.scan_min_range)
+                & (radial <= self.scan_max_range)
+            )
+            indices = np.floor(
+                (angles[valid] - message.angle_min) / message.angle_increment
+            ).astype(np.int64)
+            indices = np.clip(indices, 0, self.scan_bins - 1)
+            np.minimum.at(ranges, indices, radial[valid].astype(np.float32))
+        message.ranges = ranges.tolist()
+        return message
+
     def callback(self, cloud):
         points = np.asarray(list(point_cloud2.read_points(cloud, field_names=("x", "y", "z"), skip_nans=True)), dtype=np.float32)
         if points.size == 0:
@@ -171,6 +208,7 @@ class LidarPreprocessor:
             self_filter=self.self_filter,
         )
         bev_points = filter_lidar_obstacles(body_points, obstacle_filter)
+        self.scan_pub.publish(self.scan_message(bev_points, cloud.header))
         self.bev_pub.publish(
             self.bev_message(build_lidar_bev(bev_points, LidarBEVConfig()), cloud.header)
         )

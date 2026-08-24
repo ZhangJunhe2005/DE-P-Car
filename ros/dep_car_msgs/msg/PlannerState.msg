@@ -5,5 +5,10 @@ bool blocked_by_static
 bool blocked_by_dynamic
 uint64 planning_generation
 float64 retime_factor
+bool maneuver_active
+string maneuver_purpose
+uint32 maneuver_leg
+int8 maneuver_gear
+float64 maneuver_travelled_m
+float64 maneuver_target_m
 string detail
-

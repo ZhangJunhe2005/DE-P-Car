@@ -3,6 +3,7 @@ devel/
 install/
 log/
 logs/
+reports/memory_navigation/
 .catkin_tools/
 catkin_ws/
 __pycache__/
@@ -33,3 +34,7 @@ models/dep_car/p5/
 models/dep_car/p5_v2/
 models/dep_car/p5_score_v1/
 models/dep_car/p5_route_v2/
+
+# Local upstream references; provenance is pinned in third_party.lock.yaml.
+FAR Planner.pdf
+FAR_Planner_Interactive_Explainer.html

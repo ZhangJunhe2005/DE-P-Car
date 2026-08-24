@@ -24,3 +24,15 @@ def test_recovery_requires_mission_reacquisition_before_rearm():
     manager.mission_plan_reacquired()
     assert manager.state == RecoveryState.MISSION_TRACKING
 
+
+def test_new_authority_transaction_clears_stale_deadlock_without_losing_goal():
+    manager = RecoveryManager()
+    manager.set_mission_goal((10.0, 2.0))
+    manager.update_blockage(0.0, 0.0, True, False)
+    manager.update_blockage(3.0, 0.0, True, False)
+    assert manager.state == RecoveryState.STATIC_DEADLOCK
+
+    manager.start_authority_transaction()
+
+    assert manager.state == RecoveryState.MISSION_TRACKING
+    assert manager.active_goal == (10.0, 2.0)

@@ -26,6 +26,56 @@ def evaluate_static(candidate: Candidate, grid: OccupancyGrid2D, footprint: Foot
     return candidate
 
 
+def evaluate_static_margin_egress(
+    candidate: Candidate,
+    grid: OccupancyGrid2D,
+    footprint: FootprintConfig,
+    *,
+    maximum_overlap_m: float,
+    minimum_improvement_m: float,
+    worsening_tolerance_m: float,
+) -> Candidate:
+    """Certify motion that exits a small soft-margin overlap.
+
+    This never relaxes the physical footprint and is intentionally opt-in.
+    It is used only while replaying a previously traversed breadcrumb in
+    reverse.  Normal navigation continues to require the complete footprint,
+    including its safety margin, to be positive at every trajectory row.
+    """
+
+    if min(maximum_overlap_m, minimum_improvement_m, worsening_tolerance_m) < 0.0:
+        raise ValueError("margin-egress thresholds cannot be negative")
+    signed_profile = getattr(
+        grid, "swept_footprint_signed_clearance_profile", None
+    )
+    if not callable(signed_profile):
+        # The frozen P4 OccupancyGrid2D intentionally has no margin-egress
+        # API.  Only the P6 runtime subclass can grant this narrow authority.
+        return candidate
+    strict = signed_profile(candidate.trajectory, footprint)
+    physical = FootprintConfig(
+        length=footprint.length,
+        width=footprint.width,
+        safety_margin=0.0,
+        circle_count=footprint.circle_count,
+    )
+    physical_profile = signed_profile(candidate.trajectory, physical)
+    start = float(strict[0])
+    certified = (
+        np.all(np.isfinite(strict))
+        and np.all(np.isfinite(physical_profile))
+        and -float(maximum_overlap_m) <= start <= 0.0
+        and float(np.min(physical_profile)) > 0.0
+        and float(np.min(strict)) >= start - float(worsening_tolerance_m)
+        and float(strict[-1]) >= start + float(minimum_improvement_m)
+    )
+    if certified:
+        candidate.feasible = True
+        candidate.static_clearance = float(np.min(physical_profile))
+        candidate.veto_reason = ""
+    return candidate
+
+
 def _uncertainty_radius(track: DynamicTrack, horizon: float, sigma: float) -> float:
     if track.covariance is None:
         return 0.10 * horizon

@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.0.2)
+project(dep_car_memory_navigation)
+find_package(catkin REQUIRED COMPONENTS rospy geometry_msgs nav_msgs std_msgs sensor_msgs visualization_msgs tf2_ros dep_car_core dep_car_msgs)
+catkin_package(CATKIN_DEPENDS rospy geometry_msgs nav_msgs std_msgs sensor_msgs visualization_msgs tf2_ros dep_car_core dep_car_msgs)
+catkin_install_python(PROGRAMS scripts/navigation_memory_node.py scripts/map_odometry_node.py scripts/publish_memory_goal.py scripts/replay_memory_goals.py DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION})
+install(DIRECTORY launch config DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})

@@ -1,0 +1,50 @@
+<launch>
+  <arg name="odometry_topic" default="/odometry/filtered"/>
+  <arg name="initial_x" default="0.0"/>
+  <arg name="initial_y" default="0.0"/>
+  <arg name="initial_yaw" default="0.0"/>
+
+  <node pkg="dep_car_vehicle" type="ackermann_wheel_odometry.py"
+        name="dep_car_wheel_odometry" output="screen">
+    <param name="output_topic" value="/dep_car/wheel_odom"/>
+    <param name="frame_id" value="odom"/>
+    <param name="child_frame_id" value="dummy"/>
+    <!-- A fixed validation start is prior knowledge, not a runtime pose
+         measurement.  The estimator receives no subsequent Gazebo truth. -->
+    <param name="initial_x" value="$(arg initial_x)"/>
+    <param name="initial_y" value="$(arg initial_y)"/>
+    <param name="initial_yaw" value="$(arg initial_yaw)"/>
+    <!-- Suppress joint-controller velocity noise while stopped and steering.
+         This is below commanded crawl speed and does not hide real motion. -->
+    <param name="speed_deadband_mps" value="0.015"/>
+  </node>
+
+  <node pkg="robot_localization" type="ekf_localization_node"
+        name="dep_car_ekf" output="screen" clear_params="true">
+    <rosparam command="load" file="$(find dep_car_memory_navigation)/config/ekf.yaml"/>
+    <remap from="odometry/filtered" to="$(arg odometry_topic)"/>
+  </node>
+
+  <node pkg="slam_toolbox" type="async_slam_toolbox_node"
+        name="slam_toolbox" output="screen" clear_params="true">
+    <rosparam command="load" file="$(find dep_car_memory_navigation)/config/slam_toolbox.yaml"/>
+    <remap from="scan" to="/dep_car/scan"/>
+  </node>
+
+  <node pkg="dep_car_memory_navigation" type="map_odometry_node.py"
+        name="dep_car_map_odometry" output="screen">
+    <param name="input_topic" value="$(arg odometry_topic)"/>
+    <param name="output_topic" value="/dep_car/map_odometry"/>
+    <!-- slam_toolbox scan matching on the current Gazebo load trails the
+         100 Hz EKF by about 0.17 to 0.20 s.  A 0.25 s bound accepts that normal
+         latency while still rejecting a stalled mapper. -->
+    <param name="maximum_transform_skew_s" value="0.25"/>
+  </node>
+
+  <rosparam command="load" file="$(find dep_car_memory_navigation)/config/navigation_memory.yaml"
+            ns="dep_car_memory_navigation"/>
+  <node pkg="dep_car_memory_navigation" type="navigation_memory_node.py"
+        name="dep_car_memory_navigation" output="screen">
+    <param name="odometry_topic" value="$(arg odometry_topic)"/>
+  </node>
+</launch>

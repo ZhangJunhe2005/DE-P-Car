@@ -60,12 +60,17 @@ class PolicyNode:
         }
         self.query = None
         self.last_generation = -1
+        self.inference_attempts = 0
+        self.synchronization_failures = 0
         self.maximum_sensor_age = float(rospy.get_param("~maximum_sensor_age", 0.35))
         self.depth_tolerance = float(rospy.get_param("~depth_sync_tolerance", 0.05))
         self.odom_tolerance = float(rospy.get_param("~odom_sync_tolerance", 0.02))
         self.imu_tolerance = float(rospy.get_param("~imu_sync_tolerance", 0.02))
         self.joint_tolerance = float(rospy.get_param("~joint_sync_tolerance", 0.05))
         self.sim_positive_right = bool(rospy.get_param("~simulator_positive_right", True))
+        self.odometry_twist_in_body_frame = bool(
+            rospy.get_param("~odometry_twist_in_body_frame", False)
+        )
         self.mode = str(rospy.get_param("~mode", "shadow"))
         self.modality = str(rospy.get_param("~modality", "fusion"))
         self.raw_pub = rospy.Publisher(
@@ -104,7 +109,12 @@ class PolicyNode:
         rospy.Subscriber(
             "/dep_car/lidar/bev", Image, self.on_bev, queue_size=1, buff_size=2 ** 22
         )
-        rospy.Subscriber("/base_pose_ground_truth", Odometry, self.on_odom, queue_size=1)
+        rospy.Subscriber(
+            rospy.get_param("~odometry_topic", "/base_pose_ground_truth"),
+            Odometry,
+            self.on_odom,
+            queue_size=1,
+        )
         rospy.Subscriber("/imu/data", Imu, self.on_imu, queue_size=1)
         rospy.Subscriber("/urban_model/joint_states", JointState, self.on_joints, queue_size=1)
         rospy.Subscriber("/dep_car/policy_query", PolicyQuery, self.on_query, queue_size=1)
@@ -142,7 +152,11 @@ class PolicyNode:
     def on_odom(self, message):
         heading = yaw_from_quaternion(message.pose.pose.orientation)
         velocity = message.twist.twist.linear
-        speed = world_velocity_to_body_longitudinal(velocity.x, velocity.y, heading)
+        speed = (
+            float(velocity.x)
+            if self.odometry_twist_in_body_frame
+            else world_velocity_to_body_longitudinal(velocity.x, velocity.y, heading)
+        )
         self.store("odom", message_stamp(message), np.asarray([speed], dtype=np.float64))
 
     def on_imu(self, message):
@@ -199,6 +213,8 @@ class PolicyNode:
             self.runtime is not None and self.runtime.control_authorized
         )
         state.generation = int(generation)
+        state.inference_attempts = int(self.inference_attempts)
+        state.synchronization_failures = int(self.synchronization_failures)
         state.inference_latency_ms = float(latency_ms)
         state.sensor_skew_s = float(sensor_skew)
         state.candidate_count = int(candidate_count)
@@ -251,8 +267,25 @@ class PolicyNode:
                 for name, (entries, tolerance) in nearest_sources.items()
                 if nearest(entries, latest_stamp, tolerance) is None
             )
+            evidence = []
+            for name in unmatched:
+                entries, tolerance = interpolated_sources.get(
+                    name, nearest_sources.get(name)
+                )
+                previous = [stamp for stamp, _ in entries if stamp <= latest_stamp]
+                following = [stamp for stamp, _ in entries if stamp >= latest_stamp]
+                before = (
+                    "none" if not previous else "%.4f" % (latest_stamp - previous[-1])
+                )
+                after = (
+                    "none" if not following else "%.4f" % (following[0] - latest_stamp)
+                )
+                evidence.append(
+                    "%s(before=%s,after=%s,tol=%.4f)"
+                    % (name, before, after, tolerance)
+                )
             raise ValueError(
-                "unsynchronized:" + "+".join(unmatched or ["unknown"])
+                "unsynchronized:" + "+".join(evidence or ["unknown"])
             )
         anchor_stamp, anchor_value, matches = synchronized
         now = rospy.Time.now().to_sec()
@@ -284,6 +317,7 @@ class PolicyNode:
             self.publish_state(reason="model_load_failed:" + self.load_error)
             return
         try:
+            self.inference_attempts += 1
             values, anchor_stamp, skew = self.synchronized_snapshot()
             query = values["query"]
             if int(query.generation) == self.last_generation:
@@ -358,6 +392,8 @@ class PolicyNode:
         except Exception as exc:
             generation = values["query"].generation if "values" in locals() and values.get("query") else 0
             reason = type(exc).__name__ + ":" + str(exc)
+            if "unsynchronized:" in reason:
+                self.synchronization_failures += 1
             waiting_for_query = (
                 reason.startswith("ValueError:missing:") and "query" in reason
             ) or reason.startswith("ValueError:stale_query_age=")

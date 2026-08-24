@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<package format="2">
+  <name>dep_car_memory_navigation</name>
+  <version>0.1.0</version>
+  <description>Online SLAM visibility routing, breadcrumb memory and dead-end recovery.</description>
+  <maintainer email="zhangjunhe2005@users.noreply.github.com">DE-P-Car maintainers</maintainer>
+  <license>MIT</license>
+  <buildtool_depend>catkin</buildtool_depend>
+  <depend>rospy</depend><depend>geometry_msgs</depend><depend>nav_msgs</depend><depend>std_msgs</depend><depend>sensor_msgs</depend><depend>visualization_msgs</depend><depend>tf2_ros</depend><depend>dep_car_core</depend><depend>dep_car_msgs</depend>
+  <exec_depend>robot_localization</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
+</package>

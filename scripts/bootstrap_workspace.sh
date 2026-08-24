@@ -19,14 +19,13 @@ if [[ ! -e "$SOURCE/CMakeLists.txt" ]]; then
 fi
 
 missing=()
-for package in effort_controllers joint_trajectory_controller velodyne_description velodyne_gazebo_plugins map_server; do
+for package in effort_controllers joint_trajectory_controller velodyne_description velodyne_gazebo_plugins map_server robot_localization slam_toolbox; do
   rospack find "$package" >/dev/null 2>&1 || missing+=("$package")
 done
 if (( ${#missing[@]} )); then
   printf 'Missing ROS runtime packages: %s\n' "${missing[*]}" >&2
-  printf '%s\n' 'Install: sudo apt-get install ros-noetic-effort-controllers ros-noetic-joint-trajectory-controller ros-noetic-velodyne-description ros-noetic-velodyne-gazebo-plugins ros-noetic-map-server' >&2
+  printf '%s\n' 'Install: sudo apt-get install ros-noetic-effort-controllers ros-noetic-joint-trajectory-controller ros-noetic-velodyne-description ros-noetic-velodyne-gazebo-plugins ros-noetic-map-server ros-noetic-robot-localization ros-noetic-slam-toolbox' >&2
 fi
 
 cd "$ROOT/catkin_ws"
 catkin_make -DCMAKE_BUILD_TYPE=Release -DPYTHON_EXECUTABLE=/usr/bin/python3
-

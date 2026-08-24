@@ -205,6 +205,55 @@ def route_reference_body(
     return np.asarray(output, dtype=float)
 
 
+def monotonic_route_reference_body(
+    world_points,
+    vehicle_pose,
+    begin: int,
+    *,
+    grid=None,
+    horizon_m: float = 2.5,
+    maximum_search: int = 30,
+):
+    """Attach a rolling corridor to the nearest not-yet-passed sample.
+
+    FAR republishes a route from the current pose during ordinary driving, but
+    intentionally freezes it while a multi-leg Ackermann turn owns control.
+    Continuing to read that frozen route from index zero makes the already
+    traversed dense prefix dominate metric lookahead and can point the local
+    planner back into the failed branch.  Advance a monotonic cursor in body
+    coordinates, where the live local occupancy grid can also reject a
+    geometrically close point across a wall.
+    """
+
+    points = np.asarray(world_points, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 2 or not len(points):
+        return np.empty((0, 2), dtype=float), 0
+    begin = min(max(0, int(begin)), len(points) - 1)
+    x, y, heading = (float(value) for value in vehicle_pose)
+    delta = points - np.asarray((x, y), dtype=float)
+    c, s = math.cos(heading), math.sin(heading)
+    body = np.column_stack((
+        c * delta[:, 0] + s * delta[:, 1],
+        -s * delta[:, 0] + c * delta[:, 1],
+    ))
+    selected, _ = monotonic_route_index(
+        body.tolist(),
+        begin,
+        (0.0, 0.0),
+        grid=grid,
+        maximum_search=maximum_search,
+    )
+    return (
+        route_reference_body(
+            points,
+            vehicle_pose,
+            selected,
+            horizon_m=horizon_m,
+        ),
+        int(selected),
+    )
+
+
 def _point_polyline_distances(points: np.ndarray, polyline: np.ndarray) -> np.ndarray:
     if len(polyline) == 1:
         return np.linalg.norm(points - polyline[0], axis=1)
@@ -402,6 +451,7 @@ __all__ = [
     "monotonic_route_index",
     "required_center_clearance",
     "route_reference_body",
+    "monotonic_route_reference_body",
     "route_turn_angle",
     "segment_is_visible",
     "segment_minimum_clearance",

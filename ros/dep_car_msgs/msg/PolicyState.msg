@@ -9,6 +9,8 @@ bool hard_safety_applied
 bool executable
 bool control_authorized
 uint64 generation
+uint64 inference_attempts
+uint64 synchronization_failures
 float64 inference_latency_ms
 float64 sensor_skew_s
 uint16 candidate_count

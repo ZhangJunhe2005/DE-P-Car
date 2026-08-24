@@ -1,0 +1,48 @@
+<launch>
+  <arg name="world"/>
+  <arg name="gazebo_model_path"/>
+  <arg name="x" default="0.0"/>
+  <arg name="y" default="0.0"/>
+  <arg name="yaw" default="0.0"/>
+  <arg name="checkpoint"/>
+  <arg name="checkpoint_contract"/>
+  <arg name="p6_authority" default=""/>
+  <arg name="policy_mode" default="shadow"/>
+  <arg name="gazebo_seed" default="49105"/>
+  <arg name="gui" default="true"/>
+  <arg name="enable_rviz" default="true"/>
+  <arg name="paused" default="true"/>
+  <arg name="policy_python" default="$(optenv DEP_CAR_POLICY_PYTHON /home/zjh/miniconda3/envs/yopo/bin/python)"/>
+  <arg name="learned_route_authority" default="true"/>
+
+  <include file="$(find dep_car_bringup)/launch/urban_sim.launch">
+    <arg name="world" value="$(arg world)"/>
+    <!-- Deliberately empty: memory navigation must not receive the frozen map. -->
+    <arg name="map_yaml" value=""/>
+    <arg name="gazebo_model_path" value="$(arg gazebo_model_path)"/>
+    <arg name="x" value="$(arg x)"/>
+    <arg name="y" value="$(arg y)"/>
+    <arg name="yaw" value="$(arg yaw)"/>
+    <arg name="gazebo_seed" value="$(arg gazebo_seed)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="enable_rviz" value="$(arg enable_rviz)"/>
+    <arg name="paused" value="$(arg paused)"/>
+    <arg name="navigation_backend" value="memory"/>
+    <arg name="odometry_topic" value="/dep_car/map_odometry"/>
+    <!-- Preserve the P3/P5 20 ms interpolation contract with high-rate,
+         no-ground-truth EKF output.  Only the geometric planner needs the
+         delayed map-frame pose. -->
+    <arg name="policy_odometry_topic" value="/odometry/filtered"/>
+    <arg name="odometry_twist_in_body_frame" value="true"/>
+    <arg name="policy_mode" value="$(arg policy_mode)"/>
+    <arg name="policy_modality" value="fusion"/>
+    <arg name="policy_checkpoint" value="$(arg checkpoint)"/>
+    <arg name="policy_checkpoint_contract" value="$(arg checkpoint_contract)"/>
+    <arg name="p6_authority" value="$(arg p6_authority)"/>
+    <arg name="policy_python" value="$(arg policy_python)"/>
+    <arg name="active_fallback_to_baseline" value="false"/>
+    <arg name="learned_route_authority" value="$(arg learned_route_authority)"/>
+    <!-- RViz mission goals are position-only in this backend. -->
+    <arg name="require_goal_heading" value="false"/>
+  </include>
+</launch>

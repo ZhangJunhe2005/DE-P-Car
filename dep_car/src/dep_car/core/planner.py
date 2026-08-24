@@ -6,7 +6,13 @@ from typing import Iterable, List, Optional, Sequence, Tuple
 
 from .lattice import AckermannLattice, LatticeConfig
 from .occupancy import FootprintConfig, OccupancyGrid2D
-from .safety import DynamicSafetyConfig, evaluate_dynamic, evaluate_static, goal_cost
+from .safety import (
+    DynamicSafetyConfig,
+    evaluate_dynamic,
+    evaluate_static,
+    evaluate_static_margin_egress,
+    goal_cost,
+)
 from .types import Candidate, DynamicTrack, Gear, VehicleState
 
 
@@ -27,6 +33,12 @@ class PlanningResult:
     blocked_by_static: bool
     blocked_by_dynamic: bool
     generation: int
+    # Geometric horizon retained by the selected safety fallback.  Retime
+    # factor alone cannot encode this because a 0.75 spatial primitive slowed
+    # by 1.4 has the same duration scale as a full primitive.  Turnaround exit
+    # verification needs to distinguish a useful forward corridor from a tiny
+    # emergency twitch.
+    spatial_scale: Optional[float] = None
 
     @property
     def executable(self) -> bool:
@@ -57,6 +69,10 @@ class DeterministicPlanner:
         spatial_scales: Sequence[float] = (1.0,),
         required_yaw_direction: float = None,
         minimum_yaw_progress_rad: float = 0.0,
+        allow_static_margin_egress: bool = False,
+        maximum_margin_overlap_m: float = 0.06,
+        minimum_margin_improvement_m: float = 0.02,
+        margin_worsening_tolerance_m: float = 0.01,
         learned_offsets: Optional[Tuple[Iterable[float], Iterable[float], Iterable[float]]] = None,
     ) -> PlanningResult:
         self._generation += 1
@@ -98,6 +114,15 @@ class DeterministicPlanner:
                         target_steering=target_steering,
                     )
                     evaluate_static(candidate, occupancy, self.config.footprint)
+                    if not candidate.feasible and allow_static_margin_egress:
+                        evaluate_static_margin_egress(
+                            candidate,
+                            occupancy,
+                            self.config.footprint,
+                            maximum_overlap_m=maximum_margin_overlap_m,
+                            minimum_improvement_m=minimum_margin_improvement_m,
+                            worsening_tolerance_m=margin_worsening_tolerance_m,
+                        )
                     if candidate.feasible:
                         any_static_safe = True
                         evaluate_dynamic(candidate, tracks, self.config.dynamic)
@@ -119,6 +144,7 @@ class DeterministicPlanner:
                         blocked_by_static=False,
                         blocked_by_dynamic=False,
                         generation=self._generation,
+                        spatial_scale=spatial_scale,
                     )
 
         return PlanningResult(
@@ -128,4 +154,5 @@ class DeterministicPlanner:
             blocked_by_static=not any_static_safe,
             blocked_by_dynamic=any_static_safe and any_dynamic_rejected,
             generation=self._generation,
+            spatial_scale=None,
         )

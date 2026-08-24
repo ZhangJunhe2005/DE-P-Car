@@ -10,11 +10,15 @@ from dep_car.runtime.maneuver import (
     CommittedManeuver,
     ManeuverState,
     MeasuredPoseReplanGate,
+    RouteRecoveryReplanGate,
 )
 from dep_car.runtime.forward_preference import (
     ForwardPreferenceState,
     ForwardPreferenceSupervisor,
     corridor_direction_body,
+    navigation_authority_reference,
+    route_requires_far_revalidation,
+    terminal_capture_route_authorized,
 )
 from dep_car.runtime.p6_contract import build_p6_runtime_contract
 from dep_car.runtime.online_sync import (
@@ -38,6 +42,8 @@ from dep_car.runtime.route_guidance import (
     corner_severity,
     corner_speed_limit,
     monotonic_route_index,
+    monotonic_route_reference_body,
+    route_reference_body,
     route_turn_angle,
     segment_is_visible,
     visible_corridor_subgoal,
@@ -300,6 +306,57 @@ def test_committed_maneuver_uses_longer_ninety_degree_leg_and_alternates():
     )
 
 
+def test_exhausted_maneuver_releases_transaction_authority():
+    maneuver = CommittedManeuver()
+    for index in range(maneuver.config.maximum_legs):
+        assert maneuver.begin(
+            Gear.FORWARD,
+            (float(index), 0.0),
+            float(index),
+            (1.0, 0.2),
+            0.2,
+        )
+        maneuver.settle("test")
+        assert maneuver.finish_if_stopped(0.0)
+    assert maneuver.exhausted
+    assert not maneuver.active
+    assert not maneuver.begin(
+        Gear.REVERSE, (0.0, 0.0), 10.0, (-1.0, -0.2), -0.2
+    )
+
+
+def test_forward_restoration_budget_can_be_renewed_once_by_caller():
+    maneuver = CommittedManeuver()
+    for index in range(maneuver.config.maximum_legs):
+        assert maneuver.begin(
+            Gear.FORWARD if index % 2 else Gear.REVERSE,
+            (float(index), 0.0),
+            float(index),
+            (-1.0, 0.2),
+            2.4,
+            purpose="forward_restoration",
+            turn_sign_hint=1.0,
+        )
+        maneuver.settle("test")
+        assert maneuver.finish_if_stopped(0.0)
+    retained_sign = maneuver.turn_sign
+    retained_gear = maneuver.last_completed_gear
+    assert maneuver.exhausted
+    assert maneuver.renew_leg_budget()
+    assert maneuver.leg_count == 0
+    assert maneuver.turn_sign == retained_sign
+    assert maneuver.last_completed_gear == retained_gear
+    assert maneuver.begin(
+        Gear.REVERSE,
+        (0.0, 0.0),
+        20.0,
+        (-1.0, 0.2),
+        2.4,
+        purpose="forward_restoration",
+        turn_sign_hint=1.0,
+    )
+
+
 def test_forward_restoration_latches_corridor_turn_side_across_gear_changes():
     maneuver = CommittedManeuver()
     # The far end of a winding route can be on the opposite lateral side from
@@ -349,6 +406,113 @@ def test_forward_restoration_latches_corridor_turn_side_across_gear_changes():
     assert maneuver.body_subgoal()[1] < 0.0
 
 
+def test_forward_exit_keeps_committed_turn_side_after_reverse_leg():
+    maneuver = CommittedManeuver()
+    assert maneuver.begin(
+        Gear.REVERSE,
+        (0.0, 0.0),
+        0.0,
+        (-1.0, 0.1),
+        3.10,
+        purpose="forward_restoration",
+        turn_sign_hint=3.10,
+    )
+    assert maneuver.turn_sign > 0.0
+    maneuver.settle("target_distance_reached")
+    assert maneuver.finish_if_stopped(0.0)
+    assert maneuver.last_completed_reason == "target_distance_reached"
+
+    proposed = maneuver.proposed_subgoal(
+        Gear.FORWARD,
+        (1.0, -0.6),
+        -0.60,
+        purpose="forward_restoration",
+        turn_sign_hint=-0.60,
+    )
+    assert proposed[0] > 0.0
+    assert proposed[1] > 0.0
+    assert abs(proposed[1]) <= maneuver.config.lateral_offset_m
+    assert maneuver.begin(
+        Gear.FORWARD,
+        (0.0, 0.0),
+        1.0,
+        (1.0, -0.6),
+        -0.60,
+        purpose="forward_restoration",
+        turn_sign_hint=-0.60,
+    )
+    assert maneuver.turn_sign > 0.0
+    assert maneuver.body_subgoal()[1] > 0.0
+
+    maneuver.settle("target_distance_reached")
+    assert maneuver.finish_if_stopped(0.0)
+    proposed = maneuver.proposed_subgoal(
+        Gear.REVERSE,
+        (-1.0, 0.6),
+        2.50,
+        purpose="forward_restoration",
+        turn_sign_hint=2.50,
+    )
+    assert proposed[1] < 0.0
+    assert maneuver.begin(
+        Gear.REVERSE,
+        (0.0, 0.0),
+        2.0,
+        (-1.0, 0.6),
+        2.50,
+        purpose="forward_restoration",
+        turn_sign_hint=2.50,
+    )
+    assert maneuver.turn_sign > 0.0
+    maneuver.settle("target_distance_reached")
+    assert maneuver.finish_if_stopped(0.0)
+
+    # A dense frozen route may wrap its instantaneous bearing after every
+    # parking leg.  Never reinterpret that wrap as permission to reverse the
+    # already committed turn side.
+    proposed = maneuver.proposed_subgoal(
+        Gear.FORWARD,
+        (1.0, 0.6),
+        0.60,
+        purpose="forward_restoration",
+        turn_sign_hint=0.60,
+    )
+    assert proposed[1] > 0.0
+
+
+def test_interleg_revalidation_preserves_turnaround_authority():
+    supervisor = ForwardPreferenceSupervisor()
+    front = np.asarray([[0.0, 0.0], [0.5, 0.2], [1.0, 0.3]])
+
+    supervisor.request_route_revalidation()
+    supervisor.approve_continuation_route()
+    decision = supervisor.update(
+        front,
+        turnaround_feasible=True,
+        forward_capture_feasible=True,
+        forward_exit_verified=False,
+        turnaround_start_authorized=False,
+    )
+    assert decision.start_turnaround
+    assert decision.state == ForwardPreferenceState.TURNAROUND_PENDING
+
+    # Completion requires a measured full forward leg plus the configured
+    # number of stable forward probes; route refresh alone cannot end it.
+    supervisor.request_route_revalidation()
+    supervisor.approve_continuation_route()
+    decisions = [
+        supervisor.update(
+            front,
+            turnaround_feasible=True,
+            forward_capture_feasible=True,
+            forward_exit_verified=True,
+            turnaround_start_authorized=False,
+        )
+        for _ in range(supervisor.config.forward_confirmation_cycles)
+    ]
+    assert decisions[-1].reason == "forward_corridor_reacquired"
+
+
 def test_planner_hard_filters_opposite_turn_during_committed_maneuver():
     planner = DeterministicPlanner()
     occupancy = OccupancyGrid2D(
@@ -382,6 +546,32 @@ def test_measured_pose_replan_gate_prevents_stationary_retry_loop():
     assert gate.authorize((1.26, 2.0))
     gate.reset()
     assert gate.authorize((1.10, 2.10))
+
+
+def test_route_recovery_gate_waits_for_new_route_or_measured_displacement():
+    gate = RouteRecoveryReplanGate(0.25)
+    route = ("FAR_ATTEMPTABLE_NAVIGATION", "route-a", 7, 11)
+    gate.block(route, (1.0, 2.0))
+
+    assert gate.held(route, (1.10, 2.10))
+    assert not gate.held(("FAR_ATTEMPTABLE_NAVIGATION", "route-a", 8, 12), (1.0, 2.0))
+
+    gate.block(route, (1.0, 2.0))
+    assert not gate.held(route, (1.26, 2.0))
+
+
+def test_committed_maneuver_pauses_distance_and_timeout_during_gear_shift():
+    maneuver = CommittedManeuver()
+    assert maneuver.begin(
+        Gear.REVERSE, (0.0, 0.0), 1.0, (-1.0, -0.3), -0.4
+    )
+    maneuver.hold_for_drive_authorization((0.20, 0.0), 9.0)
+
+    assert maneuver.travelled_m == 0.0
+    assert maneuver.state == ManeuverState.DRIVE_LEG
+    maneuver.observe((0.30, 0.0), 9.1)
+    assert math.isclose(maneuver.travelled_m, 0.10)
+    assert maneuver.state == ManeuverState.DRIVE_LEG
 
 
 def test_terminal_alignment_keeps_a_strong_directional_turn_reference():
@@ -424,6 +614,103 @@ def test_shortened_primitives_recover_space_hidden_by_full_horizon():
     assert full.blocked_by_static
     assert shortened.executable
     assert shortened.retime_factor < 1.0
+
+
+def test_memory_backtrack_can_exit_soft_margin_but_never_physical_overlap():
+    resolution = 0.05
+    data = np.zeros((160, 160), dtype=np.int16)
+    origin = np.asarray((-4.0, -4.0))
+    # The wall is inside the normal 12 cm soft margin at t=0, while still
+    # leaving the physical Urban Car footprint clear.  Normal planning must
+    # remain fail-closed; explicit breadcrumb backtracking may only choose a
+    # reverse primitive whose signed margin improves.
+    wall_x = int(np.floor((0.475 - origin[0]) / resolution))
+    data[:, wall_x] = 100
+    grid = RuntimeOccupancyGrid2D(data, resolution, tuple(origin))
+    planner = DeterministicPlanner()
+
+    normal = planner.plan(
+        VehicleState(),
+        (-1.0, 0.0),
+        grid,
+        requested_gear=Gear.REVERSE,
+        spatial_scales=(1.0, 0.75, 0.50, 0.35, 0.25),
+    )
+    egress = planner.plan(
+        VehicleState(),
+        (-1.0, 0.0),
+        grid,
+        requested_gear=Gear.REVERSE,
+        spatial_scales=(1.0, 0.75, 0.50, 0.35, 0.25),
+        allow_static_margin_egress=True,
+    )
+
+    assert not normal.executable
+    assert normal.blocked_by_static
+    assert egress.executable
+    assert egress.selected.gear == Gear.REVERSE
+    strict = grid.swept_footprint_signed_clearance_profile(
+        egress.selected.trajectory
+    )
+    assert strict[0] <= 0.0
+    assert strict[-1] >= strict[0] + 0.02
+
+
+def test_memory_margin_egress_cannot_restore_a_physical_collision():
+    resolution = 0.05
+    data = np.zeros((160, 160), dtype=np.int16)
+    origin = np.asarray((-4.0, -4.0))
+    wall_x = int(np.floor((0.30 - origin[0]) / resolution))
+    data[:, wall_x] = 100
+    grid = RuntimeOccupancyGrid2D(data, resolution, tuple(origin))
+
+    result = DeterministicPlanner().plan(
+        VehicleState(),
+        (-1.0, 0.0),
+        grid,
+        requested_gear=Gear.REVERSE,
+        spatial_scales=(1.0, 0.75, 0.50, 0.35, 0.25),
+        allow_static_margin_egress=True,
+    )
+
+    assert not result.executable
+    assert result.blocked_by_static
+
+
+def test_accumulated_map_allows_unexplored_extent_but_keeps_known_wall_veto():
+    resolution = 0.10
+    origin = (-2.0, -2.0)
+    trajectory_at_frontier = np.asarray([[0.0, 1.90, 0.0, 0.0]])
+
+    unexplored = RuntimeOccupancyGrid2D(
+        np.zeros((40, 40), dtype=np.int16),
+        resolution,
+        origin,
+        unknown_is_occupied=False,
+    )
+    strict = unexplored.swept_footprint_signed_clearance_profile(
+        trajectory_at_frontier
+    )
+    exploratory = unexplored.swept_footprint_signed_clearance_profile(
+        trajectory_at_frontier,
+        outside_is_occupied=False,
+    )
+    assert np.isneginf(strict[0])
+    assert np.isposinf(exploratory[0])
+
+    known_wall = np.zeros((40, 40), dtype=np.int16)
+    known_wall[:, 37] = 100
+    accumulated = RuntimeOccupancyGrid2D(
+        known_wall,
+        resolution,
+        origin,
+        unknown_is_occupied=False,
+    )
+    clearance = accumulated.swept_footprint_signed_clearance_profile(
+        trajectory_at_frontier,
+        outside_is_occupied=False,
+    )
+    assert clearance[0] < 0.0
 
 
 def test_reference_steering_breaks_equal_endpoint_ties_toward_route_control():
@@ -492,6 +779,62 @@ def test_monotonic_route_index_rejects_a_closer_branch_across_a_wall():
     )
     assert index == 0
     assert abs(distance - 0.80) < 1.0e-9
+
+
+def test_frozen_dense_far_route_skips_its_already_driven_prefix():
+    route = np.column_stack((np.linspace(0.0, 5.0, 101), np.zeros(101)))
+    pose = (2.0, 0.0, 0.0)
+    stale = route_reference_body(route, pose, 0, horizon_m=0.75)
+    reference, index = monotonic_route_reference_body(
+        route, pose, 0, horizon_m=0.75, maximum_search=60
+    )
+
+    assert corridor_direction_body(stale, 0.75)[0] > 3.0
+    assert index >= 39
+    assert abs(corridor_direction_body(reference, 0.75)[0]) < 1.0e-9
+
+    # Reverse-space creation must not roll the frozen cursor back to an old
+    # point and manufacture another rear-route transaction.
+    reference, next_index = monotonic_route_reference_body(
+        route, (1.8, 0.0, 0.0), index, horizon_m=0.75, maximum_search=60
+    )
+    assert next_index >= index
+    assert abs(corridor_direction_body(reference, 0.75)[0]) < 1.0e-9
+
+
+def test_terminal_capture_requires_explicit_far_or_known_terminal_authority():
+    assert terminal_capture_route_authorized("FAR_KNOWN_VISIBILITY")
+    assert terminal_capture_route_authorized("FAR_ATTEMPTABLE_NAVIGATION")
+    assert terminal_capture_route_authorized("KNOWN_TERMINAL_DIRECT")
+    assert not terminal_capture_route_authorized("EXPLORED_TOPOLOGY")
+    assert not terminal_capture_route_authorized("LOCAL_SAFE_EXPLORATION")
+
+
+def test_only_actual_far_route_revisions_require_far_revalidation():
+    assert route_requires_far_revalidation("FAR_KNOWN_VISIBILITY")
+    assert route_requires_far_revalidation("FAR_ATTEMPTABLE_NAVIGATION")
+    assert not route_requires_far_revalidation("EXPLORED_TOPOLOGY")
+    assert not route_requires_far_revalidation("LOCAL_SAFE_EXPLORATION")
+    assert not route_requires_far_revalidation("BOUNDARY_FOLLOW_LEFT")
+
+
+def test_rear_explored_topology_can_enter_bounded_turnaround_without_far():
+    supervisor = ForwardPreferenceSupervisor()
+    forward = np.asarray([[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]])
+    rear = np.asarray([[0.0, 0.0], [-0.5, -0.1], [-1.0, -0.2]])
+    supervisor.update(forward, turnaround_feasible=True)
+    decision = supervisor.update(rear, turnaround_feasible=True)
+    assert decision.state == ForwardPreferenceState.ROUTE_REVALIDATION
+    assert not route_requires_far_revalidation("EXPLORED_TOPOLOGY")
+
+    supervisor.approve_revalidated_route()
+    decisions = [
+        supervisor.update(rear, turnaround_feasible=True)
+        for _ in range(supervisor.config.behind_confirmation_cycles)
+    ]
+    assert decisions[-1].state == ForwardPreferenceState.TURNAROUND_PENDING
+    assert decisions[-1].start_turnaround
+    assert not terminal_capture_route_authorized("BOUNDARY_FOLLOW_RIGHT")
 
 
 def test_runtime_route_preference_rejects_short_corner_cutting():
@@ -594,16 +937,195 @@ def test_forward_preference_leaves_ninety_degree_corner_to_local_planner():
     assert not decision.start_turnaround
 
 
+def test_local_exploration_turnaround_uses_mission_direction_not_passed_carrot():
+    short_carrot = np.asarray(((0.0, 0.0), (-0.8, 0.0)), dtype=float)
+    first = navigation_authority_reference(
+        short_carrot,
+        (-8.0, 0.0),
+        "LOCAL_SAFE_EXPLORATION",
+        horizon_m=2.5,
+    )
+    # After one parking-style leg the old local point can be behind/right,
+    # but the still-distant mission direction is already in front/left.  The
+    # direction authority must follow the mission and must not trigger a new
+    # turnaround to chase the disposable point.
+    passed_carrot = np.asarray(((0.0, 0.0), (-0.4, -0.2)), dtype=float)
+    after_turn = navigation_authority_reference(
+        passed_carrot,
+        (7.0, 0.5),
+        "LOCAL_SAFE_EXPLORATION",
+        horizon_m=2.5,
+    )
+    far_route = navigation_authority_reference(
+        passed_carrot,
+        (7.0, 0.5),
+        "FAR_KNOWN_VISIBILITY",
+        horizon_m=2.5,
+    )
+
+    assert math.isclose(
+        abs(corridor_direction_body(first)[0]), math.pi, abs_tol=1.0e-9
+    )
+    assert abs(corridor_direction_body(after_turn)[0]) < 0.1
+    np.testing.assert_allclose(far_route, passed_carrot)
+
+
 def test_forward_preference_turns_before_long_reverse_when_space_is_open():
     supervisor = ForwardPreferenceSupervisor()
     behind = np.asarray([[0.0, 0.0], [-0.5, 0.0], [-1.0, 0.2]])
     decisions = [
         supervisor.update(behind, turnaround_feasible=True) for _ in range(3)
     ]
+    assert all(
+        decision.state == ForwardPreferenceState.TURNAROUND_CONFIRM
+        and decision.requested_gear == Gear.NEUTRAL
+        for decision in decisions[:2]
+    )
     assert decisions[-1].state == ForwardPreferenceState.TURNAROUND_PENDING
     assert decisions[-1].start_turnaround
     assert decisions[-1].requested_gear == Gear.FORWARD
     assert decisions[-1].reverse_escape_m == 0.0
+
+
+def test_forward_preference_does_not_shift_when_safe_forward_arc_can_capture_route():
+    supervisor = ForwardPreferenceSupervisor()
+    angle = math.radians(125.0)
+    direction = np.asarray([math.cos(angle), math.sin(angle)])
+    behind = np.vstack((np.zeros(2), 0.5 * direction, direction))
+
+    for _ in range(8):
+        decision = supervisor.update(
+            behind,
+            turnaround_feasible=True,
+            forward_capture_feasible=True,
+            route_requested_gear=Gear.FORWARD,
+        )
+        assert decision.state == ForwardPreferenceState.FORWARD_CRUISE
+        assert decision.requested_gear == Gear.FORWARD
+        assert not decision.start_turnaround
+        assert decision.reason == "safe_forward_course_capture"
+
+
+def test_forward_preference_commits_turnaround_for_strongly_rearward_route():
+    supervisor = ForwardPreferenceSupervisor()
+    angle = math.radians(168.0)
+    direction = np.asarray([math.cos(angle), math.sin(angle)])
+    strongly_behind = np.vstack((np.zeros(2), 0.5 * direction, direction))
+
+    decisions = [
+        supervisor.update(
+            strongly_behind,
+            turnaround_feasible=True,
+            forward_capture_feasible=True,
+            route_requested_gear=Gear.FORWARD,
+        )
+        for _ in range(3)
+    ]
+    assert decisions[-1].state == ForwardPreferenceState.TURNAROUND_PENDING
+    assert decisions[-1].start_turnaround
+    assert decisions[-1].reason == "safe_local_turnaround_available"
+
+
+def test_forward_preference_revalidates_abrupt_mid_goal_route_reversal():
+    supervisor = ForwardPreferenceSupervisor()
+    forward = np.asarray([[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]])
+    rear = np.asarray([[0.0, 0.0], [-0.5, 0.0], [-1.0, 0.0]])
+    supervisor.update(forward, turnaround_feasible=True)
+
+    decision = supervisor.update(rear, turnaround_feasible=True)
+    assert decision.state == ForwardPreferenceState.ROUTE_REVALIDATION
+    assert decision.requested_gear == Gear.NEUTRAL
+    assert not decision.start_turnaround
+    assert decision.reason == "abrupt_rear_route_revalidation"
+
+    supervisor.approve_revalidated_route()
+    decisions = [
+        supervisor.update(rear, turnaround_feasible=True) for _ in range(3)
+    ]
+    assert decisions[-1].start_turnaround
+
+
+def test_turnaround_rearm_blocks_source_flap_until_forward_progress():
+    supervisor = ForwardPreferenceSupervisor()
+    rear = np.asarray([[0.0, 0.0], [-0.5, 0.0], [-1.0, 0.0]])
+    decisions = [
+        supervisor.update(
+            rear,
+            turnaround_feasible=True,
+            turnaround_start_authorized=False,
+        )
+        for _ in range(supervisor.config.behind_confirmation_cycles + 2)
+    ]
+    assert all(not decision.start_turnaround for decision in decisions)
+    assert decisions[-1].requested_gear == Gear.NEUTRAL
+    assert any(
+        decision.reason == "turnaround_rearm_forward_progress_pending"
+        for decision in decisions
+    )
+
+
+def test_forward_route_evidence_survives_global_wait_reset():
+    supervisor = ForwardPreferenceSupervisor()
+    forward = np.asarray([[0.0, 0.0], [0.5, 0.0], [1.0, 0.0]])
+    rear = np.asarray([[0.0, 0.0], [-0.5, 0.0], [-1.0, 0.0]])
+    supervisor.update(forward, turnaround_feasible=True)
+    supervisor.reset(preserve_forward_evidence=True)
+    decision = supervisor.update(rear, turnaround_feasible=True)
+    assert decision.reason == "abrupt_rear_route_revalidation"
+
+
+def test_forward_preference_revalidates_instead_of_reversing_after_diverged_capture():
+    supervisor = ForwardPreferenceSupervisor()
+    moderate_angle = math.radians(125.0)
+    moderate_direction = np.asarray(
+        [math.cos(moderate_angle), math.sin(moderate_angle)]
+    )
+    moderate = np.vstack((np.zeros(2), 0.5 * moderate_direction, moderate_direction))
+    decision = supervisor.update(
+        moderate,
+        turnaround_feasible=True,
+        forward_capture_feasible=True,
+    )
+    assert decision.reason == "safe_forward_course_capture"
+    assert decision.requested_gear == Gear.FORWARD
+
+    # A course-capture that turns a previously moderate corridor almost
+    # antiparallel is stale route evidence, not reverse authority.
+    diverged_angle = math.radians(168.0)
+    diverged_direction = np.asarray(
+        [math.cos(diverged_angle), math.sin(diverged_angle)]
+    )
+    diverged = np.vstack((np.zeros(2), 0.5 * diverged_direction, diverged_direction))
+    decision = supervisor.update(
+        diverged,
+        turnaround_feasible=True,
+        forward_capture_feasible=False,
+    )
+    assert decision.state == ForwardPreferenceState.ROUTE_REVALIDATION
+    assert decision.requested_gear == Gear.NEUTRAL
+    assert not decision.start_turnaround
+    assert decision.reason == "forward_course_capture_route_revalidation"
+
+    held = supervisor.update(
+        diverged,
+        turnaround_feasible=True,
+        forward_capture_feasible=True,
+    )
+    assert held.state == ForwardPreferenceState.ROUTE_REVALIDATION
+    assert held.requested_gear == Gear.NEUTRAL
+
+
+def test_committed_reverse_leg_counts_toward_escape_distance():
+    supervisor = ForwardPreferenceSupervisor()
+    behind = np.asarray([[0.0, 0.0], [-0.5, 0.0], [-1.0, 0.2]])
+    for _ in range(3):
+        decision = supervisor.update(behind, turnaround_feasible=False)
+    assert decision.state == ForwardPreferenceState.REVERSE_ESCAPE
+
+    supervisor.observe_committed_motion(0.42, Gear.REVERSE)
+    decision = supervisor.update(behind, turnaround_feasible=True)
+    assert decision.start_turnaround
+    assert decision.reverse_escape_m >= 0.42
 
 
 def test_forward_preference_keeps_recovery_latched_across_threshold_band():
@@ -657,10 +1179,122 @@ def test_forward_reacquisition_requires_near_corridor_forward_hint():
     decision = supervisor.update(
         front,
         turnaround_feasible=False,
+        forward_capture_feasible=True,
+        forward_exit_verified=True,
+        route_requested_gear=Gear.FORWARD,
+    )
+    assert decision.state == ForwardPreferenceState.TURNAROUND_VERIFY
+    assert decision.requested_gear == Gear.NEUTRAL
+    decision = supervisor.update(
+        front,
+        turnaround_feasible=False,
+        forward_capture_feasible=True,
+        forward_exit_verified=True,
+        route_requested_gear=Gear.FORWARD,
+    )
+    assert decision.state == ForwardPreferenceState.TURNAROUND_VERIFY
+    decision = supervisor.update(
+        front,
+        turnaround_feasible=False,
+        forward_capture_feasible=True,
+        forward_exit_verified=True,
         route_requested_gear=Gear.FORWARD,
     )
     assert decision.state == ForwardPreferenceState.FORWARD_CRUISE
     assert decision.reason == "forward_corridor_reacquired"
+
+
+def test_reverse_or_space_exhausted_leg_cannot_finish_turnaround_transaction():
+    supervisor = ForwardPreferenceSupervisor()
+    behind = np.asarray([[0.0, 0.0], [-0.5, 0.0], [-1.0, 0.2]])
+    front = np.asarray([[0.0, 0.0], [0.4, 0.2], [0.9, 0.3]])
+    for _ in range(3):
+        supervisor.update(
+            behind,
+            turnaround_feasible=True,
+            route_requested_gear=Gear.REVERSE,
+        )
+
+    after_reverse = supervisor.update(
+        front,
+        turnaround_feasible=True,
+        forward_capture_feasible=True,
+        forward_exit_verified=False,
+        route_requested_gear=Gear.FORWARD,
+    )
+    assert after_reverse.state == ForwardPreferenceState.TURNAROUND_PENDING
+    assert after_reverse.start_turnaround
+
+    after_exhausted_forward = supervisor.update(
+        front,
+        turnaround_feasible=True,
+        forward_capture_feasible=True,
+        forward_exit_verified=False,
+        route_requested_gear=Gear.FORWARD,
+    )
+    assert after_exhausted_forward.state == ForwardPreferenceState.TURNAROUND_PENDING
+    assert after_exhausted_forward.start_turnaround
+
+
+def test_aligned_reverse_space_creation_preserves_achieved_heading():
+    maneuver = CommittedManeuver()
+    proposed = maneuver.proposed_subgoal(
+        Gear.REVERSE,
+        (-1.0, -0.2),
+        math.radians(35.0),
+        purpose="forward_restoration",
+        turn_sign_hint=-1.0,
+    )
+    assert proposed[0] < 0.0
+    assert math.isclose(proposed[1], 0.0, abs_tol=1.0e-9)
+
+    # Steering is restored gradually outside the alignment deadband and is
+    # only allowed to reach the normal parking target for a truly rearward
+    # route.  This prevents a discontinuity around a 90-degree bearing.
+    partial = maneuver.proposed_subgoal(
+        Gear.REVERSE,
+        (-1.0, -0.2),
+        math.radians(75.0),
+        purpose="forward_restoration",
+        turn_sign_hint=-1.0,
+    )
+    rearward = maneuver.proposed_subgoal(
+        Gear.REVERSE,
+        (-1.0, -0.2),
+        math.radians(120.0),
+        purpose="forward_restoration",
+        turn_sign_hint=-1.0,
+    )
+    assert 0.0 < abs(partial[1]) < maneuver.config.lateral_offset_m
+    assert math.isclose(
+        abs(rearward[1]), maneuver.config.lateral_offset_m, abs_tol=1.0e-9
+    )
+
+
+def test_planning_result_reports_selected_geometric_horizon():
+    grid = OccupancyGrid2D(
+        np.zeros((240, 240), dtype=np.int8), 0.1, (-12.0, -12.0)
+    )
+    planner = DeterministicPlanner()
+    result = planner.plan(
+        VehicleState(0.0, 0.0, 0.0, 0.0, 0.0),
+        (1.0, 0.0),
+        grid,
+        requested_gear=Gear.FORWARD,
+        spatial_scales=(0.75,),
+    )
+    assert result.executable
+    assert math.isclose(result.spatial_scale, 0.75)
+
+
+def test_online_sync_contract_needs_state_rate_above_thirty_hz():
+    anchor = 0.025
+    thirty_hz = ((0.0, np.asarray([0.0])), (1.0 / 30.0, np.asarray([1.0])))
+    hundred_hz = ((0.02, np.asarray([0.0])), (0.03, np.asarray([1.0])))
+    assert interpolated(thirty_hz, anchor, 0.02) is None
+    value, distance = interpolated(hundred_hz, anchor, 0.02)
+    np.testing.assert_allclose(value, [0.5])
+    assert distance < 0.02
 
 
 def test_forward_preference_reverses_only_until_turnaround_becomes_safe():

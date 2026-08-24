@@ -19,6 +19,10 @@
   <arg name="active_fallback_to_baseline" default="false"/>
   <arg name="learned_route_authority" default="false"/>
   <arg name="require_goal_heading" default="true"/>
+  <arg name="navigation_backend" default="astar"/>
+  <arg name="odometry_topic" default="/base_pose_ground_truth"/>
+  <arg name="policy_odometry_topic" default="$(arg odometry_topic)"/>
+  <arg name="odometry_twist_in_body_frame" default="false"/>
   <env name="GAZEBO_MODEL_PATH" value="$(arg gazebo_model_path):$(optenv GAZEBO_MODEL_PATH)"/>
   <arg unless="$(arg paused)" name="pause_arg" value=""/>
   <arg if="$(arg paused)" name="pause_arg" value="-u"/>
@@ -36,28 +40,51 @@
   <node pkg="robot_state_publisher" type="robot_state_publisher" name="urban_robot_state_publisher" output="screen">
     <remap from="joint_states" to="/urban_model/joint_states"/>
   </node>
-  <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_yaml)" unless="$(eval arg('map_yaml') == '')"/>
   <group if="$(arg enable_stack)">
-    <include file="$(find dep_car_vehicle)/launch/urban_adapter.launch"/>
+    <group if="$(eval arg('navigation_backend') == 'astar')">
+      <include file="$(find dep_car_vehicle)/launch/urban_adapter.launch">
+        <arg name="speed_source" value="ground_truth"/>
+        <arg name="odometry_topic" value="/base_pose_ground_truth"/>
+        <arg name="publish_ground_truth_tf" value="true"/>
+      </include>
+      <node pkg="map_server" type="map_server" name="map_server" args="$(arg map_yaml)" unless="$(eval arg('map_yaml') == '')"/>
+    </group>
+    <group if="$(eval arg('navigation_backend') == 'memory')">
+      <include file="$(find dep_car_vehicle)/launch/urban_adapter.launch">
+        <arg name="speed_source" value="joint_states"/>
+        <arg name="odometry_topic" value="$(arg odometry_topic)"/>
+        <arg name="publish_ground_truth_tf" value="false"/>
+      </include>
+    </group>
     <include file="$(find dep_car_perception)/launch/lidar.launch"/>
     <node pkg="dep_car_dynamic" type="dynamic_tracker_node.py" name="dep_car_dynamic_tracker" output="screen"/>
-    <node pkg="dep_car_global_planner" type="hybrid_astar_node.py" name="dep_car_hybrid_astar" output="screen">
-      <param name="planning_timeout_s" value="5.0"/>
-      <param name="terminal_planning_timeout_s" value="15.0"/>
-      <!-- A topological corridor is directional guidance, not a centerline
-           controller.  Give a committed multi-leg local turn room to leave
-           and rejoin it; exact Hybrid-A* tails retain the tighter bound. -->
-      <param name="corridor_replan_deviation" value="1.50"/>
-      <param name="exact_replan_deviation" value="0.75"/>
-      <param name="terminal_hybrid_radius" value="2.0"/>
-      <param name="terminal_hybrid_heading_trigger" value="0.55"/>
-      <param name="terminal_hybrid_capture_radius" value="0.80"/>
-      <param name="local_subgoal_distance" value="1.50"/>
-      <param name="exact_route_lookahead" value="0.50"/>
-      <param name="duplicate_goal_window_s" value="0.5"/>
-      <param name="route_mode" value="topology_corridor"/>
-      <param name="require_goal_heading" value="$(arg require_goal_heading)"/>
-    </node>
+    <group if="$(eval arg('navigation_backend') == 'astar')">
+      <node pkg="dep_car_global_planner" type="hybrid_astar_node.py" name="dep_car_hybrid_astar" output="screen">
+        <param name="planning_timeout_s" value="5.0"/>
+        <param name="terminal_planning_timeout_s" value="15.0"/>
+        <!-- A topological corridor is directional guidance, not a centerline
+             controller.  Give a committed multi-leg local turn room to leave
+             and rejoin it; exact Hybrid-A* tails retain the tighter bound. -->
+        <param name="corridor_replan_deviation" value="1.50"/>
+        <param name="exact_replan_deviation" value="0.75"/>
+        <param name="terminal_hybrid_radius" value="2.0"/>
+        <param name="terminal_hybrid_heading_trigger" value="0.55"/>
+        <param name="terminal_hybrid_capture_radius" value="0.80"/>
+        <param name="local_subgoal_distance" value="1.50"/>
+        <param name="exact_route_lookahead" value="0.50"/>
+        <param name="duplicate_goal_window_s" value="0.5"/>
+        <param name="route_mode" value="topology_corridor"/>
+        <param name="require_goal_heading" value="$(arg require_goal_heading)"/>
+      </node>
+    </group>
+    <group if="$(eval arg('navigation_backend') == 'memory')">
+      <include file="$(find dep_car_memory_navigation)/launch/memory_navigation.launch">
+        <arg name="odometry_topic" value="/odometry/filtered"/>
+        <arg name="initial_x" value="$(arg x)"/>
+        <arg name="initial_y" value="$(arg y)"/>
+        <arg name="initial_yaw" value="$(arg yaw)"/>
+      </include>
+    </group>
     <include file="$(find dep_car_local_planner)/launch/local_planner.launch">
       <arg name="policy_mode" value="$(arg policy_mode)"/>
       <arg name="modality" value="$(arg policy_modality)"/>
@@ -70,6 +97,9 @@
       <arg name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
       <arg name="learned_route_authority" value="$(arg learned_route_authority)"/>
       <arg name="require_goal_heading" value="$(arg require_goal_heading)"/>
+      <arg name="odometry_topic" value="$(arg odometry_topic)"/>
+      <arg name="policy_odometry_topic" value="$(arg policy_odometry_topic)"/>
+      <arg name="odometry_twist_in_body_frame" value="$(arg odometry_twist_in_body_frame)"/>
     </include>
   </group>
   <node pkg="dep_car_bringup" type="rviz_exec.sh" name="rviz"

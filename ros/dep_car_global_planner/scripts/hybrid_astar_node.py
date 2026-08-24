@@ -662,6 +662,7 @@ class HybridAStarNode:
         self.subgoal_pub.publish(subgoal)
         command = LocalRouteCommand(); command.header = path.header; command.target = subgoal.pose
         command.requested_gear = int(requested_gear); command.segment_index = int(self.route_index); command.segment_end = segment_end
+        command.navigation_mode = LocalRouteCommand.NAVIGATION_CONNECTIVITY
         self.route_command_pub.publish(command)
 
 

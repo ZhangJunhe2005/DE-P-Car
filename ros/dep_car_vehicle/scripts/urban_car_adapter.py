@@ -9,6 +9,7 @@ from dep_car.core.vehicle import EFFORT_SCALE, FRONT_TRACK_M, STEERING_OPERATING
 from dep_car.core.types import Gear
 from dep_car_msgs.msg import AckermannCommand
 from nav_msgs.msg import Odometry
+from sensor_msgs.msg import JointState
 from std_msgs.msg import Float64
 from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
 
@@ -33,6 +34,13 @@ class UrbanCarAdapter:
         )
         self.timeout = rospy.get_param("~command_timeout", 0.35)
         self.sim_positive_right = rospy.get_param("~simulator_positive_right", True)
+        self.speed_source = str(rospy.get_param("~speed_source", "ground_truth"))
+        if self.speed_source not in ("ground_truth", "joint_states"):
+            raise ValueError("speed_source must be ground_truth or joint_states")
+        self.wheel_radius = float(rospy.get_param("~wheel_radius", 0.06333333333333334))
+        self.wheel_direction = math.copysign(
+            1.0, float(rospy.get_param("~wheel_direction", 1.0))
+        )
         self.lock = threading.Lock()
         self.command = AckermannCommand(brake=True)
         self.last_command = rospy.Time(0)
@@ -43,7 +51,20 @@ class UrbanCarAdapter:
         self.left_pub = rospy.Publisher("/urban_model/left_motor_controller/command", Float64, queue_size=1)
         self.right_pub = rospy.Publisher("/urban_model/right_motor_controller/command", Float64, queue_size=1)
         rospy.Subscriber(rospy.get_param("~command_topic", "/dep_car/cmd_ackermann"), AckermannCommand, self.on_command, queue_size=1)
-        rospy.Subscriber(rospy.get_param("~odometry_topic", "/base_pose_ground_truth"), Odometry, self.on_odometry, queue_size=1)
+        if self.speed_source == "ground_truth":
+            rospy.Subscriber(
+                rospy.get_param("~odometry_topic", "/base_pose_ground_truth"),
+                Odometry,
+                self.on_odometry,
+                queue_size=1,
+            )
+        else:
+            rospy.Subscriber(
+                rospy.get_param("~joint_state_topic", "/urban_model/joint_states"),
+                JointState,
+                self.on_joint_state,
+                queue_size=1,
+            )
         self.timer = rospy.Timer(rospy.Duration(0.02), self.update)
 
     def on_command(self, message):
@@ -59,6 +80,18 @@ class UrbanCarAdapter:
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         velocity = message.twist.twist.linear
         self.speed = world_velocity_to_body_longitudinal(velocity.x, velocity.y, yaw)
+
+    def on_joint_state(self, message):
+        if len(message.velocity) != len(message.name):
+            return
+        velocities = dict(zip(message.name, message.velocity))
+        names = ("rear_left_wheel_joint", "rear_right_wheel_joint")
+        if not all(name in velocities for name in names):
+            rospy.logwarn_throttle(2.0, "Urban adapter is waiting for rear wheel velocities")
+            return
+        self.speed = self.wheel_direction * self.wheel_radius * 0.5 * (
+            velocities[names[0]] + velocities[names[1]]
+        )
 
     def ackermann_angles(self, rep103_center_angle):
         center = max(-self.steering_limit, min(self.steering_limit, rep103_center_angle))

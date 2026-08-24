@@ -127,6 +127,30 @@ class RuntimeOccupancyGrid2D(OccupancyGrid2D):
             return super().swept_footprint_clearance(
                 trajectory, footprint, allowance_policy
             )
+        clearances = self.swept_footprint_signed_clearance_profile(
+            trajectory, footprint, allowance_policy
+        )
+        minimum = float(np.min(clearances))
+        return (minimum > 0.0), max(0.0, minimum)
+
+    def swept_footprint_signed_clearance_profile(
+        self,
+        trajectory: np.ndarray,
+        footprint: FootprintConfig = FootprintConfig(),
+        allowance_policy: FootprintAllowancePolicy = RUNTIME_FOOTPRINT_ALLOWANCE,
+        *,
+        outside_is_occupied: bool = True,
+    ) -> np.ndarray:
+        if not isinstance(outside_is_occupied, (bool, np.bool_)):
+            raise TypeError("outside_is_occupied must be boolean")
+        if allowance_policy is not FootprintAllowancePolicy.RUNTIME_HALF_DIAGONAL:
+            if not outside_is_occupied:
+                raise ValueError(
+                    "outside-free sampling is available only for the runtime allowance"
+                )
+            return super().swept_footprint_signed_clearance_profile(
+                trajectory, footprint, allowance_policy
+            )
         trajectory = densify_trajectory_se2(trajectory)
         yaw = trajectory[:, 3]
         headings = np.column_stack((np.cos(yaw), np.sin(yaw)))
@@ -141,12 +165,17 @@ class RuntimeOccupancyGrid2D(OccupancyGrid2D):
             (x >= 0) & (y >= 0)
             & (x < self.data.shape[1]) & (y < self.data.shape[0])
         )
-        if not np.all(inside):
-            return False, 0.0
         clearances = (
-            self.sample_distance_field(flat)
+            self.sample_distance_field(centers)
             - footprint.circle_radius
             - self.fixed_grid_allowance(allowance_policy)
         )
-        minimum = float(np.min(clearances))
-        return (minimum > 0.0), max(0.0, minimum)
+        # Live rolling grids are safety authorities, so leaving their extent
+        # remains a hard collision by default.  An accumulated SLAM map has a
+        # different contract: cells outside its current published bounds are
+        # merely unexplored.  In that mode ignore only the outside footprint
+        # circles while still honouring every known wall sampled by the other
+        # circles in the same trajectory row.
+        outside = ~inside.reshape((len(trajectory), -1))
+        clearances[outside] = -np.inf if outside_is_occupied else np.inf
+        return np.min(clearances, axis=1)

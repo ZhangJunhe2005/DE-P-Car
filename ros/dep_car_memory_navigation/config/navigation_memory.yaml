@@ -1,0 +1,196 @@
+control_rate: 5.0
+odometry_topic: /odometry/filtered
+local_costmap_topic: /dep_car/local_costmap
+accumulated_map_topic: /map
+goal_topic: /move_base_simple/goal
+breadcrumb_spacing_m: 0.20
+breadcrumb_heading_spacing_rad: 0.174532925
+breadcrumb_maximum_length_m: 25.0
+topology_node_spacing_m: 0.75
+topology_merge_radius_m: 0.40
+topology_maximum_nodes: 1200
+topology_path_capture_radius_m: 0.50
+topology_path_maximum_deviation_m: 1.50
+topology_rear_authority_bearing_rad: 1.919862177
+# The same explored-topology route may own one complete multi-leg turnaround.
+# Another rear transaction requires both a different route identity and real
+# displacement from the previous completion site.
+topology_turnaround_rearm_progress_m: 1.50
+
+# M6 FAR-inspired dynamic visibility graph.  Occupied SLAM contours are
+# inflated by the complete vehicle margin and converted to sparse polygon
+# vertices.  Dijkstra runs only on this graph; no OccupancyGrid cell search is
+# performed.  Fully observed routes are preferred over attemptable unknown
+# routes.
+visibility_inflation_radius_m: 0.38
+visibility_contour_simplification_m: 0.22
+visibility_vertex_offset_m: 0.18
+visibility_node_separation_m: 0.28
+visibility_maximum_nodes: 160
+visibility_maximum_edge_length_m: 12.0
+visibility_unknown_cost_weight: 1.25
+# The graph is geometric, but its first edge must be reasonable for an
+# Ackermann vehicle.  These are soft metric costs, not hard route constraints;
+# a rearward route remains available when topology genuinely requires it.
+visibility_start_heading_weight_m: 1.20
+visibility_reverse_start_penalty_m: 2.00
+# A new SLAM revision first revalidates the committed route.  Attemptable
+# routes are refreshed as their unknown cells become observed, and a rolling
+# renewal starts before DE-P consumes the route suffix.  A safe accepted suffix
+# remains authoritative while a replacement is disconnected or still settling;
+# it is never retained across a newly occupied footprint crossing.
+visibility_replan_period_s: 0.60
+visibility_route_renewal_period_s: 0.35
+visibility_lookahead_m: 1.50
+# The global FAR/topology path is not republished as mandatory points.  A
+# monotonic arclength cursor selects a rolling target ahead of the measured
+# pose.  Lookahead contracts near a bend and expands on a straight; passed
+# points can never regain reverse or gear authority.
+rolling_route_minimum_lookahead_m: 0.90
+rolling_route_maximum_lookahead_m: 1.40
+rolling_route_curvature_window_m: 1.50
+# The displayed/commanded local target is persistent.  It advances only after
+# the vehicle enters this capture radius, then by at most one bounded step.
+# Replanning projects the old target onto the new route instead of silently
+# skipping ahead.  The final value is also a hard Euclidean vehicle-to-target
+# limit, including cross-track error rather than only route arclength.
+rolling_route_carrot_capture_radius_m: 0.40
+rolling_route_maximum_carrot_advance_m: 0.70
+rolling_route_maximum_carrot_distance_m: 1.50
+# Restrict each pose update to a local arclength window.  This prevents a
+# sparse/self-intersecting topology from teleporting the cursor to another
+# lap, while the rollback allowance absorbs cross-track/SLAM noise without
+# ever reducing the authoritative progress value.
+rolling_route_maximum_projection_advance_m: 1.25
+rolling_route_projection_rollback_tolerance_m: 0.08
+visibility_route_renewal_distance_m: 3.00
+visibility_route_continuity_minimum_m: 0.70
+# A rolling FAR rebuild is a candidate replacement, not immediate revocation
+# of the route already driving the car.  Through a short settling/NO_ROUTE
+# dropout, retain only this bounded local prefix when it is still clear on the
+# newest footprint-inflated map.  The finite lease prevents stale global
+# routes from surviving a genuine topology change; the DE-P hard veto remains
+# live throughout the lease.
+visibility_route_dropout_grace_s: 4.00
+visibility_route_lease_prefix_m: 2.00
+# Sparse topology records that a branch was visited or failed.  It must not
+# become a metric steering/gear route: its historical odom geometry accumulates
+# drift over long missions.  FAR or live sensor-closed-loop local exploration
+# owns normal vehicle motion.
+explored_topology_motion_authority: false
+# A local static block immediately followed by FAR NO_ROUTE remains valid
+# evidence while the global hold makes the local planner publish STOPPED.
+# The finite window is long enough for two certified replans, then expires.
+visibility_no_route_static_evidence_timeout_s: 8.00
+visibility_maximum_deviation_m: 0.90
+# Every route, including a fully known one, must agree over either distinct
+# SLAM content revisions or sensor poses separated by the measured displacement
+# below before it gains motion authority.  An unchanged map at an unchanged
+# pose is not independent evidence.  While FAR settles, DE-P performs rolling
+# LiDAR-safe local exploration; there is no stationary mapping wait.
+visibility_route_minimum_confirmations: 2
+visibility_route_minimum_stable_s: 0.60
+visibility_route_minimum_observer_displacement_m: 0.25
+visibility_route_maximum_bearing_change_rad: 0.523598776
+visibility_route_maximum_relative_cost_change: 0.35
+# A rolling route replacement cannot reverse the immediate travel direction
+# while the previous suffix is still known-clear.  FAR finishes that safe
+# suffix first and replans from its measured endpoint.
+visibility_route_replacement_maximum_direction_change_rad: 1.047197551
+# Maze routes may legitimately be much longer than the straight-line distance.
+# After the base two-revision stability check such a route receives upstream-
+# style FAR attemptable motion authority: DE-P follows its rolling local route
+# tube while LiDAR and hard veto certify every primitive.  Extra confirmations
+# and at least 80% observed path length are still required before it is
+# promoted to ordinary, fully accepted route authority.
+visibility_route_maximum_attemptable_detour_ratio: 2.25
+visibility_route_maximum_high_detour_unknown_fraction: 0.20
+visibility_route_high_detour_extra_confirmations: 2
+visibility_route_high_detour_minimum_stable_s: 1.20
+# A new goal begins under local-planner authority so the first sparse FAR graph
+# cannot choose a remote branch.  FAR takes over after real wheel/odom motion
+# exposes another viewpoint.  If local geometry prevents that distance, only a
+# fully known and separately stable route may use the bounded fail-open time.
+visibility_initial_exploration_minimum_m: 1.00
+visibility_initial_exploration_maximum_duration_s: 6.00
+# NO_ROUTE is graph evidence, not collision evidence.  After the initial delay
+# the local planner may keep advancing, turning around or following a boundary
+# only through currently observed LiDAR-free swept footprints.  Persistent
+# known walls, failed branches and hard veto remain authoritative.
+# FAR contour inflation may lose its graph endpoint in the final metre.  A
+# direct handoff is legal only inside this radius and only across a completely
+# observed, footprint-clear map segment; walls and unknown space still block.
+visibility_terminal_direct_handoff_radius_m: 1.80
+# With a PASS visibility path, FAR owns only the topological direction and
+# DE-P owns the actual Ackermann trajectory.  Legacy boundary following is a
+# NO_ROUTE fallback and cannot contradict a valid FAR route.
+visibility_route_direction_authority: true
+
+# M6 authority boundary.  FAR/visibility routing chooses the route and the
+# Ackermann local planner owns every finite forward/reverse manoeuvre.  The M4
+# breadcrumb stack remains diagnostic/topological evidence only; it cannot
+# latch reverse gear during ordinary FAR navigation.
+breadcrumb_motion_authority: false
+
+# Emergency exception to the authority boundary above.  Ordinary FAR motion
+# still cannot invoke breadcrumb reverse.  Two separately confirmed static
+# blocks create one exclusive FAR_DEAD_END_EGRESS transaction.  The driven
+# trail identifies a branch entry, current SLAM/LiDAR continuously validates
+# a short reverse connector, and FAR keeps replanning outside that connector.
+far_static_egress_enabled: true
+far_static_replans_before_egress: 2
+far_static_egress_distance_m: 1.50
+far_static_egress_maximum_m: 8.00
+far_static_egress_block_confirmation_s: 1.00
+dead_end_escape_minimum_distance_m: 1.50
+dead_end_escape_lookahead_m: 0.90
+dead_end_escape_maximum_cross_track_m: 0.65
+dead_end_escape_divergence_confirmation_s: 1.00
+dead_end_escape_maximum_unknown_fraction: 0.08
+
+# A meaningful SLAM loop/scan-matching correction revalidates the existing
+# map-frame visibility suffix against the newest grid.  It does not replace a
+# still-safe route merely because map->odom changed; odom history remains
+# continuous and a real route/map conflict still causes immediate replanning.
+map_correction_replan_translation_m: 0.08
+map_correction_replan_yaw_rad: 0.04
+# Collapse a burst of scan-matcher corrections into one route revision.
+map_correction_replan_minimum_period_s: 1.00
+
+# M5.7 stateful local Bug2/TangentBug-style boundary following.  These are
+# vehicle-footprint corridor thresholds, not centre-ray or map-specific rules.
+boundary_enter_clearance_m: 1.10
+boundary_release_clearance_m: 1.45
+boundary_leave_progress_m: 0.45
+boundary_leave_confirmation_s: 0.80
+boundary_loop_radius_m: 0.70
+boundary_minimum_loop_travel_m: 4.00
+boundary_maximum_travel_m: 14.00
+# A wall side that stalls or closes a loop is suppressed only near its
+# obstacle-hit region and only for the current position goal.  This makes a
+# retry test the other side without introducing a dense global path search.
+boundary_failure_radius_m: 1.00
+boundary_maximum_side_failures: 32
+failed_branch_buffer_m: 0.55
+# Only a goal essentially at the recorded terminal may reopen that branch.
+# A broad allowance incorrectly treats a goal on the opposite side of a thin
+# wall as if it were inside the dead end.
+failed_branch_goal_allowance_m: 0.35
+dead_end_confirmation_s: 1.8
+goal_stall_confirmation_s: 3.0
+dead_end_minimum_trail_points: 4
+rear_clearance_m: 0.70
+backtrack_chunk_m: 2.50
+backtrack_maximum_m: 8.0
+minimum_backtrack_before_resume_m: 1.50
+resume_failure_confirmation_s: 1.50
+resume_forward_distance_m: 1.00
+resume_maximum_travel_m: 3.00
+resume_timeout_s: 25.0
+local_route_horizon_m: 2.50
+local_route_minimum_m: 0.45
+obstacle_standoff_m: 0.35
+route_point_count: 40
+goal_position_tolerance_m: 0.25
+goal_settled_speed_mps: 0.04
+dead_end_goal_exclusion_radius_m: 0.80

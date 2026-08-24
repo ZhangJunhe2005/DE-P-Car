@@ -11,6 +11,12 @@
   <arg name="active_fallback_to_baseline" default="false"/>
   <arg name="learned_route_authority" default="false"/>
   <arg name="require_goal_heading" default="true"/>
+  <arg name="odometry_topic" default="/base_pose_ground_truth"/>
+  <!-- Policy state does not need a map-frame pose.  Keep its high-rate
+       interpolation source independent from the SLAM-corrected odometry used
+       by the geometric planner. -->
+  <arg name="policy_odometry_topic" default="$(arg odometry_topic)"/>
+  <arg name="odometry_twist_in_body_frame" default="false"/>
 
   <!-- Keep PyTorch/CUDA in yopo while the safety/actuation node stays on the
        ROS Noetic system Python.  They exchange only typed ROS messages. -->
@@ -37,6 +43,8 @@
     <param name="odom_sync_tolerance" value="0.02"/>
     <param name="imu_sync_tolerance" value="0.02"/>
     <param name="joint_sync_tolerance" value="0.05"/>
+    <param name="odometry_topic" value="$(arg policy_odometry_topic)"/>
+    <param name="odometry_twist_in_body_frame" value="$(arg odometry_twist_in_body_frame)"/>
   </node>
 
   <node pkg="dep_car_local_planner" type="local_planner_node.py"
@@ -47,10 +55,32 @@
     <param name="maneuver_leg_distance" value="0.85"/>
     <param name="maneuver_forward_speed" value="0.45"/>
     <param name="maneuver_reverse_speed" value="0.35"/>
+    <!-- A large FAR bearing is first handled as a continuous forward course
+         capture.  Reverse is considered only if this hard-safe arc vanishes. -->
+    <param name="forward_course_capture_speed" value="0.35"/>
+    <param name="forward_course_revalidation_timeout_s" value="2.5"/>
+    <param name="turnaround_rearm_forward_distance_m" value="1.25"/>
+    <!-- Breadcrumb backtracking may exit a small overlap of the *soft* safety
+         margin after braking.  Physical footprint collision remains forbidden
+         and the signed margin must improve along the selected primitive. -->
+    <param name="memory_margin_egress_maximum_overlap" value="0.06"/>
+    <param name="memory_margin_egress_minimum_improvement" value="0.02"/>
+    <param name="memory_margin_egress_worsening_tolerance" value="0.01"/>
     <!-- Turnaround entry/exit hysteresis and a hard per-primitive yaw-progress
          gate prevent oscillation between opposite steering directions. -->
     <param name="forward_reacquired_bearing" value="1.308996939"/>
+    <param name="forward_capture_maximum_bearing" value="2.530727415"/>
+    <param name="forward_capture_divergence" value="0.314159265"/>
+    <!-- A rolling global-route sample must not turn one transient rearward
+         bearing into a gearbox transaction.  At 10 Hz, eight samples retain
+         the original turn sign long enough for the next FAR handoff. -->
+    <param name="turnaround_behind_confirmation_cycles" value="8"/>
+    <param name="forward_reacquired_confirmation_cycles" value="8"/>
     <param name="maneuver_minimum_yaw_progress" value="0.035"/>
+    <param name="turnaround_alignment_release_bearing" value="0.872664626"/>
+    <param name="turnaround_alignment_minimum_spatial_scale" value="0.75"/>
+    <param name="maneuver_retry_observation_hold_s" value="0.75"/>
+    <param name="static_recovery_replan_minimum_displacement" value="0.25"/>
     <param name="exact_replan_minimum_displacement" value="0.25"/>
     <param name="terminal_maneuver_radius" value="1.50"/>
     <param name="terminal_maneuver_heading_trigger" value="0.55"/>
@@ -58,6 +88,9 @@
     <param name="terminal_capture_speed" value="0.22"/>
     <param name="exact_route_speed" value="0.30"/>
     <param name="route_reference_horizon" value="2.50"/>
+    <!-- /global_route and /local_route_command are separate ROS topics but
+         one control transaction.  Commit only the matching stamped pair. -->
+    <param name="route_transaction_stamp_tolerance" value="0.02"/>
     <param name="route_corridor_weight" value="3.0"/>
     <param name="route_clearance_target" value="0.15"/>
     <param name="route_clearance_weight" value="1.5"/>
@@ -76,6 +109,8 @@
     <param name="mission_goal_tolerance" value="0.22"/>
     <param name="mission_heading_tolerance" value="0.35"/>
     <param name="require_goal_heading" value="$(arg require_goal_heading)"/>
+    <param name="odometry_topic" value="$(arg odometry_topic)"/>
+    <param name="odometry_twist_in_body_frame" value="$(arg odometry_twist_in_body_frame)"/>
     <param name="goal_settled_speed" value="0.02"/>
     <param name="policy_mode" value="$(arg policy_mode)"/>
     <param name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>

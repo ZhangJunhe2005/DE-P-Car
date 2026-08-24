@@ -18,3 +18,10 @@ obstacle_max_height: 1.30
 # swept-footprint evaluation.  Keep the sensor occupancy raw here so the same
 # clearance is not charged a second time.
 inflation_radius: 0.0
+# Online SLAM consumes this body-filtered 360-degree projection.  It is built
+# from the same obstacle-height contract as the learned BEV and hard-safety
+# grid, so mapping cannot silently see a different vehicle/ground surface.
+scan_bins: 720
+scan_minimum_range: 0.20
+scan_maximum_range: 20.0
+scan_rate: 10.0

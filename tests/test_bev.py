@@ -19,6 +19,19 @@ def test_lidar_bev_keeps_front_side_and_rear_obstacles():
     assert bev[5, center, center] == 1.0
 
 
+def test_float32_point_just_inside_positive_extent_stays_in_last_cell():
+    config = LidarBEVConfig(extent=8.0, resolution=0.1)
+    boundary = np.nextafter(
+        np.float32(config.extent), np.float32(0.0), dtype=np.float32
+    )
+    bev = build_lidar_bev(
+        np.asarray([[boundary, boundary, 0.0]], dtype=np.float32), config
+    )
+
+    assert bev[0, -1, -1] == 1.0
+    assert np.count_nonzero(bev[0]) == 1
+
+
 def test_chassis_self_returns_are_removed_but_near_environment_is_retained():
     points = np.asarray([
         [-0.20, 0.05, 0.30],
