@@ -28,7 +28,15 @@ data/p3_v4/
 data/p3_v5/
 data/p3_v6/
 data/p3_v7_v43/
-data/p6_static/
+# Keep one small frozen P6 map plus the scenario manifest so a fresh clone can
+# reproduce the documented RViz shadow entry.  The remaining generated P6
+# corpus stays local.
+data/p6_static/*
+!data/p6_static/reproduction_manifest.json
+!data/p6_static/maps/
+data/p6_static/maps/*
+!data/p6_static/maps/dep_car_map_0000_2a91f458/
+!data/p6_static/maps/dep_car_map_0000_2a91f458/**
 !data/**/.gitkeep
 *.bag
 third_party/*

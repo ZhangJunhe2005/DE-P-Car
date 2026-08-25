@@ -108,6 +108,7 @@ V43_SHADOW_RUNTIME_FILES = (
     "ros/dep_car_memory_navigation/scripts/replay_memory_goals.py",
     "ros/dep_car_bringup/launch/p6_memory_static.launch",
     "tools/run_memory_navigation.py",
+    "scripts/run_memory_navigation.sh",
     "scripts/run_p6_v43_shadow.sh",
     "dep_car/config/p6_memory_navigation_v43_shadow.yaml",
 )
@@ -131,6 +132,32 @@ def canonical_sha256(value):
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def resolve_project_artifact(reference, root=None):
+    """Resolve signed artifact paths after moving or cloning the repository.
+
+    Early training reports recorded an absolute development-workstation path.
+    The file hashes remain useful and immutable, so a new checkout relocates
+    only recognised repository-relative tails instead of rewriting evidence.
+    Arbitrary absolute paths are never redirected.
+    """
+
+    root = project_root() if root is None else Path(root).resolve()
+    reference = Path(str(reference))
+    if not reference.is_absolute():
+        return (root / reference).resolve()
+    anchors = (
+        "models", "reports", "data", "dep_car", "ros", "scripts", "tools"
+    )
+    parts = reference.parts
+    for anchor in anchors:
+        if anchor not in parts:
+            continue
+        candidate = (root / Path(*parts[parts.index(anchor):])).resolve()
+        if candidate == root or root in candidate.parents:
+            return candidate
+    return reference.resolve()
 
 
 def build_p6_runtime_contract(root=None):
@@ -262,8 +289,11 @@ def verify_v43_training_acceptance(
         if acceptance.get(key) != value
     )
     if (
-        Path(acceptance.get("checkpoint", "")).resolve() != checkpoint_path
-        or Path(acceptance.get("checkpoint_contract", "")).resolve()
+        resolve_project_artifact(acceptance.get("checkpoint", ""), root)
+        != checkpoint_path
+        or resolve_project_artifact(
+            acceptance.get("checkpoint_contract", ""), root
+        )
         != checkpoint_contract_path
     ):
         errors.append("acceptance.paths")
@@ -314,7 +344,9 @@ def verify_v43_shadow_authority(
     checkpoint_contract_path = Path(checkpoint_contract_path).resolve()
     try:
         document = json.loads(authority_path.read_text(encoding="utf-8"))
-        acceptance_path = Path(document["acceptance_report"]).resolve()
+        acceptance_path = resolve_project_artifact(
+            document["acceptance_report"], root
+        )
     except (OSError, KeyError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("unable to read V4.3 shadow authority: %s" % exc) from exc
     acceptance = verify_v43_training_acceptance(
@@ -338,9 +370,12 @@ def verify_v43_shadow_authority(
     }
     errors = [key for key, value in fixed.items() if document.get(key) != value]
     if (
-        Path(document.get("checkpoint", "")).resolve() != checkpoint_path
+        resolve_project_artifact(document.get("checkpoint", ""), root)
+        != checkpoint_path
         or document.get("checkpoint_sha256") != sha256_file(checkpoint_path)
-        or Path(document.get("checkpoint_contract", "")).resolve()
+        or resolve_project_artifact(
+            document.get("checkpoint_contract", ""), root
+        )
         != checkpoint_contract_path
         or document.get("checkpoint_contract_sha256")
         != sha256_file(checkpoint_contract_path)

@@ -1,5 +1,5 @@
 schema: DEPCarP6V43FarVisibilityMemoryShadowConfigV1
-scenario_manifest: data/p6_static/scenario_manifest.json
+scenario_manifest: data/p6_static/reproduction_manifest.json
 interactive_default_scenario: p6_c344e792d09ac2d6
 fixed_default_scenario: p6_c344e792d09ac2d6
 

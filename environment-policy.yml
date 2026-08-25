@@ -1,0 +1,12 @@
+name: yopo
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - numpy==1.22.3
+      - opencv-python==4.11.0.86
+      - Pillow==12.2.0
+      - PyYAML==6.0.3
+      - pytest==9.1.1

@@ -1190,7 +1190,15 @@ def main():
     env = dict(os.environ)
     env["ROS_MASTER_URI"] = "http://127.0.0.1:%d" % ros_port
     env["GAZEBO_MASTER_URI"] = "http://127.0.0.1:%d" % gazebo_port
-    env["DEP_CAR_POLICY_PYTHON"] = str(config["runtime"]["policy_python"])
+    policy_python = os.environ.get("DEP_CAR_POLICY_PYTHON") or str(
+        config["runtime"].get("policy_python", "")
+    )
+    if not policy_python or not Path(policy_python).is_file():
+        raise RuntimeError(
+            "PyTorch policy interpreter is unavailable; create the yopo "
+            "environment or export DEP_CAR_POLICY_PYTHON"
+        )
+    env["DEP_CAR_POLICY_PYTHON"] = str(Path(policy_python).resolve())
     env["PYTHONUNBUFFERED"] = "1"
     log_root = ROOT / "logs/memory_navigation" / scenario_id
     log_root.mkdir(parents=True, exist_ok=True)

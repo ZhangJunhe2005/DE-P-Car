@@ -1,0 +1,9 @@
+{
+  "arena_tools_commit": "664b950d88c91b34e3cdce62512c8864b574b9d4",
+  "map_uuid": "2a91f458-b60d-548d-9059-3f10703b7e99",
+  "name": "dep_car_map_0000_2a91f458",
+  "occupancy_sha256": "2bba54993324a3968f04d96428b47fc9f157df8850b1e44863a84f1cc2b81166",
+  "schema": "DEPCarArenaStaticMapV1",
+  "seed": 76000,
+  "type": "indoor"
+}

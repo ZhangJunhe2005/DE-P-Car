@@ -1,0 +1,59 @@
+{
+  "scenarios": [
+    {
+      "cohort": "development",
+      "gazebo_seed": 49139,
+      "goal": [
+        0.09999999999999964,
+        -0.09999999999999964,
+        -1.6888883552139908
+      ],
+      "maneuver_mode": "NORMAL",
+      "map_name": "dep_car_map_0000_2a91f458",
+      "map_occupancy_sha256": "2bba54993324a3968f04d96428b47fc9f157df8850b1e44863a84f1cc2b81166",
+      "map_seed": 76000,
+      "map_uuid": "2a91f458-b60d-548d-9059-3f10703b7e99",
+      "map_yaml": "data/p6_static/maps/dep_car_map_0000_2a91f458/map.yaml",
+      "map_yaml_sha256": "13ac1fd3b74edc55042f001781e5fe0f3194026d135646fe987f740bff7f5e37",
+      "route_evidence": {
+        "forward_probe_clearance_m": 2.0,
+        "gear_runs": [
+          1
+        ],
+        "gear_switches": 0,
+        "initial_reverse": false,
+        "maximum_route_steering_rad": 0.26,
+        "minimum_center_clearance_m": 0.6000000238418579,
+        "reverse_probe_clearance_m": 2.0,
+        "route_pose_count": 25,
+        "route_sha256": "e69acd6d72ac6da0918b024b75e60fa19673ed91ecc9518e7aba361a4b483337",
+        "start_goal_heading_change_rad": 0.2788277572652187
+      },
+      "scenario_id": "p6_c344e792d09ac2d6",
+      "source_map_split": "train",
+      "start": [
+        0.8000000000000007,
+        5.800000000000001,
+        -1.4100605979487721
+      ],
+      "start_robustness": {
+        "failure_count": 0,
+        "failures": [],
+        "minimum_center_clearance_m": 1.3799999952316295,
+        "minimum_footprint_clearance_m": 1.0157250928719284,
+        "minimum_safe_ackermann_primitives": 10,
+        "perturbations": 27,
+        "position_delta_m": 0.02,
+        "schema": "DEPCarP6StartRobustnessV1",
+        "status": "PASS",
+        "yaw_delta_rad": 0.035
+      },
+      "task_seed": 20160880,
+      "world": "data/p6_static/maps/dep_car_map_0000_2a91f458/map.world",
+      "world_sha256": "279f508ffd5f250428363992258931b48ae8c4015535bb4147eac6fc6ae84e8d"
+    }
+  ],
+  "schema": "DEPCarP6ReproductionScenarioManifestV1",
+  "source_manifest_sha256": "e2f8b520a27aa47a8123f64888dd238b8580e18988958cf1e45f1af55c9181ee",
+  "source_schema": "DEPCarP6StaticScenarioManifestV1"
+}

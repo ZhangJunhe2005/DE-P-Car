@@ -8,10 +8,25 @@ from dep_car.runtime.p6_contract import (
     V43_SHADOW_AUTHORITY_SCHEMA,
     build_v43_shadow_runtime_contract,
     project_root,
+    resolve_project_artifact,
     sha256_file,
     verify_v43_shadow_authority,
     verify_v43_training_acceptance,
 )
+
+
+def test_signed_project_artifact_paths_relocate_without_rewriting_evidence(
+    tmp_path,
+):
+    relocated = tmp_path / "clone"
+    expected = relocated / "models/dep_car/p5_closed_loop_v43/model.pth"
+    assert resolve_project_artifact(
+        "/home/another-user/DE-P-Car/models/dep_car/"
+        "p5_closed_loop_v43/model.pth",
+        relocated,
+    ) == expected.resolve()
+    external = Path("/opt/external/model.pth")
+    assert resolve_project_artifact(external, relocated) == external
 
 
 def write_v43_evidence(tmp_path):
