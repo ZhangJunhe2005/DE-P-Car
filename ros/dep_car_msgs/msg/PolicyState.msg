@@ -2,6 +2,8 @@ std_msgs/Header header
 string mode
 string modality
 string checkpoint_sha256
+string architecture_id
+bool hybrid_sequence
 bool model_loaded
 bool sensor_ready
 bool inference_ok
@@ -16,4 +18,6 @@ float64 sensor_skew_s
 uint16 candidate_count
 uint16 feasible_count
 int16 selected_candidate_id
+int8 selected_first_gear
+int8[] selected_action_gears
 string reason

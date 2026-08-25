@@ -1,0 +1,40 @@
+{
+  "amp_fp32_max_score_abs": 0.0017387866973876953,
+  "amp_fp32_max_trajectory_abs": 0.0015125274658203125,
+  "batch_size": 32,
+  "bounded_smoke": true,
+  "device": "NVIDIA GeForce RTX 5070 Ti Laptop GPU",
+  "milliseconds_per_batch": 251.03498325006512,
+  "peak_memory_mib": 222.6123046875,
+  "samples_per_second": 127.47227332902693,
+  "schema": "DEPCarJointGearV3CUDASmokeV1",
+  "stages": {
+    "bidirectional_candidate_capacity": {
+      "finite": true,
+      "frozen_parameters": 209059,
+      "gradient_tensors": 187,
+      "loss": 2.5875942707061768,
+      "stage": "bidirectional_candidate_capacity",
+      "trainable_parameters": 1228916
+    },
+    "joint_gear_score_calibration": {
+      "finite": true,
+      "frozen_parameters": 1228916,
+      "gradient_tensors": 26,
+      "loss": 3.998065710067749,
+      "stage": "joint_gear_score_calibration",
+      "trainable_parameters": 209059
+    },
+    "sequence_recovery_finetune": {
+      "finite": true,
+      "frozen_parameters": 1228916,
+      "gradient_tensors": 26,
+      "loss": 4.139062404632568,
+      "stage": "sequence_recovery_finetune",
+      "trainable_parameters": 209059
+    }
+  },
+  "status": "PASS",
+  "steps": 4,
+  "test_split_accessed": false
+}

@@ -147,6 +147,11 @@ dead_end_escape_lookahead_m: 0.90
 dead_end_escape_maximum_cross_track_m: 0.65
 dead_end_escape_divergence_confirmation_s: 1.00
 dead_end_escape_maximum_unknown_fraction: 0.08
+# After reaching a failed-branch entry, continue a short measured outward
+# motion and retain the directional taboo until FAR supplies a route that does
+# not re-enter the same suffix.  This prevents immediate local-goal fallback
+# from undoing a successful egress.
+failed_branch_exit_lock_progress_m: 0.75
 
 # A meaningful SLAM loop/scan-matching correction revalidates the existing
 # map-frame visibility suffix against the newest grid.  It does not replace a

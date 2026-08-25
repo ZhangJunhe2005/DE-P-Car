@@ -20,17 +20,19 @@ regression_sequences:
   # fixture only; the runtime receives only the standard goal topic.
   latest_interactive_turnaround_20260821:
     scenario_id: p6_c344e792d09ac2d6
-    coordinate_frame: map
+    coordinate_frame: odom
+    minimum_static_goal_clearance_m: 0.70
     goals:
-      - [4.925, -4.487, 1.887]
-      - [-4.635, 2.517, 3.120]
+      - [4.900, -5.700, 1.887]
+      - [-2.800, 3.900, 3.120]
     goal_timeout_s: 180.0
   logged_t_junction_turnaround:
     scenario_id: p6_c344e792d09ac2d6
-    coordinate_frame: map
+    coordinate_frame: odom
+    minimum_static_goal_clearance_m: 0.70
     goals:
-      - [6.536, -4.331, -0.984]
-      - [-4.264, 1.838, 1.565]
+      - [6.500, -5.800, -0.984]
+      - [-3.300, 0.200, 1.565]
     # No-global-search navigation may deliberately inspect and back out of
     # several local branches.  Keep the exact two-goal replay bounded, but do
     # not impose the old A*-era 90 s deadline.

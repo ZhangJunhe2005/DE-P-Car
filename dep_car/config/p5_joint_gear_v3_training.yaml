@@ -1,0 +1,62 @@
+schema: DEPCarJointGearV3TrainingContractV1
+architecture_id: dep_car_multimodal_v3_joint_gear_route_ackermann_2x3x5
+objective_id: dep_car_objective_v6_joint_gear_conditional_reverse_value
+scope: fusion_only_joint_forward_reverse
+dataset:
+  bundle_authority: data/p3_v4/bundle_v1/bundle_authority.json
+  sequence_index: data/p3_v5/joint_gear_sequence_index.json
+  sequence_authority: data/p3_v5/joint_gear_sequence_authority.json
+  test_split_sealed: true
+initialization:
+  v2_score: models/dep_car/p5_route_v2/fusion_score_calibration.best.pth
+  v2_score_sha256: 587f7bbd227ab8fd167d2c3996b3e87a92db8cca51a7361dde9c997373a28212
+  v2_score_contract: models/dep_car/p5_route_v2/fusion_score_calibration.best.contract.json
+  v2_score_contract_sha256: 47ca4f988baf42407cd2c6cbe290586deba183365b96fa824f482843234b504d
+  v2_score_acceptance: reports/p5_route_v2_fusion_score_shadow_acceptance.json
+  v2_score_acceptance_sha256: 565fc767ea314f0e791959015cdd3eaefd96887859166630eca355f442158f5a
+artifacts:
+  candidate: models/dep_car/p5_joint_gear_v3/fusion_bidirectional_candidate_capacity.pth
+  score: models/dep_car/p5_joint_gear_v3/fusion_joint_gear_score_calibration.pth
+  sequence: models/dep_car/p5_joint_gear_v3/fusion_sequence_recovery_finetune.pth
+training:
+  candidate_epochs: 30
+  score_epochs: 30
+  sequence_epochs: 20
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  workers: 8
+  prefetch_factor: 4
+  progress_interval_steps: 50
+  torch_threads: 8
+  seed: 86115
+loss:
+  route_tube_radius_m: 0.30
+  route_outer_tube_radius_m: 0.45
+  minimum_one_cycle_progress_m: 0.05
+  clearance_margin_m: 0.08
+  future_horizon_s: 0.60
+  future_steps: 7
+  clearance_margin_weight: 2.0
+  future_viability_weight: 1.5
+  switch_effort_weight: 0.35
+  reverse_distance_weight: 0.30
+  repeated_switch_weight: 0.20
+  unproductive_reverse_weight: 0.50
+  recovery_credit_weight: 0.45
+  recovery_head_weight: 0.50
+  forward_available_progress_m: 0.12
+  forward_probe_progress_m: 0.08
+  blocked_reverse_burden_fraction: 0.10
+  sequence_gear_weight: 0.25
+  sequence_actions: 6
+qualification:
+  maximum_overall_zero_hard_feasible_rate: 0.08
+  minimum_selected_hard_feasible_rate: 0.95
+  maximum_unnecessary_reverse_rate: 0.08
+  minimum_required_reverse_selection_rate: 0.65
+  require_multi_action_sequence_coverage: true
+  production_qualified_by_training: false

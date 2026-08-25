@@ -18,6 +18,8 @@ from dep_car_msgs.msg import (
     CandidateArray,
     LocalRouteCommand,
     PlannerState,
+    PolicyCandidateArray,
+    PolicyQuery,
 )
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
@@ -41,6 +43,10 @@ class PilotEpisode:
         self.lock = threading.Lock()
         self.odom = None
         self.candidate_messages = 0
+        self.policy_query_messages = 0
+        self.policy_raw_messages = 0
+        self.teacher_forward_messages = 0
+        self.teacher_reverse_messages = 0
         self.zero_feasible_messages = 0
         self.feasible_counts = []
         self.requested_gears = Counter()
@@ -53,6 +59,19 @@ class PilotEpisode:
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
         rospy.Subscriber("/base_pose_ground_truth", Odometry, self.on_odom, queue_size=1)
         rospy.Subscriber("/dep_car/candidates", CandidateArray, self.on_candidates, queue_size=20)
+        rospy.Subscriber("/dep_car/policy_query", PolicyQuery, self.on_policy_query, queue_size=20)
+        rospy.Subscriber(
+            "/dep_car/policy_candidates_raw", PolicyCandidateArray,
+            self.on_policy_raw, queue_size=20,
+        )
+        rospy.Subscriber(
+            "/dep_car/dagger_teacher_forward", CandidateArray,
+            self.on_teacher_forward, queue_size=20,
+        )
+        rospy.Subscriber(
+            "/dep_car/dagger_teacher_reverse", CandidateArray,
+            self.on_teacher_reverse, queue_size=20,
+        )
         rospy.Subscriber("/dep_car/planner_state", PlannerState, self.on_planner_state, queue_size=20)
         rospy.Subscriber("/dep_car/cmd_ackermann", AckermannCommand, self.on_command, queue_size=20)
         self.goal_pub = rospy.Publisher("/move_base_simple/goal", PoseStamped, queue_size=1, latch=True)
@@ -75,6 +94,22 @@ class PilotEpisode:
             self.feasible_counts.append(feasible)
             self.zero_feasible_messages += int(feasible == 0)
             self.requested_gears[str(int(message.requested_gear))] += 1
+
+    def on_policy_query(self, _message):
+        with self.lock:
+            self.policy_query_messages += 1
+
+    def on_policy_raw(self, _message):
+        with self.lock:
+            self.policy_raw_messages += 1
+
+    def on_teacher_forward(self, _message):
+        with self.lock:
+            self.teacher_forward_messages += 1
+
+    def on_teacher_reverse(self, _message):
+        with self.lock:
+            self.teacher_reverse_messages += 1
 
     def on_planner_state(self, message):
         with self.lock:
@@ -133,11 +168,26 @@ class PilotEpisode:
         """Do not charge slow Hybrid A* startup against the episode window."""
 
         deadline = time.monotonic() + self.args.startup_timeout
-        requirements = (
-            ("/dep_car/global_route", AckermannRoute),
-            ("/dep_car/local_route_command", LocalRouteCommand),
-            ("/dep_car/candidates", CandidateArray),
-        )
+        if self.args.dagger_v43:
+            # A guarded policy intentionally publishes no executable
+            # /dep_car/candidates when every model proposal is hard-vetoed.
+            # Those are high-value DAgger failure states, not infrastructure
+            # failures.  Readiness therefore follows the raw policy query and
+            # both independently generated teacher banks.
+            requirements = (
+                ("/dep_car/global_route", AckermannRoute),
+                ("/dep_car/local_route_command", LocalRouteCommand),
+                ("/dep_car/policy_query", PolicyQuery),
+                ("/dep_car/policy_candidates_raw", PolicyCandidateArray),
+                ("/dep_car/dagger_teacher_forward", CandidateArray),
+                ("/dep_car/dagger_teacher_reverse", CandidateArray),
+            )
+        else:
+            requirements = (
+                ("/dep_car/global_route", AckermannRoute),
+                ("/dep_car/local_route_command", LocalRouteCommand),
+                ("/dep_car/candidates", CandidateArray),
+            )
         for topic, message_type in requirements:
             rospy.wait_for_message(
                 topic, message_type,
@@ -186,7 +236,7 @@ class PilotEpisode:
             rate.sleep()
         distance, heading = self.goal_error()
         with self.lock:
-            if self.candidate_messages == 0:
+            if not self.args.dagger_v43 and self.candidate_messages == 0:
                 status = "NO_CANDIDATES"
             payload = {
                 "schema": "DEPCarP3PilotEpisodeResultV1",
@@ -198,6 +248,11 @@ class PilotEpisode:
                 "final_goal_distance_m": distance,
                 "final_heading_error_rad": heading,
                 "candidate_messages": self.candidate_messages,
+                "guarded_candidate_messages": self.candidate_messages,
+                "policy_query_messages": self.policy_query_messages,
+                "policy_raw_messages": self.policy_raw_messages,
+                "teacher_forward_messages": self.teacher_forward_messages,
+                "teacher_reverse_messages": self.teacher_reverse_messages,
                 "zero_feasible_messages": self.zero_feasible_messages,
                 "feasible_candidate_min": min(self.feasible_counts) if self.feasible_counts else 0,
                 "feasible_candidate_median": float(sorted(self.feasible_counts)[len(self.feasible_counts) // 2]) if self.feasible_counts else 0.0,
@@ -220,6 +275,10 @@ def main():
     parser.add_argument("--episode-timeout", type=float, default=18.0)
     parser.add_argument("--goal-tolerance", type=float, default=0.22)
     parser.add_argument("--heading-tolerance", type=float, default=0.35)
+    parser.add_argument(
+        "--dagger-v43", action="store_true",
+        help="accept hard-veto states with raw policy and dual teacher banks",
+    )
     parser.add_argument("--output", type=Path, required=True)
     args, _ = parser.parse_known_args()
     rospy.init_node("dep_car_pilot_episode", anonymous=True)

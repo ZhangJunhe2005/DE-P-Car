@@ -180,12 +180,31 @@ def task_commands(task, collection, work_root, env, ros_master_port):
     world = resolve_project_path(task["world"])
     map_yaml = resolve_project_path(task["map_yaml"])
     maps_root = world.parent.parent
-    launch = [
-        "roslaunch", "-p", str(ros_master_port), "dep_car_bringup", "urban_sim.launch",
-        "world:=" + str(world), "map_yaml:=" + str(map_yaml), "gazebo_model_path:=" + str(maps_root),
-        "gui:=false", "enable_rviz:=false", "enable_stack:=true",
-        "x:=" + str(task["start"][0]), "y:=" + str(task["start"][1]), "yaw:=" + str(task["start"][2]),
-    ]
+    pipeline = str(collection.get("pipeline", "p3_static_expert"))
+    if pipeline == "p6_v43_dagger":
+        launch = [
+            "roslaunch", "-p", str(ros_master_port), "dep_car_bringup",
+            "p6_memory_static.launch", "world:=" + str(world),
+            "gazebo_model_path:=" + str(maps_root), "gui:=false",
+            "enable_rviz:=false", "paused:=false", "policy_mode:=guarded",
+            "checkpoint:=" + str(resolve_project_path(collection["checkpoint"])),
+            "checkpoint_contract:=" + str(resolve_project_path(collection["checkpoint_contract"])),
+            "p6_authority:=" + str(resolve_project_path(collection["p6_authority"])),
+            "policy_python:=" + str(collection["policy_python"]),
+            "publish_dagger_teacher_banks:=true",
+            "x:=" + str(task["start"][0]), "y:=" + str(task["start"][1]),
+            "yaw:=" + str(task["start"][2]),
+            "gazebo_seed:=" + str(task["task_seed"]),
+        ]
+    elif pipeline == "p3_static_expert":
+        launch = [
+            "roslaunch", "-p", str(ros_master_port), "dep_car_bringup", "urban_sim.launch",
+            "world:=" + str(world), "map_yaml:=" + str(map_yaml), "gazebo_model_path:=" + str(maps_root),
+            "gui:=false", "enable_rviz:=false", "enable_stack:=true",
+            "x:=" + str(task["start"][0]), "y:=" + str(task["start"][1]), "yaw:=" + str(task["start"][2]),
+        ]
+    else:
+        raise ValueError("unknown collection pipeline: " + pipeline)
     bag = work_root / "bags" / task["map_split"] / (task["task_id"] + ".bag")
     episode = work_root / "episodes" / (task["task_id"] + ".json")
     reset_pose = [
@@ -199,8 +218,13 @@ def task_commands(task, collection, work_root, env, ros_master_port):
     bag_compression = str(collection.get("bag_compression", "bz2"))
     if bag_compression not in ("bz2", "lz4", "none"):
         raise ValueError("unsupported rosbag compression: " + bag_compression)
+    recorder_script = (
+        "record_v43_dagger_episode.sh"
+        if pipeline == "p6_v43_dagger"
+        else "record_multimodal_episode.sh"
+    )
     recorder = [
-        "rosrun", "dep_car_dataset", "record_multimodal_episode.sh",
+        "rosrun", "dep_car_dataset", recorder_script,
         str(bag), bag_compression,
     ]
     runner = [
@@ -218,6 +242,12 @@ def task_commands(task, collection, work_root, env, ros_master_port):
         "--task-manifest-sha256", env["DEP_CAR_P3_TASK_MANIFEST_SHA256"],
         "--maneuver-mode", task["maneuver_mode"], "--episode-result", str(episode),
     ]
+    if pipeline == "p6_v43_dagger":
+        runner.append("--dagger-v43")
+        extraction.extend((
+            "--dagger-v43", "--maximum-duration-s",
+            str(collection["episode_timeout_s"]),
+        ))
     return launch, reset_pose, recorder, runner, extraction, bag, episode
 
 
@@ -404,6 +434,10 @@ def collect_one_task(
                 "samples": len(samples), "bag": str(bag_path), "bag_size_bytes": bag_path.stat().st_size,
                 "illegal_shift_count": int(episode.get("illegal_shift_count", 0)),
                 "candidate_messages": int(episode.get("candidate_messages", 0)),
+                "guarded_candidate_messages": int(episode.get("guarded_candidate_messages", 0)),
+                "policy_raw_messages": int(episode.get("policy_raw_messages", 0)),
+                "teacher_forward_messages": int(episode.get("teacher_forward_messages", 0)),
+                "teacher_reverse_messages": int(episode.get("teacher_reverse_messages", 0)),
                 "zero_feasible_messages": int(episode.get("zero_feasible_messages", 0)),
                 "post_settle_pose_reset": True,
             })

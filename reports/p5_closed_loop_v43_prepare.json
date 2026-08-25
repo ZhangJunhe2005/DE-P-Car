@@ -1,0 +1,19 @@
+{
+  "counts_by_mode": {
+    "DEAD_END_ESCAPE": 10,
+    "NARROW_CORRIDOR": 10,
+    "SHARP_TURN": 40,
+    "THREE_POINT_TURN": 20
+  },
+  "counts_by_split": {
+    "train": 64,
+    "validation": 16
+  },
+  "maps": 36,
+  "output": "/home/zjh/DE-P-Car/data/p3_v7_v43/task_manifest.json",
+  "schema": "DEPCarV43DaggerTaskManifestV1",
+  "status": "PASS",
+  "task_manifest_sha256": "7e9a5f452581590a342ae570117a45bc3340f3805cf87dd1ae5f08f238a12f2b",
+  "tasks": 80,
+  "test_maps_opened": false
+}

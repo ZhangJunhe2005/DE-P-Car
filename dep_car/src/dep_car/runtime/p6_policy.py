@@ -3,18 +3,40 @@
 import json
 import time
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 
 from dep_car.model.checkpoint import P4_ARCHITECTURE_ID, verify_checkpoint
 from dep_car.model.dep_car_net import DEPCarNetV1
 from dep_car.model.dep_car_net_v2 import DEPCarNetV2
+from dep_car.model.dep_car_net_v3 import DEPCarNetV3
+from dep_car.model.dep_car_net_v4 import DEPCarNetV4
+from dep_car.model.dep_car_net_v42 import DEPCarNetV42
+from dep_car.model.dep_car_net_v43 import DEPCarNetV43
 
-from .p6_contract import sha256_file, verify_p6_shadow_acceptance
+from .p6_contract import (
+    sha256_file,
+    verify_p6_shadow_acceptance,
+    verify_v42_execution_authority,
+    verify_v42_guarded_simulation_authority,
+    verify_v43_shadow_authority,
+)
 
 
 class PolicyArtifactError(RuntimeError):
     pass
+
+
+class HybridPolicyInference(NamedTuple):
+    trajectories: np.ndarray
+    controls: np.ndarray
+    scores: np.ndarray
+    action_gears: np.ndarray
+    action_mask: np.ndarray
+    motion_gears: np.ndarray
+    shift_required: np.ndarray
+    transition_duration: np.ndarray
 
 
 class P6PolicyRuntime:
@@ -46,8 +68,10 @@ class P6PolicyRuntime:
         self.fusion_sensor_mode = str(fusion_sensor_mode)
         if self.modality not in self.MODALITIES:
             raise PolicyArtifactError("unknown policy modality: " + self.modality)
-        if self.mode not in ("shadow", "active"):
-            raise PolicyArtifactError("policy mode must be shadow or active")
+        if self.mode not in ("shadow", "guarded", "active"):
+            raise PolicyArtifactError(
+                "policy mode must be shadow, guarded or active"
+            )
         if self.fusion_sensor_mode not in self.FUSION_SENSOR_MODES:
             raise PolicyArtifactError("unknown fusion sensor mode")
         if self.modality != "fusion" and self.fusion_sensor_mode != "normal":
@@ -58,8 +82,16 @@ class P6PolicyRuntime:
             )
         except Exception as exc:
             raise PolicyArtifactError("unable to read policy contract: %s" % exc) from exc
-        self.architecture_id = str(contract_document.get("architecture_id", ""))
-        if self.architecture_id == P4_ARCHITECTURE_ID:
+        self.source_architecture_id = str(
+            contract_document.get("architecture_id", "")
+        )
+        self.v43 = self.source_architecture_id == DEPCarNetV43.architecture_id
+        self.hybrid_sequence = self.source_architecture_id in (
+            DEPCarNetV4.architecture_id,
+            DEPCarNetV43.architecture_id,
+        )
+        self.architecture_id = self.source_architecture_id
+        if self.source_architecture_id == P4_ARCHITECTURE_ID:
             try:
                 verified = verify_checkpoint(
                     self.checkpoint_path,
@@ -70,7 +102,7 @@ class P6PolicyRuntime:
             except Exception as exc:
                 raise PolicyArtifactError("P5 checkpoint identity verification failed: %s" % exc) from exc
             payload = None
-        elif self.architecture_id == DEPCarNetV2.architecture_id:
+        elif self.source_architecture_id == DEPCarNetV2.architecture_id:
             try:
                 payload = torch.load(
                     self.checkpoint_path, map_location="cpu", weights_only=True
@@ -81,30 +113,143 @@ class P6PolicyRuntime:
             if (
                 verified.get("schema") != "DEPCarRouteV2ArtifactContractV1"
                 or verified.get("checkpoint_sha256") != sha256_file(self.checkpoint_path)
-                or payload.get("architecture_id") != self.architecture_id
+                or payload.get("architecture_id") != self.source_architecture_id
                 or payload.get("training_stage") != verified.get("training_stage")
                 or payload.get("modality") != verified.get("modality")
                 or payload.get("artifact_role") != verified.get("artifact_role")
             ):
                 raise PolicyArtifactError("V2 checkpoint/contract identity verification failed")
+        elif self.v43:
+            if self.modality != "fusion" or self.fusion_sensor_mode != "normal":
+                raise PolicyArtifactError(
+                    "V4.3 P6 shadow authority is fusion-only without sensor-drop mode"
+                )
+            if self.mode != "shadow":
+                raise PolicyArtifactError(
+                    "V4.3 is authorized for P6 shadow only; guarded/active control "
+                    "requires separate Gazebo qualification"
+                )
+            if not p6_authority:
+                raise PolicyArtifactError(
+                    "V4.3 requires an explicit P6 shadow authority"
+                )
+            try:
+                payload = torch.load(
+                    self.checkpoint_path, map_location="cpu", weights_only=True
+                )
+                verify_v43_shadow_authority(
+                    p6_authority,
+                    checkpoint_path=self.checkpoint_path,
+                    checkpoint_contract_path=self.contract_path,
+                )
+            except Exception as exc:
+                raise PolicyArtifactError(
+                    "V4.3 shadow authority rejected: %s" % exc
+                ) from exc
+            verified = dict(contract_document)
+            if (
+                payload.get("schema") != "DEPCarV43CheckpointV5"
+                or payload.get("architecture_id") != DEPCarNetV43.architecture_id
+                or payload.get("run_completed") is not True
+                or payload.get("partial_epoch") is not False
+                or verified.get("checkpoint_sha256")
+                != sha256_file(self.checkpoint_path)
+            ):
+                raise PolicyArtifactError(
+                    "V4.3 checkpoint/contract identity verification failed"
+                )
+            self.execution_authority_path = Path(p6_authority).resolve()
+            self.execution_authority_sha256 = sha256_file(
+                self.execution_authority_path
+            )
+        elif self.hybrid_sequence:
+            if self.modality != "fusion" or self.fusion_sensor_mode != "normal":
+                raise PolicyArtifactError(
+                    "V4.2 P6 authority is fusion-only without sensor-drop mode"
+                )
+            if not p6_authority:
+                raise PolicyArtifactError(
+                    "V4.2 requires an explicit P6 execution authority"
+                )
+            try:
+                payload = torch.load(
+                    self.checkpoint_path, map_location="cpu", weights_only=True
+                )
+                if self.mode == "shadow":
+                    verify_v42_execution_authority(
+                        p6_authority,
+                        checkpoint_path=self.checkpoint_path,
+                        checkpoint_contract_path=self.contract_path,
+                    )
+                elif self.mode == "guarded":
+                    verify_v42_guarded_simulation_authority(
+                        p6_authority,
+                        checkpoint_path=self.checkpoint_path,
+                        checkpoint_contract_path=self.contract_path,
+                    )
+                else:
+                    raise PolicyArtifactError(
+                        "V4.2 production-style active mode is forbidden; "
+                        "use guarded Gazebo simulation authority"
+                    )
+            except Exception as exc:
+                raise PolicyArtifactError(
+                    "V4.2 execution authority rejected: %s" % exc
+                ) from exc
+            verified = dict(contract_document)
+            if (
+                payload.get("architecture_id") != DEPCarNetV4.architecture_id
+                or payload.get("run_completed") is not True
+                or payload.get("partial_epoch") is not False
+                or verified.get("checkpoint_sha256")
+                != sha256_file(self.checkpoint_path)
+            ):
+                raise PolicyArtifactError(
+                    "V4.1 checkpoint/contract identity verification failed"
+                )
+            self.architecture_id = DEPCarNetV42.architecture_id
+            self.execution_authority_path = Path(p6_authority).resolve()
+            self.execution_authority_sha256 = sha256_file(
+                self.execution_authority_path
+            )
         else:
             raise PolicyArtifactError(
                 "unsupported policy architecture: " + self.architecture_id
             )
         required = {
-            "training_stage": "score_calibration",
             "artifact_role": "best",
             "status": "TRAINED_UNQUALIFIED",
             "qualification_status": "UNQUALIFIED",
             "production_qualified": False,
-            "modality": self.modality,
         }
+        if self.v43:
+            required.update(
+                {
+                    "training_stage": "dagger_guarded_closed_loop_sequence_selector",
+                    "continuous_sequence_authority": (
+                        "REOBSERVED_STATE_EXACT_SIGNED_HYBRID_ASTAR_PLAN"
+                    ),
+                    "high_level_gear_state_machine": False,
+                }
+            )
+        elif self.hybrid_sequence:
+            required.update(
+                {
+                    "training_stage": "hierarchical_sequence_score_correction",
+                    "unified_hybrid_sequence": True,
+                    "high_level_gear_state_machine": False,
+                }
+            )
+        else:
+            required.update(
+                {"training_stage": "score_calibration", "modality": self.modality}
+            )
         mismatches = [key for key, value in required.items() if verified.get(key) != value]
         if mismatches:
             raise PolicyArtifactError(
                 "checkpoint is not an accepted P6 Score artifact: " + ",".join(mismatches)
             )
-        if self.architecture_id == P4_ARCHITECTURE_ID:
+        if self.source_architecture_id == P4_ARCHITECTURE_ID:
             training_run = verified.get("training_run", {})
             formal_gates = (
                 "formal_dataset_authority_gate_passed",
@@ -120,7 +265,7 @@ class P6PolicyRuntime:
             ):
                 raise PolicyArtifactError("checkpoint training/coverage evidence is incomplete")
             self._verify_accepted_candidate_source(verified.get("training_source", {}))
-        else:
+        elif self.source_architecture_id == DEPCarNetV2.architecture_id:
             if (
                 payload.get("completed_epochs", 0) < 40
                 or payload.get("partial_epoch") is not False
@@ -141,8 +286,11 @@ class P6PolicyRuntime:
         self.contract = verified
         self.checkpoint_sha256 = verified["checkpoint_sha256"]
         self.contract_sha256 = sha256_file(self.contract_path)
-        self.control_authorized = self.mode == "active"
-        if self.mode == "active":
+        self.control_authorized = bool(
+            (self.mode == "active" and not self.hybrid_sequence)
+            or (self.mode == "guarded" and self.hybrid_sequence)
+        )
+        if self.mode == "active" and not self.hybrid_sequence:
             if not p6_authority:
                 raise PolicyArtifactError("active mode requires a passed P6 shadow authority")
             try:
@@ -168,11 +316,14 @@ class P6PolicyRuntime:
                 payload = torch.load(
                     self.checkpoint_path, map_location="cpu", weights_only=True
                 )
-            model = (
-                DEPCarNetV2()
-                if self.architecture_id == DEPCarNetV2.architecture_id
-                else DEPCarNetV1()
-            )
+            if self.v43:
+                model = DEPCarNetV43(base_model=DEPCarNetV3())
+            elif self.hybrid_sequence:
+                model = DEPCarNetV42(base_model=DEPCarNetV3())
+            elif self.source_architecture_id == DEPCarNetV2.architecture_id:
+                model = DEPCarNetV2()
+            else:
+                model = DEPCarNetV1()
             model.load_state_dict(payload["model_state_dict"], strict=True)
         except Exception as exc:
             raise PolicyArtifactError("unable to materialize policy model: %s" % exc) from exc
@@ -194,9 +345,12 @@ class P6PolicyRuntime:
                     raise RuntimeError("sensor encoder output must be a tensor")
                 return output.float()
 
+            encoder_owner = (
+                self.model.base_model if self.hybrid_sequence else self.model
+            )
             self._amp_output_handles = [
-                self.model.depth_encoder.register_forward_hook(output_fp32),
-                self.model.lidar_encoder.register_forward_hook(output_fp32),
+                encoder_owner.depth_encoder.register_forward_hook(output_fp32),
+                encoder_owner.lidar_encoder.register_forward_hook(output_fp32),
             ]
         self.last_latency_ms = 0.0
 
@@ -318,8 +472,16 @@ class P6PolicyRuntime:
         return (1.0, 1.0)
 
     def infer(
-        self, depth, lidar_bev, vehicle_state, requested_gear,
-        route_pose=None, route_mask=None,
+        self,
+        depth,
+        lidar_bev,
+        vehicle_state,
+        requested_gear=None,
+        route_pose=None,
+        route_mask=None,
+        *,
+        current_gear=None,
+        gear_history=None,
     ):
         torch = self.torch
         depth = np.asarray(depth, dtype=np.float32)
@@ -331,7 +493,14 @@ class P6PolicyRuntime:
             raise ValueError("policy LiDAR BEV must be [6,160,160]")
         if vehicle_state.shape != (9,) or not np.all(np.isfinite(vehicle_state)):
             raise ValueError("policy vehicle state must be finite [9]")
-        if int(requested_gear) not in (-1, 1):
+        if self.hybrid_sequence:
+            current_gear = int(current_gear)
+            gear_history = np.asarray(gear_history, dtype=np.float32)
+            if current_gear not in (-1, 0, 1):
+                raise ValueError("hybrid policy current gear must be -1, 0 or +1")
+            if gear_history.shape != (6,) or not np.all(np.isfinite(gear_history)):
+                raise ValueError("hybrid policy gear history must be finite [6]")
+        elif int(requested_gear) not in (-1, 1):
             raise ValueError("policy requested gear must be -1 or +1")
         depth_tensor = torch.from_numpy(depth[None]).to(
             self.device, non_blocking=True
@@ -346,15 +515,31 @@ class P6PolicyRuntime:
             depth_tensor,
             lidar_tensor,
             torch.from_numpy(vehicle_state[None]).to(self.device, non_blocking=True),
-            torch.tensor([int(requested_gear)], dtype=torch.int64, device=self.device),
         ]
-        if self.architecture_id == DEPCarNetV2.architecture_id:
+        if self.hybrid_sequence:
+            tensors.extend(
+                (
+                    torch.tensor(
+                        [current_gear], dtype=torch.int64, device=self.device
+                    ),
+                    torch.from_numpy(gear_history[None]).to(
+                        self.device, non_blocking=True
+                    ),
+                )
+            )
+        else:
+            tensors.append(
+                torch.tensor(
+                    [int(requested_gear)], dtype=torch.int64, device=self.device
+                )
+            )
+        if self.hybrid_sequence or self.architecture_id == DEPCarNetV2.architecture_id:
             route_pose = np.asarray(route_pose, dtype=np.float32)
             route_mask = np.asarray(route_mask, dtype=bool)
             if route_pose.shape != (80, 3) or route_mask.shape != (80,):
-                raise ValueError("V2 route corridor must be [80,3] with [80] mask")
+                raise ValueError("route corridor must be [80,3] with [80] mask")
             if int(route_mask.sum()) < 2 or not np.all(np.isfinite(route_pose)):
-                raise ValueError("V2 route corridor is invalid")
+                raise ValueError("route corridor is invalid")
             tensors.extend((
                 torch.from_numpy(route_pose[None]).to(self.device, non_blocking=True),
                 torch.from_numpy(route_mask[None]).to(self.device, non_blocking=True),
@@ -378,11 +563,43 @@ class P6PolicyRuntime:
         trajectories = output.trajectories[0].detach().cpu().numpy().astype(np.float64)
         controls = output.controls[0].detach().cpu().numpy().astype(np.float64)
         scores = output.scores[0].detach().cpu().numpy().astype(np.float64)
-        if trajectories.shape != (15, 11, 6) or controls.shape != (15, 4) or scores.shape != (15,):
+        expected_trajectory = (15, 31, 6) if self.hybrid_sequence else (15, 11, 6)
+        expected_controls = (15, 6, 4) if self.hybrid_sequence else (15, 4)
+        if (
+            trajectories.shape != expected_trajectory
+            or controls.shape != expected_controls
+            or scores.shape != (15,)
+        ):
             raise RuntimeError("DE-P-Car policy output shape changed")
-        if not all(np.all(np.isfinite(values)) for values in (trajectories, controls, scores)):
+        if not all(
+            np.all(np.isfinite(values))
+            for values in (trajectories, controls, scores)
+        ):
             raise RuntimeError("DE-P-Car policy produced non-finite output")
+        if self.hybrid_sequence:
+            arrays = {
+                "action_gears": output.action_gears[0].detach().cpu().numpy().astype(np.int8),
+                "action_mask": output.action_mask[0].detach().cpu().numpy().astype(bool),
+                "motion_gears": output.motion_gears[0].detach().cpu().numpy().astype(np.int8),
+                "shift_required": output.shift_required[0].detach().cpu().numpy().astype(bool),
+                "transition_duration": output.transition_duration[0].detach().cpu().numpy().astype(np.float64),
+            }
+            expected = {
+                "action_gears": (15, 6),
+                "action_mask": (15, 6),
+                "motion_gears": (15, 31),
+                "shift_required": (15, 6),
+                "transition_duration": (15, 6),
+            }
+            if any(arrays[key].shape != shape for key, shape in expected.items()):
+                raise RuntimeError("DE-P-Car hybrid metadata shape changed")
+            return HybridPolicyInference(
+                trajectories=trajectories,
+                controls=controls,
+                scores=scores,
+                **arrays,
+            )
         return trajectories, controls, scores
 
 
-__all__ = ["P6PolicyRuntime", "PolicyArtifactError"]
+__all__ = ["HybridPolicyInference", "P6PolicyRuntime", "PolicyArtifactError"]

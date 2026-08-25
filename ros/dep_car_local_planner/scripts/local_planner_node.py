@@ -4,6 +4,7 @@
 import json
 import math
 import threading
+from collections import Counter
 
 import numpy as np
 import rospy
@@ -36,7 +37,18 @@ from dep_car.core.vehicle import (
     center_steering_from_wheel_angles,
     world_velocity_to_body_longitudinal,
 )
-from dep_car.runtime.safety import evaluate_learned_candidate_bank
+from dep_car.runtime.p6_contract import (
+    V42_EXECUTION_ARCHITECTURE_ID,
+    V43_ARCHITECTURE_ID,
+)
+from dep_car.runtime.hybrid_execution import (
+    HybridFirstActionLatch,
+    align_trajectory_between_chassis_frames,
+)
+from dep_car.runtime.safety import (
+    evaluate_hybrid_sequence_candidate_bank,
+    evaluate_learned_candidate_bank,
+)
 from dep_car.runtime.arrival import ArrivalConfig, GoalArrivalController
 from dep_car.runtime.maneuver import (
     CommittedManeuver,
@@ -81,6 +93,7 @@ class LocalPlannerNode:
         self.planner = DeterministicPlanner()
         self.recovery = RecoveryManager()
         self.gear_supervisor = GearSupervisor()
+        self.hybrid_action_latch = HybridFirstActionLatch()
         self.grid = self.grid_stamp = self.joint_state = None
         self.odom = self.goal = self.mission_goal = self.route_command = self.route = None
         # Route geometry and its command are published on separate ROS topics.
@@ -92,6 +105,8 @@ class LocalPlannerNode:
         self.deferred_route_transaction = None
         self.route_transaction_buffer_limit = 16
         self.policy_raw = self.policy_inference_state = None
+        self.policy_query_poses = {}
+        self.control_pose = None
         self.global_planner_state = "IDLE"
         self.global_route_id = ""
         self.global_route_source = "NONE"
@@ -333,8 +348,10 @@ class LocalPlannerNode:
         if not 0.0 <= self.corner_soft_trigger < self.corner_soft_full_strength <= math.pi:
             raise ValueError("corner soft-clearance angle thresholds are invalid")
         self.policy_mode = str(rospy.get_param("~policy_mode", "disabled"))
-        if self.policy_mode not in ("disabled", "shadow", "active"):
-            raise ValueError("policy_mode must be disabled, shadow or active")
+        if self.policy_mode not in ("disabled", "shadow", "guarded", "active"):
+            raise ValueError(
+                "policy_mode must be disabled, shadow, guarded or active"
+            )
         self.active_fallback_to_baseline = bool(
             rospy.get_param("~active_fallback_to_baseline", False)
         )
@@ -362,6 +379,19 @@ class LocalPlannerNode:
         )
         self.policy_candidates_pub = rospy.Publisher(
             "/dep_car/policy_candidates", CandidateArray, queue_size=1
+        )
+        # V4.3 DAgger collection observes the guarded policy state while a
+        # deterministic, route-aware expert labels both transmission choices.
+        # These publishers are disabled in every normal P6 launch and never
+        # participate in runtime candidate selection or actuation.
+        self.publish_dagger_teacher_banks = bool(
+            rospy.get_param("~publish_dagger_teacher_banks", False)
+        )
+        self.dagger_teacher_forward_pub = rospy.Publisher(
+            "/dep_car/dagger_teacher_forward", CandidateArray, queue_size=1
+        )
+        self.dagger_teacher_reverse_pub = rospy.Publisher(
+            "/dep_car/dagger_teacher_reverse", CandidateArray, queue_size=1
         )
         self.selected_path_pub = rospy.Publisher(
             "/dep_car/selected_path", Path, queue_size=1
@@ -672,6 +702,7 @@ class LocalPlannerNode:
             self.forward_restoration_budget_replans = 0
             self.forward_restoration_budget_replan_pending = False
             self.forward_preference.reset()
+            self.hybrid_action_latch.reset()
             self.forward_capture_replan_requested = False
             self.forward_capture_replan_after_stamp = -math.inf
             self.exact_replan_gate.reset()
@@ -787,6 +818,8 @@ class LocalPlannerNode:
             self.recovery.start_authority_transaction()
             self.exact_replan_gate.reset()
             self.policy_raw = None
+            self.policy_query_poses = {}
+            self.control_pose = None
             self.last_position = None
             if self.maneuver.leg_count == 0:
                 self.maneuver.reset()
@@ -912,6 +945,7 @@ class LocalPlannerNode:
             self.forward_restoration_budget_replans = 0
             self.forward_restoration_budget_replan_pending = False
             self.forward_preference.reset()
+            self.hybrid_action_latch.reset()
             self.forward_capture_replan_requested = False
             self.forward_capture_replan_after_stamp = -math.inf
             self.exact_replan_gate.reset()
@@ -1408,13 +1442,69 @@ class LocalPlannerNode:
         message.reference_curvature = float(reference_curvature)
         message.recovery_mode = bool(recovery_mode)
         message.generation = self.query_generation
+        if self.control_pose is not None:
+            self.policy_query_poses[self.query_generation] = tuple(
+                float(value) for value in self.control_pose
+            )
+            while len(self.policy_query_poses) > 64:
+                del self.policy_query_poses[min(self.policy_query_poses)]
         self.policy_query_pub.publish(message)
         return self.query_generation
+
+    def align_policy_candidates_to_current_pose(self, candidates, generation, age):
+        """Express a delayed learned bank in the current chassis frame.
+
+        Inference runs asynchronously on the GPU.  Keeping a bank for longer
+        than one control tick is safe only when its anchor pose moves with the
+        car.  This rigid transform preserves the learned curve and kinematics;
+        the transformed full sequence is then checked against the newest
+        local occupancy grid and dynamic tracks.
+        """
+
+        anchor = self.policy_query_poses.get(int(generation))
+        current = self.control_pose
+        if anchor is None or current is None:
+            raise ValueError("policy_pose_anchor_missing")
+        for candidate in candidates:
+            trajectory = align_trajectory_between_chassis_frames(
+                candidate.trajectory,
+                anchor,
+                current,
+            )
+            candidate.trajectory = trajectory
+            candidate.policy_anchor_age_s = float(max(0.0, age))
+            # Rows 1..5 are the first learned action.  Select the control
+            # sample appropriate for elapsed inference time without leaking
+            # into the next learned gear action.
+            candidate.command_lookahead_index = int(
+                min(
+                    5,
+                    max(
+                        1,
+                        np.searchsorted(
+                            trajectory[:, 0],
+                            float(max(0.0, age)) + 0.20,
+                            side="left",
+                        ),
+                    ),
+                )
+            )
+        return candidates
 
     @staticmethod
     def policy_core_candidates(message):
         if len(message.candidates) != 15:
             raise ValueError("raw policy bank does not contain 15 candidates")
+        hybrid = bool(message.hybrid_sequence)
+        if hybrid and (
+            message.architecture_id not in (
+                V42_EXECUTION_ARCHITECTURE_ID, V43_ARCHITECTURE_ID
+            )
+            or int(message.actions_per_candidate) != 6
+            or int(message.steps_per_action) != 5
+            or len(message.gear_history) != 6
+        ):
+            raise ValueError("raw hybrid sequence contract changed")
         output = []
         for expected_id, item in enumerate(message.candidates):
             if int(item.candidate_id) != expected_id:
@@ -1423,20 +1513,39 @@ class LocalPlannerNode:
                 np.asarray(values, dtype=np.float64)
                 for values in (item.time, item.x, item.y, item.yaw, item.speed, item.steering)
             ]
-            if any(values.shape != (11,) for values in arrays):
-                raise ValueError("raw policy trajectory must contain eleven rows")
-            trajectory = np.column_stack(arrays)
-            output.append(
-                CoreCandidate(
-                    candidate_id=expected_id,
-                    speed_anchor=float(item.speed_anchor),
-                    steering_anchor=float(item.steering_anchor),
-                    duration=float(item.duration),
-                    trajectory=trajectory,
-                    gear=Gear.require_drive(item.gear),
-                    learned_score=float(item.learned_score),
+            expected_rows = 31 if hybrid else 11
+            if any(values.shape != (expected_rows,) for values in arrays):
+                raise ValueError(
+                    "raw policy trajectory row count changed: %d" % expected_rows
                 )
+            trajectory = np.column_stack(arrays)
+            gear = int(item.gear)
+            core = CoreCandidate(
+                candidate_id=expected_id,
+                speed_anchor=float(item.speed_anchor),
+                steering_anchor=float(item.steering_anchor),
+                duration=float(item.duration),
+                trajectory=trajectory,
+                gear=(
+                    Gear.require_drive(gear)
+                    if gear in (-1, 1)
+                    else Gear.FORWARD
+                ),
+                learned_score=float(item.learned_score),
             )
+            if hybrid:
+                core.action_gears = np.asarray(item.action_gears, dtype=np.int8)
+                core.action_mask = np.asarray(item.action_mask, dtype=bool)
+                core.action_durations = np.asarray(
+                    item.action_durations, dtype=np.float64
+                )
+                core.shift_required = np.asarray(item.shift_required, dtype=bool)
+                core.transition_duration = np.asarray(
+                    item.transition_duration, dtype=np.float64
+                )
+                core.motion_gears = np.asarray(item.motion_gears, dtype=np.int8)
+                core.hybrid_sequence = True
+            output.append(core)
         return output
 
     def policy_result(
@@ -1455,7 +1564,7 @@ class LocalPlannerNode:
         with self.lock:
             raw = self.policy_raw
             inference = self.policy_inference_state
-        if self.policy_mode == "active" and (
+        if self.policy_mode in ("active", "guarded") and (
             inference is None
             or not inference.model_loaded
             or not inference.control_authorized
@@ -1467,9 +1576,17 @@ class LocalPlannerNode:
         age = rospy.Time.now().to_sec() - stamp
         if age < -0.05 or age > self.policy_freshness:
             return None, "stale_policy_bank"
-        if abs(float(grid_stamp) - stamp) > self.policy_grid_skew:
-            return None, "policy_costmap_skew"
-        if int(raw.requested_gear) != int(requested_gear):
+        grid_age = rospy.Time.now().to_sec() - float(grid_stamp)
+        if grid_age < -0.05 or grid_age > self.policy_grid_skew:
+            return None, "stale_current_costmap"
+        # A newer grid is desirable: the pose-aligned trajectory is hard-
+        # vetoed in the current chassis frame.  Reject only a grid that
+        # predates the model anchor beyond the contract, rather than taking an
+        # absolute difference that discards every asynchronous CUDA result.
+        if stamp - float(grid_stamp) > self.policy_grid_skew:
+            return None, "costmap_predates_policy_bank"
+        hybrid = bool(raw.hybrid_sequence)
+        if not hybrid and int(raw.requested_gear) != int(requested_gear):
             return None, "policy_gear_mismatch"
         if bool(raw.recovery_mode) != bool(recovery_mode):
             return None, "policy_context_mismatch"
@@ -1478,14 +1595,33 @@ class LocalPlannerNode:
             return None, "policy_subgoal_mismatch"
         try:
             candidates = self.policy_core_candidates(raw)
-            result = evaluate_learned_candidate_bank(
-                candidates,
-                subgoal,
-                grid,
-                tracks,
-                generation=raw.generation,
+            if hybrid:
+                candidates = self.align_policy_candidates_to_current_pose(
+                    candidates, raw.generation, age
+                )
+            evaluator = (
+                evaluate_hybrid_sequence_candidate_bank
+                if hybrid
+                else evaluate_learned_candidate_bank
             )
-            if not self.learned_route_authority:
+            result = evaluator(
+                candidates, subgoal, grid, tracks, generation=raw.generation
+            )
+            if hybrid and not result.executable:
+                vetoes = Counter(
+                    candidate.veto_reason or "unknown"
+                    for candidate in result.candidates
+                    if not candidate.feasible
+                )
+                rospy.logwarn_throttle(
+                    1.0,
+                    "Hybrid current-frame hard veto rejected bank generation=%d "
+                    "anchor_age=%.3f reasons=%s",
+                    int(raw.generation),
+                    float(age),
+                    json.dumps(dict(sorted(vetoes.items())), sort_keys=True),
+                )
+            if not hybrid and not self.learned_route_authority:
                 result = apply_runtime_route_preference(
                     result,
                     reference_path,
@@ -1495,19 +1631,25 @@ class LocalPlannerNode:
                     clearance_weight=self.route_clearance_weight,
                     corner_corridor_minimum_scale=self.corner_corridor_minimum_scale,
                 )
-            result = apply_corner_clearance_preference(
-                result,
-                reference_path,
-                grid,
-                soft_clearance_m=self.corner_soft_clearance_target,
-                weight=self.corner_soft_clearance_weight,
-                trigger_rad=self.corner_soft_trigger,
-                full_strength_rad=self.corner_soft_full_strength,
-                learned_score_base=self.learned_route_authority,
-            )
+            if not hybrid:
+                result = apply_corner_clearance_preference(
+                    result,
+                    reference_path,
+                    grid,
+                    soft_clearance_m=self.corner_soft_clearance_target,
+                    weight=self.corner_soft_clearance_weight,
+                    trigger_rad=self.corner_soft_trigger,
+                    full_strength_rad=self.corner_soft_full_strength,
+                    learned_score_base=self.learned_route_authority,
+                )
         except Exception as exc:
             return None, "policy_bank_rejected:" + type(exc).__name__ + ":" + str(exc)
-        return result, "policy_ready" if result.executable else "policy_zero_feasible"
+        prefix = (
+            "policy_v43_hybrid"
+            if hybrid and raw.architecture_id == V43_ARCHITECTURE_ID
+            else "policy_v42_hybrid" if hybrid else "policy"
+        )
+        return result, prefix + ("_ready" if result.executable else "_zero_feasible")
 
     def plan_context(
         self,
@@ -1575,6 +1717,66 @@ class LocalPlannerNode:
             trigger_rad=self.corner_soft_trigger,
             full_strength_rad=self.corner_soft_full_strength,
         )
+        if self.publish_dagger_teacher_banks:
+            teacher_banks = {Gear.require_drive(requested_gear): baseline}
+            opposite = (
+                Gear.REVERSE
+                if Gear.require_drive(requested_gear) == Gear.FORWARD
+                else Gear.FORWARD
+            )
+            opposite_bank = self.planner.plan(
+                state,
+                subgoal,
+                grid,
+                tracks,
+                requested_gear=opposite,
+                target_heading=heading_error,
+                target_steering=reference_steering,
+                spatial_scales=spatial_scales,
+                required_yaw_direction=required_yaw_direction,
+                minimum_yaw_progress_rad=minimum_yaw_progress_rad,
+                allow_static_margin_egress=allow_static_margin_egress,
+                maximum_margin_overlap_m=self.memory_margin_egress_maximum_overlap,
+                minimum_margin_improvement_m=(
+                    self.memory_margin_egress_minimum_improvement
+                ),
+                margin_worsening_tolerance_m=(
+                    self.memory_margin_egress_worsening_tolerance
+                ),
+            )
+            opposite_bank = apply_runtime_route_preference(
+                opposite_bank,
+                reference_path,
+                grid,
+                corridor_weight=self.route_corridor_weight,
+                desired_future_clearance_m=self.route_clearance_target,
+                clearance_weight=self.route_clearance_weight,
+                corner_corridor_minimum_scale=self.corner_corridor_minimum_scale,
+            )
+            opposite_bank = apply_corner_clearance_preference(
+                opposite_bank,
+                reference_path,
+                grid,
+                soft_clearance_m=self.corner_soft_clearance_target,
+                weight=self.corner_soft_clearance_weight,
+                trigger_rad=self.corner_soft_trigger,
+                full_strength_rad=self.corner_soft_full_strength,
+            )
+            teacher_banks[opposite] = opposite_bank
+            self.publish_candidates(
+                teacher_banks[Gear.FORWARD],
+                Gear.FORWARD,
+                subgoal,
+                recovery_mode=recovery_mode,
+                publisher=self.dagger_teacher_forward_pub,
+            )
+            self.publish_candidates(
+                teacher_banks[Gear.REVERSE],
+                Gear.REVERSE,
+                subgoal,
+                recovery_mode=recovery_mode,
+                publisher=self.dagger_teacher_reverse_pub,
+            )
         policy, reason = self.policy_result(
             grid,
             grid_stamp,
@@ -1584,10 +1786,65 @@ class LocalPlannerNode:
             recovery_mode=recovery_mode,
             reference_path=reference_path,
         )
+        raw_policy_candidate_id = -1
+        raw_policy_gear = Gear.NEUTRAL
+        if policy is not None and policy.executable:
+            raw_policy_candidate_id = int(policy.selected.candidate_id)
+            raw_policy_gear = Gear.require_drive(policy.selected.gear)
+            if self.policy_mode == "shadow":
+                shadow_sequence = [
+                    int(value)
+                    for value in getattr(policy.selected, "action_gears", ())
+                    if int(value) != 0
+                ]
+                rospy.loginfo_throttle(
+                    1.0,
+                    "V4.3 shadow recommendation candidate=%d first_gear=%s "
+                    "sequence=%s feasible=%d requested_route_gear=%s "
+                    "subgoal=(%.3f,%.3f); deterministic control remains "
+                    "authoritative",
+                    raw_policy_candidate_id,
+                    raw_policy_gear.name,
+                    shadow_sequence,
+                    sum(candidate.feasible for candidate in policy.candidates),
+                    Gear.require_drive(requested_gear).name,
+                    float(subgoal[0]),
+                    float(subgoal[1]),
+                )
+        if self.policy_mode == "guarded" and policy is not None:
+            policy, latch_reason = self.hybrid_action_latch.select(
+                policy, rospy.Time.now().to_sec()
+            )
+            reason += ":" + latch_reason
+            if policy.executable:
+                action_gears = [
+                    int(value)
+                    for value in getattr(policy.selected, "action_gears", ())
+                    if int(value) != 0
+                ]
+                rospy.loginfo_throttle(
+                    1.0,
+                    "V4.2 guarded selection raw_candidate=%d raw_gear=%s "
+                    "candidate=%d first_gear=%s "
+                    "candidate_sequence=%s locked_sequence=%s action=%d latch=%s",
+                    raw_policy_candidate_id,
+                    raw_policy_gear.name,
+                    policy.selected.candidate_id,
+                    Gear.require_drive(policy.selected.gear).name,
+                    action_gears,
+                    list(self.hybrid_action_latch.locked_sequence),
+                    int(self.hybrid_action_latch.action_index),
+                    latch_reason,
+                )
         if policy is not None:
+            published_gear = (
+                Gear.require_drive(policy.selected.gear)
+                if self.policy_mode == "guarded" and policy.executable
+                else requested_gear
+            )
             self.publish_candidates(
                 policy,
-                requested_gear,
+                published_gear,
                 subgoal,
                 recovery_mode=recovery_mode,
                 publisher=self.policy_candidates_pub,
@@ -1599,7 +1856,11 @@ class LocalPlannerNode:
             source = "deterministic_lattice" if self.policy_mode == "disabled" else "deterministic_shadow_control"
             return baseline, source
         if policy is not None and policy.executable:
-            return policy, "dep_car_net_v1_active"
+            return policy, (
+                "dep_car_net_v42_guarded"
+                if self.policy_mode == "guarded"
+                else "dep_car_net_v1_active"
+            )
         if self.active_fallback_to_baseline:
             return baseline, "deterministic_active_fallback"
         return None, reason
@@ -1607,7 +1868,10 @@ class LocalPlannerNode:
     def publish_command(self, candidate, source, speed_limit=None):
         if rospy.is_shutdown():
             return
-        lookahead = min(2, len(candidate.trajectory) - 1)
+        lookahead = min(
+            int(getattr(candidate, "command_lookahead_index", 2)),
+            len(candidate.trajectory) - 1,
+        )
         command = AckermannCommand()
         command.header.stamp = rospy.Time.now()
         speed = float(candidate.trajectory[lookahead, 4])
@@ -1709,6 +1973,8 @@ class LocalPlannerNode:
         if inference is not None:
             message.modality = inference.modality
             message.checkpoint_sha256 = inference.checkpoint_sha256
+            message.architecture_id = inference.architecture_id
+            message.hybrid_sequence = inference.hybrid_sequence
             message.model_loaded = inference.model_loaded
             message.sensor_ready = inference.sensor_ready
             message.inference_ok = inference.inference_ok
@@ -1722,7 +1988,8 @@ class LocalPlannerNode:
         message.hard_safety_applied = result is not None
         message.executable = bool(result is not None and result.executable)
         message.control_authorized = bool(
-            self.policy_mode == "active" and inference_authorized
+            self.policy_mode in ("active", "guarded")
+            and inference_authorized
         )
         message.generation = result.generation if result is not None else 0
         message.candidate_count = len(result.candidates) if result is not None else 0
@@ -1734,6 +2001,17 @@ class LocalPlannerNode:
         message.selected_candidate_id = (
             result.selected.candidate_id if result is not None and result.selected else -1
         )
+        if result is not None and result.selected is not None:
+            selected = result.selected
+            message.selected_first_gear = int(selected.gear)
+            message.selected_action_gears = [
+                int(value)
+                for value in getattr(selected, "action_gears", ())
+                if int(value) != 0
+            ]
+        else:
+            message.selected_first_gear = 0
+            message.selected_action_gears = []
         message.reason = str(reason)
         self.policy_state_pub.publish(message)
 
@@ -1860,6 +2138,11 @@ class LocalPlannerNode:
         now = rospy.Time.now().to_sec()
         state = self.vehicle_state(
             odom, joint_state, self.odometry_twist_in_body_frame
+        )
+        self.control_pose = (
+            float(odom.pose.pose.position.x),
+            float(odom.pose.pose.position.y),
+            float(yaw_from_quaternion(odom.pose.pose.orientation)),
         )
         mission_distance, mission_heading = self.mission_error(odom, mission_goal)
         arrival = (
@@ -2188,7 +2471,7 @@ class LocalPlannerNode:
             straight_speed_mps=self.corner_straight_speed,
             ninety_degree_speed_mps=self.corner_ninety_speed,
         )
-        if self.learned_route_authority and self.policy_mode == "active":
+        if self.learned_route_authority and self.policy_mode in ("guarded", "active"):
             # V2 must demonstrate its own smooth corner trajectory.  The hard
             # safety layer remains active, but legacy manual corner shaping is
             # not allowed to manufacture a pass.
@@ -2257,6 +2540,8 @@ class LocalPlannerNode:
         # to turn around at the first viable site, or reverse only far enough
         # to reach such a site.
         if (
+            self.policy_mode != "guarded"
+            and
             not exact_route
             and not memory_backtrack
             and not map_acquisition_probe
@@ -2648,6 +2933,26 @@ class LocalPlannerNode:
             self.stop("policy_not_ready")
             self.publish_state(None, command_source)
             return
+        if (
+            self.policy_mode == "guarded"
+            and result.blocked_by_static
+            and not result.blocked_by_dynamic
+        ):
+            # V4.2 has already evaluated both gears and all six learned
+            # actions under the full-sequence hard veto.  Do not replace its
+            # decision with the legacy deterministic turnaround state
+            # machine.  Publish real blockage evidence so FAR/memory can
+            # replace the route; the model will receive that recovery route
+            # on the next query and still owns gear selection.
+            self.stop("hybrid_policy_static_blocked")
+            self.publish_state(
+                result,
+                "V4.2 has no full-sequence hard-safe candidate; waiting for "
+                "FAR/memory route replacement",
+                executable_override=False,
+                blocked_by_static_override=True,
+            )
+            return
         # A full one-second bank being blocked does not mean the car has no
         # room.  Probe progressively shorter certified primitives in the
         # preferred direction and then the opposite direction.  The selected
@@ -2898,10 +3203,14 @@ class LocalPlannerNode:
                     self.turnaround_rearm_remaining = (
                         self.turnaround_rearm_distance
                     )
-            decision = self.gear_supervisor.update(
-                requested_gear, state.speed, now
-            )
+            if self.policy_mode == "guarded":
+                requested_gear = Gear.require_drive(result.selected.gear)
+            decision = self.gear_supervisor.update(requested_gear, state.speed, now)
             if decision.drive_enabled:
+                if self.policy_mode == "guarded":
+                    self.hybrid_action_latch.observe_drive_authorized(
+                        now, requested_gear
+                    )
                 maneuver_limit = None
                 if maneuver_started:
                     maneuver_limit = (

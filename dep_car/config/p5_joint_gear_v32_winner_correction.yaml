@@ -1,0 +1,62 @@
+schema: DEPCarJointGearV32TrainingContractV1
+architecture_id: dep_car_multimodal_v3_joint_gear_route_ackermann_2x3x5
+objective_id: dep_car_objective_v8_runtime_argmin_winner_aligned_gear
+scope: fusion_only_runtime_winner_sequence_correction
+test_split_sealed: true
+
+base_contract:
+  training_config: dep_car/config/p5_joint_gear_v31_sequence_correction.yaml
+  training_config_sha256: c624a30b513be9c8478c64878d78b300ebbaf118628d9cba32ae0b2519623ea1
+  trainer: tools/train_dep_car_sequence_v31.py
+  trainer_sha256: a14246690e42dae66cc3003992d98b94bfa1510bd6f66d40407b36a4696d4718
+  loss: dep_car/src/dep_car/training/losses_v31.py
+  loss_sha256: 50ff8c3feee18125c51de1b28977559e2c587f45f948392d8c90b447a1560ad6
+  acceptance_contract: dep_car/config/p5_joint_gear_v3_acceptance.yaml
+  acceptance_contract_sha256: e9d22ac1bf6e9b6f28305be9eaea196a21ce36c7fd26faff9c29194b14bd0d8b
+
+initialization:
+  checkpoint: models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.pth
+  checkpoint_sha256: a3ce5814e5d61506154ee90ed5d5870213e7fbf895702845a5a359eaa0e4d124
+  checkpoint_contract: models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.contract.json
+  checkpoint_contract_sha256: 342144358c21d13575280e1f9fd4fdc67b42879215af85a3a033d6cc495866f1
+  acceptance: models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.acceptance.json
+  acceptance_sha256: c7200f06ce91ee49410531c1a1c6d0b44a6b9129074e8808151704158a4535b8
+  allowed_failed_checks:
+    - no_hard_forward_reverse_selection_rate
+    - oracle_reverse_recall_within_required
+
+artifact:
+  output: models/dep_car/p5_joint_gear_v32/fusion_winner_sequence_correction.pth
+
+training:
+  epochs: 6
+  batch_size: 64
+  learning_rate: 0.00002
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  workers: 8
+  prefetch_factor: 4
+  progress_interval_steps: 50
+  torch_threads: 8
+  seed: 86132
+
+winner_correction:
+  winner_temperature: 0.10
+  winner_cross_entropy_weight: 1.00
+  teacher_reverse_extra_weight: 1.00
+  no_hard_forward_extra_weight: 2.00
+  misclassified_extra_weight: 2.00
+  teacher_forward_margin: 0.06
+  teacher_reverse_margin: 0.12
+  no_hard_forward_margin: 0.20
+  winner_margin_weight: 1.00
+  safe_winner_margin: 0.20
+  safe_winner_margin_weight: 2.00
+
+qualification:
+  acceptance_contract_section: sequence
+  selection_uses_runtime_argmin_metrics: true
+  active_control_authorized_by_training: false
+  production_qualified_by_training: false

@@ -1,0 +1,43 @@
+{
+  "best_joint_calibration": {
+    "hard_veto_stop_rate": 0.03516949152542373,
+    "hierarchical_oracle_regret": 0.09790296852588654,
+    "hierarchy_selection_rate_when_executable": 0.9864953886693018,
+    "legacy_cross_tier_oracle_regret": 0.1642487794160843,
+    "safety_weight": 0.0,
+    "selected_hard_feasible_rate": 0.9648305084745763,
+    "selected_viable_rate": 0.7356991525423728,
+    "viability_weight": 8.0
+  },
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.pth",
+  "checkpoint_sha256": "f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff",
+  "hard_veto_is_mandatory_execution_semantics": true,
+  "joint_gates": {
+    "maximum_hierarchical_oracle_regret": 0.2,
+    "minimum_hierarchy_selection_rate_when_executable": 0.9,
+    "minimum_selected_hard_feasible_rate": 0.95,
+    "minimum_selected_viable_rate": 0.6
+  },
+  "legacy_cross_tier_regret_is_qualification_gate": false,
+  "mandatory_hard_veto_argmin": {
+    "hard_veto_stop_rate": 0.03516949152542373,
+    "hierarchical_oracle_regret": 0.29767704010009766,
+    "hierarchy_selection_rate_when_executable": 0.9481774264382961,
+    "legacy_cross_tier_oracle_regret": 0.36350715160369873,
+    "selected_hard_feasible_rate": 0.9648305084745763,
+    "selected_viable_rate": 0.698728813559322
+  },
+  "production_qualified": false,
+  "raw_neural_argmin": {
+    "hard_veto_stop_rate": 0.0,
+    "hierarchical_oracle_regret": 0.29516178369522095,
+    "hierarchy_selection_rate_when_executable": 0.9297321036451471,
+    "legacy_cross_tier_oracle_regret": 0.3546958565711975,
+    "selected_hard_feasible_rate": 0.945021186440678,
+    "selected_viable_rate": 0.691207627118644
+  },
+  "samples": 9440,
+  "schema": "DEPCarV41ExecutionParetoAuditV1",
+  "status": "PASS",
+  "test_split_accessed": false
+}

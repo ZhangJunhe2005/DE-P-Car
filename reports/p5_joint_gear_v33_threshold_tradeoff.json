@@ -1,0 +1,33 @@
+{
+  "best_threshold": {
+    "hard_safety_fallback_rate": 0.03114406779661017,
+    "no_hard_forward_reverse_selection_rate": 0.8606485539000877,
+    "normalized_gate_violation": 0.14194934467695539,
+    "oracle_forward_false_reverse_rate_within_required": 0.010878010878010878,
+    "oracle_reverse_recall_within_required": 0.9126637554585153,
+    "post_veto_selected_hard_feasible_rate": 0.9948093220338983,
+    "requested_bank_hard_available_rate": 0.9636652542372881,
+    "requested_reverse_rate": 0.2645127118644068,
+    "threshold": 0.49945532226562506,
+    "unnecessary_reverse_rate": 0.005270092226613966
+  },
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v33/fusion_explicit_gear_selector.best.pth",
+  "checkpoint_sha256": "2e83c674765b0f159a5220a6293dfc56805a14c444e17dd96db2f0e6fe238e5e",
+  "passing_thresholds": [],
+  "samples": 9440,
+  "schema": "DEPCarJointGearV331ThresholdTradeoffV1",
+  "status": "NO_PASSING_SCALAR_THRESHOLD",
+  "test_split_accessed": false,
+  "thresholds_evaluated": 1909,
+  "zero_threshold": {
+    "hard_safety_fallback_rate": 0.03972457627118644,
+    "no_hard_forward_reverse_selection_rate": 0.9246275197195443,
+    "oracle_forward_false_reverse_rate_within_required": 0.019425019425019424,
+    "oracle_reverse_recall_within_required": 0.9519650655021834,
+    "post_veto_selected_hard_feasible_rate": 0.9948093220338983,
+    "requested_bank_hard_available_rate": 0.9550847457627119,
+    "requested_reverse_rate": 0.2934322033898305,
+    "threshold": 0.0,
+    "unnecessary_reverse_rate": 0.006368028107158542
+  }
+}

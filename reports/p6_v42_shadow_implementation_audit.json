@@ -1,0 +1,51 @@
+{
+  "active_control_authorized": false,
+  "architecture_id": "dep_car_multimodal_v42_calibrated_hybrid_sequence_execution_15x6",
+  "artifacts": {
+    "dep_car/config/p6_memory_navigation_v42_shadow.yaml": "1f545271e6e7cda7dd7cd5b5729f2b019d807c0f8c81ed74d3fbdde01d5e27b2",
+    "dep_car/src/dep_car/runtime/hybrid_sequence.py": "f4121d2c87a881c5f7dd13c559f2a87091ba7b35cec6e894457410c9b379277b",
+    "dep_car/src/dep_car/runtime/p6_contract.py": "2126d15545da00e2a2289f0f94934568e75dc03a46763ecc72506ab67a7a6254",
+    "dep_car/src/dep_car/runtime/p6_policy.py": "eb601221f54f4d6f0cc4d11f39d0303375e6343226755681cbf95a4db2042411",
+    "dep_car/src/dep_car/runtime/preprocessing.py": "544d374bc891142c460b721fa8da56835fda81d91e3160e78844d3b34abc0274",
+    "dep_car/src/dep_car/runtime/safety.py": "e8ca90d7f6a3cacb15c75aba9ed26385703881eed18609ae515552284656b60d",
+    "ros/dep_car_local_planner/scripts/local_planner_node.py": "4fc56a78bea523c0da36246c47f12e99f9b273b4ea9ca8f22e547d84b07d8cec",
+    "ros/dep_car_local_planner/scripts/policy_node.py": "789a3c0ce27ae12bb1ef1b6dd9d14999734548fe17ed619e95ec1d85df0be349",
+    "ros/dep_car_memory_navigation/scripts/replay_memory_goals.py": "040198fc32fe0db4d7bf3ed8d57dc8a72e0691045a1edf31f6284752ec08dd5b",
+    "ros/dep_car_msgs/msg/PolicyCandidate.msg": "b39557abb850e30a24b96b6f9303581ecff3c7c97a617ffdfd713b59b7f2e7d1",
+    "ros/dep_car_msgs/msg/PolicyCandidateArray.msg": "e8053e1815dcc148b32e1a65f01a02ffd54a007d213a0e66b0af9cc3e79ca1a9",
+    "ros/dep_car_msgs/msg/PolicyState.msg": "41533524fff234348ea915aebe75e0565e323a38c5c5d609847b91f61b880ce8",
+    "scripts/run_p6_v42_shadow.sh": "bfbe68a62b3c7c94ccd96981629e982ae9997463c6f409de21e1a7e230f9967b"
+  },
+  "authority_status": "P6_SHADOW_AUTHORIZED",
+  "checkpoint_contract_sha256": "780ecb4a2cc4ce3d1b603d963b53f1dfb367709cfb890c263c8b87cd73888b8b",
+  "checkpoint_sha256": "f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff",
+  "entry_points": {
+    "interactive": "scripts/run_p6_v42_shadow.sh --stage interactive",
+    "replay": "scripts/run_p6_v42_shadow.sh --stage replay"
+  },
+  "errors": [],
+  "execution_authority_sha256": "125d98b53e9602a245ed141b5bbf161b3de4a73fa38a31d25370b678bea3f7ae",
+  "mandatory_hard_veto": true,
+  "production_qualified": false,
+  "ros_nodes": [
+    "/dep_car_dynamic_tracker",
+    "/dep_car_ekf",
+    "/dep_car_lidar",
+    "/dep_car_lidar_dynamic_observations",
+    "/dep_car_local_planner",
+    "/dep_car_map_odometry",
+    "/dep_car_memory_navigation",
+    "/dep_car_policy",
+    "/dep_car_wheel_odometry",
+    "/gazebo",
+    "/gazebo_gui",
+    "/rviz",
+    "/slam_toolbox",
+    "/spawn_urban_car",
+    "/urban_car_adapter",
+    "/urban_model/urban_controllers",
+    "/urban_robot_state_publisher"
+  ],
+  "schema": "DEPCarP6V42ShadowImplementationAuditV1",
+  "status": "PASS"
+}

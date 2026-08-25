@@ -1,0 +1,26 @@
+{
+  "effective_workers": 2,
+  "failed_tasks": [
+    "p3v3_5985913e480fa94d",
+    "p3v3_5ee3d095be1d3886",
+    "p3v3_8aa99886e340fc90"
+  ],
+  "gazebo_rerun": false,
+  "requested_workers": 8,
+  "rerun_recovered": true,
+  "schema": "DEPCarV43ExtractionRecoveryPlanV1",
+  "status": "RUNNING"
+}
+V4.3 recovery task=p3v3_5985913e480fa94d samples=226 status=PASS
+V4.3 recovery task=p3v3_5ee3d095be1d3886 samples=226 status=PASS
+V4.3 recovery task=p3v3_8aa99886e340fc90 samples=226 status=PASS
+{
+  "errors": [],
+  "gazebo_rerun": false,
+  "recovered": 3,
+  "schema": "DEPCarV43ExtractionRecoveryV1",
+  "state_totals": {
+    "COMPLETE": 80
+  },
+  "status": "PASS"
+}

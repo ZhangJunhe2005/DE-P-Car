@@ -23,6 +23,7 @@
   <arg name="odometry_topic" default="/base_pose_ground_truth"/>
   <arg name="policy_odometry_topic" default="$(arg odometry_topic)"/>
   <arg name="odometry_twist_in_body_frame" default="false"/>
+  <arg name="publish_dagger_teacher_banks" default="false"/>
   <env name="GAZEBO_MODEL_PATH" value="$(arg gazebo_model_path):$(optenv GAZEBO_MODEL_PATH)"/>
   <arg unless="$(arg paused)" name="pause_arg" value=""/>
   <arg if="$(arg paused)" name="pause_arg" value="-u"/>
@@ -100,6 +101,7 @@
       <arg name="odometry_topic" value="$(arg odometry_topic)"/>
       <arg name="policy_odometry_topic" value="$(arg policy_odometry_topic)"/>
       <arg name="odometry_twist_in_body_frame" value="$(arg odometry_twist_in_body_frame)"/>
+      <arg name="publish_dagger_teacher_banks" value="$(arg publish_dagger_teacher_banks)"/>
     </include>
   </group>
   <node pkg="dep_car_bringup" type="rviz_exec.sh" name="rviz"

@@ -15,6 +15,7 @@ from dep_car.core.occupancy import FootprintConfig
 from dep_car.runtime.far_visibility import (
     DynamicVisibilityPlanner,
     VisibilityRouteAcquisitionGate,
+    locally_certified_route_motion,
     measured_pose_revalidation_authorized,
     polyline_prefix,
     transient_route_lease_authorized,
@@ -170,6 +171,11 @@ class NavigationMemoryNode:
         self.dead_end_escape_started_map_correction_generation = 0
         self.dead_end_escape_completion_reason = "NONE"
         self.dead_end_escape_diverged_since = None
+        self.dead_end_escape_live_reanchors = 0
+        self.failed_branch_exit_lock_branch_id = None
+        self.failed_branch_exit_lock_origin_odom = None
+        self.failed_branch_exit_lock_started_stamp = None
+        self.failed_branch_exit_lock_progress_m = 0.0
         # A FAR route and the local multi-gear Ackermann manoeuvre form one
         # transaction.  Once a turnaround starts, keep its route suffix fixed
         # until the local planner reports that every committed leg is done.
@@ -412,6 +418,9 @@ class NavigationMemoryNode:
                 "~dead_end_escape_maximum_unknown_fraction", 0.08
             )
         )
+        self.failed_branch_exit_lock_progress = float(
+            rospy.get_param("~failed_branch_exit_lock_progress_m", 0.75)
+        )
         self.map_correction_replan_translation = float(
             rospy.get_param("~map_correction_replan_translation_m", 0.08)
         )
@@ -561,6 +570,7 @@ class NavigationMemoryNode:
             self.dead_end_escape_lookahead,
             self.dead_end_escape_maximum_cross_track,
             self.dead_end_escape_divergence_confirmation,
+            self.failed_branch_exit_lock_progress,
             self.map_correction_replan_translation,
             self.map_correction_replan_yaw,
             self.map_correction_replan_minimum_period,
@@ -1262,6 +1272,11 @@ class NavigationMemoryNode:
             )
             self.dead_end_escape_completion_reason = "NONE"
             self.dead_end_escape_diverged_since = None
+            self.dead_end_escape_live_reanchors = 0
+            self.failed_branch_exit_lock_branch_id = None
+            self.failed_branch_exit_lock_origin_odom = None
+            self.failed_branch_exit_lock_started_stamp = None
+            self.failed_branch_exit_lock_progress_m = 0.0
             self.visibility_route_acquisition.reset()
             self.visibility_route_acquisition_started_stamp = None
             self.visibility_route_acquisition_reason = (
@@ -1591,6 +1606,21 @@ class NavigationMemoryNode:
                     self.map_correction_generation
                     - self.dead_end_escape_started_map_correction_generation,
                 ),
+                "live_connector_reanchors": int(
+                    self.dead_end_escape_live_reanchors
+                ),
+                "failed_branch_exit_lock": {
+                    "active": bool(
+                        self.failed_branch_exit_lock_branch_id is not None
+                    ),
+                    "branch_id": self.failed_branch_exit_lock_branch_id,
+                    "progress_m": float(
+                        self.failed_branch_exit_lock_progress_m
+                    ),
+                    "required_progress_m": float(
+                        self.failed_branch_exit_lock_progress
+                    ),
+                },
                 "completion_reason": self.dead_end_escape_completion_reason,
                 "background_far_ready": bool(
                     self.visibility_active_route_motion_authorized
@@ -2611,9 +2641,15 @@ class NavigationMemoryNode:
                     ),
                 )
             )
+            bootstrap_motion_authorized = self.far_bootstrap_motion_authorized(
+                plan, acquisition, stamp
+            )
             candidate_motion_authorized = (
-                self.far_bootstrap_motion_authorized(
-                    plan, acquisition, stamp
+                bootstrap_motion_authorized
+                and locally_certified_route_motion(
+                    plan,
+                    acquisition,
+                    revalidation_prefix_clear,
                 )
                 # During an inter-leg revalidation the vehicle is stationary,
                 # so requiring a second distinct SLAM-content revision can
@@ -2943,6 +2979,12 @@ class NavigationMemoryNode:
         goal_odom = self.map_to_odom(
             [(goal.pose.position.x, goal.pose.position.y)]
         )[0]
+        if self.failed_branch_exit_lock_branch_id is not None:
+            exit_guidance = self.failed_branch_exit_lock_guidance(
+                map_pose, odom_pose, goal_odom, plan, path, stamp
+            )
+            if exit_guidance is not None:
+                return exit_guidance, goal_odom
         if (
             plan is not None
             and plan.status == "PASS"
@@ -3650,6 +3692,11 @@ class NavigationMemoryNode:
             )
             self.dead_end_escape_completion_reason = "ACTIVE"
             self.dead_end_escape_diverged_since = None
+            self.dead_end_escape_live_reanchors = 0
+            self.failed_branch_exit_lock_branch_id = None
+            self.failed_branch_exit_lock_origin_odom = None
+            self.failed_branch_exit_lock_started_stamp = None
+            self.failed_branch_exit_lock_progress_m = 0.0
         else:
             self.backtrack_site_index = self.trail.most_recent_recovery_site(
                 before,
@@ -3743,6 +3790,142 @@ class NavigationMemoryNode:
             )
         )
 
+    def live_dead_end_egress_reanchor(self, odom_pose, map_pose):
+        """Attach the measured pose to a nearby older ingress anchor.
+
+        The driven trail decides which branch is being exited, but it is not
+        replayed open-loop.  When wheel/SLAM correction leaves the vehicle
+        beside the historical centreline, try several short live connectors
+        to monotonically older samples and retain only one that passes the
+        newest inflated-map check.  The local planner and hard veto still
+        decide the exact signed Ackermann motion.
+        """
+
+        if (
+            self.backtrack_cursor_index is None
+            or self.backtrack_site_index is None
+            or not self.trail.points
+        ):
+            return []
+        lower = max(
+            self.backtrack_site_index,
+            self.trail.older_index_at_distance(
+                self.backtrack_cursor_index,
+                max(self.backtrack_chunk + 0.6, 1.2),
+            ),
+        )
+        current_map = np.asarray(map_pose[:2], dtype=float)
+        for index in range(self.backtrack_cursor_index - 1, lower - 1, -1):
+            target = self.trail.points[index]
+            distance = math.hypot(
+                target.x - odom_pose[0], target.y - odom_pose[1]
+            )
+            if distance < 0.25:
+                continue
+            candidate = list(
+                self.odom_to_map([
+                    (odom_pose[0], odom_pose[1]),
+                    (target.x, target.y),
+                ])
+            )
+            candidate[0] = current_map
+            validated = self.validate_dead_end_egress_route(candidate)
+            if len(validated) < 2:
+                continue
+            if float(np.linalg.norm(validated[-1] - candidate[-1])) > 0.10:
+                continue
+            self.dead_end_escape_live_reanchors += 1
+            self.dead_end_escape_route_revision += 1
+            self.dead_end_escape_diverged_since = None
+            rospy.loginfo(
+                "Live-reanchored FAR dead-end egress escape_id=%d "
+                "target_index=%d connector=%.3fm revision=%d",
+                self.dead_end_escape_id,
+                index,
+                distance,
+                self.dead_end_escape_route_revision,
+            )
+            return validated
+        return []
+
+    def failed_branch_by_id(self, branch_id):
+        return next(
+            (
+                branch
+                for branch in self.topology.failed_branches
+                if branch.branch_id == branch_id
+            ),
+            None,
+        )
+
+    def failed_branch_exit_lock_guidance(
+        self, map_pose, odom_pose, goal_odom, plan, path, stamp
+    ):
+        """Keep one completed egress from immediately re-entering its branch."""
+
+        branch = self.failed_branch_by_id(
+            self.failed_branch_exit_lock_branch_id
+        )
+        if branch is None:
+            self.failed_branch_exit_lock_branch_id = None
+            self.failed_branch_exit_lock_origin_odom = None
+            self.failed_branch_exit_lock_started_stamp = None
+            self.failed_branch_exit_lock_progress_m = 0.0
+            return None
+        current = np.asarray(odom_pose[:2], dtype=float)
+        origin = np.asarray(
+            self.failed_branch_exit_lock_origin_odom, dtype=float
+        )
+        self.failed_branch_exit_lock_progress_m = float(
+            np.linalg.norm(current - origin)
+        )
+        if (
+            plan is not None
+            and plan.status == "PASS"
+            and len(path) >= 2
+            and self.visibility_active_route_motion_authorized
+        ):
+            path_odom = self.map_to_odom(path)
+            if not self.topology.polyline_enters_failed_branch(
+                path_odom, goal_xy=goal_odom, stamp=stamp
+            ):
+                rospy.loginfo(
+                    "Released failed-branch exit lock branch_id=%d after "
+                    "branch-safe FAR route acquisition progress=%.3fm",
+                    branch.branch_id,
+                    self.failed_branch_exit_lock_progress_m,
+                )
+                self.failed_branch_exit_lock_branch_id = None
+                self.failed_branch_exit_lock_origin_odom = None
+                self.failed_branch_exit_lock_started_stamp = None
+                self.failed_branch_exit_lock_progress_m = 0.0
+                return None
+        if (
+            self.failed_branch_exit_lock_progress_m
+            >= self.failed_branch_exit_lock_progress
+        ):
+            self.visibility_route_acquisition_reason = (
+                "failed_branch_exit_lock_waiting_for_branch_safe_far_route"
+            )
+            self.last_guidance_source = "FAR_ACQUISITION_HOLD"
+            return np.zeros(2, dtype=float)
+        direction = np.asarray(branch.entry, dtype=float) - np.asarray(
+            branch.terminal, dtype=float
+        )
+        norm = float(np.linalg.norm(direction))
+        if norm <= 1.0e-6:
+            self.last_guidance_source = "FAR_ACQUISITION_HOLD"
+            return np.zeros(2, dtype=float)
+        target_odom = current + direction / norm * self.route_horizon
+        target_map = np.asarray(self.odom_to_map([target_odom])[0], dtype=float)
+        dx, dy = target_map[0] - map_pose[0], target_map[1] - map_pose[1]
+        cosine, sine = math.cos(map_pose[2]), math.sin(map_pose[2])
+        self.visibility_route_acquisition_reason = (
+            "failed_branch_exit_lock_outward_progress"
+        )
+        self.last_guidance_source = "FAILED_BRANCH_EXIT_LOCK"
+        return np.asarray((cosine * dx + sine * dy, -sine * dx + cosine * dy))
+
     def complete_dead_end_egress(self, travelled, stamp, reason):
         """Release exclusive reverse authority only at an external anchor."""
 
@@ -3757,6 +3940,14 @@ class NavigationMemoryNode:
         self.dead_end_escape_completion_reason = str(reason)
         self.dead_end_escape_diverged_since = None
         self.dead_end_escape_last_route_map = []
+        if self.dead_end_escape_branch_id is not None:
+            site = self.trail.points[self.backtrack_site_index]
+            self.failed_branch_exit_lock_branch_id = (
+                self.dead_end_escape_branch_id
+            )
+            self.failed_branch_exit_lock_origin_odom = (site.x, site.y)
+            self.failed_branch_exit_lock_started_stamp = float(stamp)
+            self.failed_branch_exit_lock_progress_m = 0.0
         if not self.visibility_active_route_motion_authorized:
             self.invalidate_visibility_route(
                 "dead_end_egress_anchor_reached", force=True
@@ -3909,8 +4100,21 @@ class NavigationMemoryNode:
         self.dead_end_escape_cross_track_error_m = math.hypot(
             expected.x - odom_pose[0], expected.y - odom_pose[1]
         )
+        live_reanchored = False
         if (
             self.far_emergency_egress_active
+            and self.dead_end_escape_cross_track_error_m
+            > self.dead_end_escape_maximum_cross_track
+        ):
+            reanchored = self.live_dead_end_egress_reanchor(
+                odom_pose, map_pose
+            )
+            if len(reanchored) >= 2:
+                route_map = reanchored
+                live_reanchored = True
+        if (
+            self.far_emergency_egress_active
+            and not live_reanchored
             and self.dead_end_escape_cross_track_error_m
             > self.dead_end_escape_maximum_cross_track
         ):
@@ -3944,17 +4148,23 @@ class NavigationMemoryNode:
         else:
             self.dead_end_escape_diverged_since = None
         if self.far_emergency_egress_active:
-            route_map = self.validate_dead_end_egress_route(route_map)
+            if not live_reanchored:
+                route_map = self.validate_dead_end_egress_route(route_map)
+            if len(route_map) < 2:
+                route_map = self.live_dead_end_egress_reanchor(
+                    odom_pose, map_pose
+                )
             if len(route_map) < 2:
                 self.dead_end_escape_completion_reason = (
-                    "EGRESS_CONNECTOR_FAILED_CURRENT_MAP_VALIDATION"
+                    "EGRESS_REANCHOR_EXHAUSTED_CURRENT_MAP"
                 )
                 self.far_emergency_egress_active = False
                 self.recovery.fail_safe()
                 rospy.logwarn(
-                    "FAR dead-end egress connector failed current SLAM map "
-                    "validation escape_id=%d",
+                    "FAR dead-end egress exhausted current-map-safe live "
+                    "connector reanchors escape_id=%d cross_track=%.3fm",
                     self.dead_end_escape_id,
+                    self.dead_end_escape_cross_track_error_m,
                 )
                 return None
             self.dead_end_escape_last_route_map = [
@@ -4442,6 +4652,7 @@ class NavigationMemoryNode:
                         "EXPLORED_TOPOLOGY",
                         "KNOWN_TERMINAL_DIRECT",
                         "LOCAL_SAFE_EXPLORATION",
+                        "FAILED_BRANCH_EXIT_LOCK",
                     )
                     else LocalRouteCommand.NAVIGATION_CONNECTIVITY
                 )

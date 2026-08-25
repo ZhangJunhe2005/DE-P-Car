@@ -17,6 +17,7 @@
        by the geometric planner. -->
   <arg name="policy_odometry_topic" default="$(arg odometry_topic)"/>
   <arg name="odometry_twist_in_body_frame" default="false"/>
+  <arg name="publish_dagger_teacher_banks" default="false"/>
 
   <!-- Keep PyTorch/CUDA in yopo while the safety/actuation node stays on the
        ROS Noetic system Python.  They exchange only typed ROS messages. -->
@@ -115,9 +116,15 @@
     <param name="policy_mode" value="$(arg policy_mode)"/>
     <param name="active_fallback_to_baseline" value="$(arg active_fallback_to_baseline)"/>
     <param name="learned_route_authority" value="$(arg learned_route_authority)"/>
-    <param name="policy_freshness" value="0.35"/>
-    <!-- This bounds model-input age only; every candidate is still checked
-         against the newest static/dynamic grids immediately before use. -->
+    <param name="publish_dagger_teacher_banks" value="$(arg publish_dagger_teacher_banks)"/>
+    <!-- Guarded V4.2 compensates asynchronous vehicle motion before the bank
+         is checked against the newest static/dynamic occupancy.  Its 0.65 s
+         bound covers measured steady inference without permitting an old
+         bank to survive a missed refresh indefinitely. -->
+    <param name="policy_freshness"
+           value="$(eval 0.65 if arg('policy_mode') == 'guarded' else 0.35)"/>
+    <!-- This is a current hard-veto grid skew bound, independent of the
+         pose-compensated model-bank age above. -->
     <param name="policy_grid_skew" value="0.25"/>
     <param name="policy_subgoal_tolerance" value="0.50"/>
   </node>

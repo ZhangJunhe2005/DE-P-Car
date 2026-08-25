@@ -1,0 +1,26 @@
+{
+  "authority_sha256": "753616c2fa4c55fd670f00bd9d4199640b05f6119a1dd97a19a77b58deafc4e2",
+  "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+  "bundle_authority_file_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+  "bundle_authority_sha256": "7b69093f37d631b61e1f300a72ec1eb6ea47105f2c3c2b99cc7a09906b8de32d",
+  "counts_by_split": {
+    "train": 35940,
+    "validation": 9440
+  },
+  "errors": [],
+  "index": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_index.json",
+  "index_content_sha256": "49201f943ef70ae62144ba2464c5e8644bcbc25b299750565d1a4251624cd654",
+  "index_file_sha256": "1be1d48e9e3f554fe3d971d8b756bb6cd0c00ffb63c2218a64ab10f24425b238",
+  "multi_action_samples_ge2": 15993,
+  "multi_action_samples_ge4": 8960,
+  "production_qualified": false,
+  "reverse_sequence_samples": 23777,
+  "samples": 45380,
+  "schema": "DEPCarJointGearSequenceAuthorityV1",
+  "sequence_actions": 6,
+  "source_content_aggregate_sha256": "13b37687f7a97ba5af277ee705f78cbffe224499a64898cad99fc04e6e42c441",
+  "source_index": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/training_index.json",
+  "source_index_sha256": "03f2abab537ecc672699e632bc44cdfb08915005b0932943d2a674b79e86a4de",
+  "status": "PASS",
+  "test_split_opened": false
+}

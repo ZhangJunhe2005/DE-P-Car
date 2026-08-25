@@ -1,0 +1,56 @@
+schema: DEPCarJointGearV31TrainingContractV1
+architecture_id: dep_car_multimodal_v3_joint_gear_route_ackermann_2x3x5
+objective_id: dep_car_objective_v7_sequence_teacher_balanced_feasibility_margin
+scope: fusion_only_score_sequence_correction
+test_split_sealed: true
+
+base_contract:
+  training_config: dep_car/config/p5_joint_gear_v3_training.yaml
+  training_config_sha256: cffe86be368f3ce66c6b673a58819f12da2474d6f64921652ba21a658db59a60
+  trainer: tools/train_dep_car_joint_gear_v3.py
+  trainer_sha256: 5381f4b3042a657f521164514c856e86ed8f4bbdf9862af86f46ecab4337f8db
+  acceptance_contract: dep_car/config/p5_joint_gear_v3_acceptance.yaml
+  acceptance_contract_sha256: e9d22ac1bf6e9b6f28305be9eaea196a21ce36c7fd26faff9c29194b14bd0d8b
+
+initialization:
+  checkpoint: models/dep_car/p5_joint_gear_v3/fusion_joint_gear_score_calibration.best.pth
+  checkpoint_sha256: 5a0d6055c0bdc81e2b23118f0f9c3d65c9d6dde9d61a551dc776bc0d88ff2fa7
+  checkpoint_contract: models/dep_car/p5_joint_gear_v3/fusion_joint_gear_score_calibration.best.contract.json
+  checkpoint_contract_sha256: cd7d047ca74296912674d1bd3540de1a7ec22e63542b107f20c82f9d2f2ed9fe
+  acceptance: models/dep_car/p5_joint_gear_v3/fusion_joint_gear_score_calibration.best.acceptance.json
+  acceptance_sha256: 97dc88aab7b8dd10c7ab08b27f926f8d971923395bdcb5c6818fdb7868feef95
+
+artifact:
+  output: models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.pth
+
+training:
+  epochs: 10
+  batch_size: 64
+  learning_rate: 0.00005
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  workers: 8
+  prefetch_factor: 4
+  progress_interval_steps: 50
+  torch_threads: 8
+  seed: 86131
+
+correction:
+  bank_temperature: 0.25
+  bank_cross_entropy_weight: 0.75
+  teacher_reverse_extra_weight: 0.75
+  no_hard_forward_extra_weight: 1.25
+  multi_action_extra_weight: 0.35
+  bank_direction_margin: 0.08
+  bank_direction_margin_weight: 0.50
+  feasible_candidate_margin: 0.10
+  feasible_candidate_margin_weight: 0.75
+  multi_action_minimum_actions: 4
+
+qualification:
+  acceptance_contract_section: sequence
+  selection_uses_final_acceptance_metrics: true
+  active_control_authorized_by_training: false
+  production_qualified_by_training: false

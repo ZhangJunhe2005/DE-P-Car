@@ -1,0 +1,98 @@
+schema: DEPCarV41ScoreCorrectionContractV1
+architecture_id: dep_car_multimodal_v4_hybrid_sequence_route_ackermann_15x6
+objective_id: dep_car_objective_v12_hierarchical_safety_viability_score
+stage: hierarchical_sequence_score_correction
+scope: fusion_only_joint_safety_viability_hierarchical_score
+test_split_sealed: true
+
+implementation:
+  model: dep_car/src/dep_car/model/dep_car_net_v4.py
+  model_sha256: 691f6b3adf16a28c86202cf7a70508deb82700ede06fe0c0ac55fce5d0a6d2d2
+  rollout: dep_car/src/dep_car/model/hybrid_sequence_rollout.py
+  rollout_sha256: ff42cd5b98614e2acc4d34c4a45d33c70983639a4883b0437fa1066d1944b451
+  loss: dep_car/src/dep_car/training/losses_v41.py
+  loss_sha256: 5a8e25b83471721a8da855f0b77a8986971a372250847669d5ab22d0b266d463
+  dataset: dep_car/src/dep_car/training/v4_dataset.py
+  dataset_sha256: ada78de69b0c9d222ab264cbfeeca1b89667f8f716e3c1022a9e20efa165f2fd
+
+source:
+  checkpoint: models/dep_car/p5_hybrid_sequence_v4/fusion_hybrid_sequence_capacity.best.pth
+  checkpoint_sha256: d87cce542fc1a598038aa49c8ab45ffd3c219ee6e603bc287894138920d7f90c
+  checkpoint_contract: models/dep_car/p5_hybrid_sequence_v4/fusion_hybrid_sequence_capacity.best.contract.json
+  checkpoint_contract_sha256: 937e7d14b5ffb7b7993c6da062267b72e71d97f45308dad2c72f6c86f87ef0a9
+  acceptance: models/dep_car/p5_hybrid_sequence_v4/fusion_hybrid_sequence_capacity.best.acceptance.json
+  acceptance_sha256: 8dd8de804edf9751e95a688aaab4ac4c1cf3b5d46790012bee0e05e24a4fb116
+  role: accepted_v4_candidate_capacity
+
+diagnostic:
+  report: reports/p5_hybrid_sequence_v4_score_hierarchy_diagnostic.json
+  report_sha256: 7d0fe0c93499d3768cdd2aee44c8f3f81c03dcb6e0bb6ef44160ee0b467e5d66
+  required_conclusion: RETRAIN_SAFETY_VIABILITY_AND_SCORE_AS_HIERARCHICAL_V41
+
+artifacts:
+  output: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.pth
+  pilot: models/dep_car/p5_hybrid_sequence_v41/pilot/fusion_hierarchical_score.pth
+
+model:
+  candidates: 15
+  actions: 6
+  hidden_dim: 128
+  primitive_dim: 64
+  stage_dim: 32
+  template_logit_bias: 1.25
+  steps_per_action: 5
+
+training:
+  epochs: 15
+  pilot_epochs: 3
+  batch_size: 64
+  learning_rate: 0.0001
+  weight_decay: 0.00001
+  gradient_clip: 5.0
+  sensor_dropout_probability: 0.10
+  mixed_precision: true
+  workers: 8
+  prefetch_factor: 4
+  progress_interval_steps: 50
+  torch_threads: 8
+  seed: 86141
+
+base_loss:
+  route_tube_radius_m: 0.35
+  route_outer_tube_radius_m: 0.55
+  minimum_sequence_progress_m: 0.20
+  maximum_terminal_heading_error_rad: 0.80
+  clearance_margin_m: 0.06
+  sequence_actions: 6
+  capacity_top_k: 3
+  safety_weight: 4.0
+  route_weight: 2.0
+  kinematic_weight: 2.0
+  comfort_weight: 0.02
+  sequence_gear_weight: 1.5
+  first_action_geometry_weight: 1.0
+  diversity_weight: 0.15
+  safety_head_weight: 0.75
+  viability_head_weight: 0.75
+  score_weight: 1.0
+  conditional_shift_weight: 0.08
+  conditional_reverse_distance_weight: 0.05
+  score_temperature: 0.25
+
+hierarchical_loss:
+  safety_calibration_weight: 2.0
+  viability_calibration_weight: 3.0
+  hard_hierarchy_weight: 4.0
+  viability_hierarchy_weight: 5.0
+  within_level_ranking_weight: 1.0
+  hard_score_margin: 0.50
+  viability_score_margin: 0.35
+  score_temperature: 0.25
+
+qualification:
+  maximum_zero_hard_feasible_rate: 0.08
+  minimum_selected_hard_feasible_rate: 0.95
+  minimum_selected_viable_rate: 0.60
+  maximum_mean_oracle_regret: 0.20
+  active_control_authorized_by_training: false
+  production_qualified_by_training: false

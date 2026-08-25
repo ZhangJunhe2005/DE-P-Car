@@ -464,7 +464,7 @@ def test_materially_different_attemptable_route_must_reacquire_authority():
     assert replacement.confirmations == 1
 
 
-def test_unknown_high_detour_cannot_steer_before_it_is_observed():
+def test_unknown_high_detour_only_authorizes_a_certified_local_prefix():
     gate = VisibilityRouteAcquisitionGate(
         minimum_confirmations=2,
         minimum_stable_s=0.5,
@@ -486,9 +486,18 @@ def test_unknown_high_detour_cannot_steer_before_it_is_observed():
     second = gate.update(plan, stamp=1.0, map_revision=2)
 
     assert not first.accepted and not first.motion_authorized
-    assert not second.accepted and not second.motion_authorized
+    assert not second.accepted and second.motion_authorized
     assert second.confirmations == 2
-    assert second.reason == "high_detour_route_needs_more_observed_space"
+    assert second.reason == "stable_attemptable_navigation_high_detour"
+
+    from dep_car.runtime.far_visibility import locally_certified_route_motion
+
+    assert not locally_certified_route_motion(
+        plan, second, observed_prefix_clear=False
+    )
+    assert locally_certified_route_motion(
+        plan, second, observed_prefix_clear=True
+    )
 
 
 def test_mostly_observed_maze_detour_is_accepted_after_extra_stability():

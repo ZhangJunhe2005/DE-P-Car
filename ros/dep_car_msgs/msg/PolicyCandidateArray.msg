@@ -1,6 +1,12 @@
 std_msgs/Header header
 PolicyCandidate[] candidates
+string architecture_id
+bool hybrid_sequence
+uint8 actions_per_candidate
+uint8 steps_per_action
 int8 requested_gear
+int8 current_gear
+float64[] gear_history
 uint64 generation
 geometry_msgs/Point subgoal_body
 bool recovery_mode

@@ -11,6 +11,7 @@ and the unused LiDAR BEV distance transform on every epoch.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from pathlib import Path
 
@@ -36,8 +37,10 @@ from dep_car.training.p4_dataset import (
     P3TrainingDataError,
     P3TrainingDatasetV1,
     _active_same_gear_route,
+    _bev_distance_field,
     _normalize_bev,
     _reference_curvature,
+    _sha256_file,
     _stat_identity,
 )
 
@@ -84,6 +87,9 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
             self._sample_identities[str(path)] = _stat_identity(stat)
         self._zero_depth = torch.zeros((2, 96, 160), dtype=torch.float32)
         self._zero_lidar = torch.zeros((6, 160, 160), dtype=torch.float32)
+        self._zero_bev_distance = torch.full(
+            (1, 160, 160), -1.0, dtype=torch.float32
+        )
 
     def _sample_path_and_identity(self, entry):
         path = (self.sample_root / entry["path"]).resolve()
@@ -101,6 +107,7 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
         return path, expected
 
     def __getitem__(self, index):
+        joint_gear_view = bool(getattr(self, "joint_gear_view", False))
         entry = self.entries[int(index)]
         path, expected_identity = self._sample_path_and_identity(entry)
         try:
@@ -186,8 +193,12 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
                     lidar_tensor = torch.from_numpy(
                         _normalize_bev(bev_raw, preprocessing)
                     )
+                    bev_distance_tensor = torch.from_numpy(
+                        _bev_distance_field(bev_raw, bev_resolution)[None]
+                    )
                 else:
                     lidar_tensor = self._zero_lidar
+                    bev_distance_tensor = self._zero_bev_distance
 
                 state_raw = np.asarray(data["vehicle_state"], dtype=np.float32)
                 subgoal = np.asarray(data["subgoal_body"], dtype=np.float32)
@@ -221,13 +232,19 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
                 ):
                     raise P3TrainingDataError("local route is invalid: %s" % path)
                 heading_error = math.atan2(float(state_raw[6]), float(state_raw[7]))
-                active_route, _ = _active_same_gear_route(
-                    local_path,
-                    route_gears,
-                    requested_gear,
-                    subgoal,
-                    heading_error,
-                )
+                if joint_gear_view and len(local_path) >= 2:
+                    # V3 receives connectivity geometry without an externally
+                    # prescribed gear.  The old route gear sequence remains
+                    # weak temporal supervision in its sealed sidecar.
+                    active_route = local_path.copy()
+                else:
+                    active_route, _ = _active_same_gear_route(
+                        local_path,
+                        route_gears,
+                        requested_gear,
+                        subgoal,
+                        heading_error,
+                    )
                 if len(active_route) > self.maximum_route_points:
                     active_route = active_route[: self.maximum_route_points]
 
@@ -237,12 +254,23 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
                     -REVERSE_SPEED_LIMIT_MPS,
                     FORWARD_SPEED_LIMIT_MPS,
                 )
-                directed_acceleration = np.clip(
-                    requested_gear * state_physical[1],
-                    -DECELERATION_LIMIT_MPS2,
-                    ACCELERATION_LIMIT_MPS2,
-                )
-                state_physical[1] = requested_gear * directed_acceleration
+                if joint_gear_view:
+                    # The measured signed state is shared by both V3 banks.
+                    # Gear-aligned acceleration projection happens inside
+                    # each candidate rollout, never by mutating the input to
+                    # match a historical requested gear.
+                    state_physical[1] = np.clip(
+                        state_physical[1],
+                        -DECELERATION_LIMIT_MPS2,
+                        ACCELERATION_LIMIT_MPS2,
+                    )
+                else:
+                    directed_acceleration = np.clip(
+                        requested_gear * state_physical[1],
+                        -DECELERATION_LIMIT_MPS2,
+                        ACCELERATION_LIMIT_MPS2,
+                    )
+                    state_physical[1] = requested_gear * directed_acceleration
                 state_physical[2] = np.clip(
                     state_physical[2],
                     -STEERING_OPERATING_LIMIT_RAD,
@@ -253,7 +281,9 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
                 )
                 state_physical[6:8] = np.clip(state_physical[6:8], -1.0, 1.0)
                 state_physical[8] = _reference_curvature(active_route)
-                geometry_valid = current_gear != -requested_gear
+                geometry_valid = bool(
+                    joint_gear_view or current_gear != -requested_gear
+                )
                 if not geometry_valid:
                     state_physical[0] = 0.0
                     state_physical[1] = 0.0
@@ -302,9 +332,10 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
         raw_context = str(metadata.get("candidate_context", "UNKNOWN"))
         context_known = raw_context in ("MISSION", "RECOVERY")
         map_tensors = self._map_tensors(map_uuid)
-        return {
+        output = {
             "depth": depth_tensor,
             "lidar_bev": lidar_tensor,
+            "bev_distance_field": bev_distance_tensor,
             "modality_mask": torch.tensor(modality_mask, dtype=torch.float32),
             "state": torch.from_numpy(state_physical.astype(np.float32)),
             "requested_gear": torch.tensor(requested_gear, dtype=torch.int64),
@@ -330,9 +361,114 @@ class P3ScoreTrainingDatasetV1(P3TrainingDatasetV1):
                 "loaded_modality": self.modality,
             },
         }
+        if joint_gear_view:
+            output["current_gear"] = torch.tensor(
+                current_gear, dtype=torch.int64
+            )
+        return output
+
+
+def _canonical_sha256(value):
+    encoded = json.dumps(
+        value, sort_keys=True, separators=(",", ":"), ensure_ascii=True
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+class P3JointGearDatasetV3(P3ScoreTrainingDatasetV1):
+    """V3 route/gear view bound to the six-action sequence sidecar."""
+
+    schema = "P3JointGearDatasetV3"
+    sequence_schema = "DEPCarJointGearSequenceIndexV1"
+    sequence_actions = 6
+
+    def __init__(
+        self,
+        *args,
+        sequence_index_path,
+        allow_bounded_sequence_index=False,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.joint_gear_view = True
+        self.sequence_index_path = Path(sequence_index_path).resolve()
+        try:
+            payload = json.loads(
+                self.sequence_index_path.read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as exc:
+            raise P3TrainingDataError(
+                "unable to read V3 sequence index: %s" % self.sequence_index_path
+            ) from exc
+        claimed = payload.get("content_sha256")
+        content = dict(payload)
+        content.pop("content_sha256", None)
+        if (
+            payload.get("schema") != self.sequence_schema
+            or payload.get("sequence_actions") != self.sequence_actions
+            or payload.get("test_split_opened") is not False
+            or (
+                payload.get("bounded") is not False
+                and not bool(allow_bounded_sequence_index)
+            )
+            or claimed != _canonical_sha256(content)
+            or Path(payload.get("source_index", "")).resolve()
+            != self.index_path.resolve()
+            or payload.get("source_index_sha256")
+            != _sha256_file(self.index_path)
+        ):
+            raise P3TrainingDataError("V3 sequence index authority is invalid")
+        rows = {
+            row["sample_id"]: row
+            for row in payload.get("rows", ())
+            if row.get("split") == self.split
+        }
+        if payload.get("bounded") is True and allow_bounded_sequence_index:
+            self.entries = [
+                entry for entry in self.entries if entry["sample_id"] in rows
+            ]
+        expected = {entry["sample_id"] for entry in self.entries}
+        if set(rows) != expected:
+            raise P3TrainingDataError(
+                "V3 sequence index does not exactly cover the selected split"
+            )
+        self.sequence_rows = rows
+        self.sequence_index_sha256 = _sha256_file(self.sequence_index_path)
+
+    def __getitem__(self, index):
+        item = super().__getitem__(index)
+        sample_id = item["metadata"]["sample_id"]
+        row = self.sequence_rows[sample_id]
+        history = np.asarray(row.get("history", ()), dtype=np.float32)
+        sequence = np.asarray(row.get("sequence_gears", ()), dtype=np.int64)
+        mask = np.asarray(row.get("sequence_mask", ()), dtype=np.bool_)
+        if (
+            history.shape != (6,)
+            or not np.all(np.isfinite(history))
+            or sequence.shape != (self.sequence_actions,)
+            or mask.shape != (self.sequence_actions,)
+            or not np.all(np.isin(sequence, (-1, 0, 1)))
+            or np.any((sequence == 0) & mask)
+            or np.any((sequence != 0) & ~mask)
+        ):
+            raise P3TrainingDataError(
+                "V3 sequence row is invalid: %s" % sample_id
+            )
+        item["gear_history"] = torch.from_numpy(history)
+        item["sequence_gears"] = torch.from_numpy(sequence)
+        item["sequence_mask"] = torch.from_numpy(mask)
+        item["metadata"].update(
+            {
+                "schema": self.schema,
+                "sequence_index_sha256": self.sequence_index_sha256,
+                "sequence_authority": "weak_route_runs_plus_joint_counterfactual_cost",
+            }
+        )
+        return item
 
 
 __all__ = [
+    "P3JointGearDatasetV3",
     "P3ScoreTrainingDatasetV1",
     "SCORE_MODALITIES",
     "SCORE_TRAINING_VIEW_REVISION",

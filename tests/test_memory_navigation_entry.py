@@ -97,6 +97,50 @@ def test_episode_replay_uses_effective_cli_overridden_goal():
     )
     goal_index = command.index("--goal")
     assert command[goal_index + 1 : goal_index + 4] == ["6.457", "-5.388", "0.0"]
+    assert command[command.index("--frame") + 1] == "odom"
+
+
+def test_regression_goal_preflight_rejects_stale_map_frame_and_wall_goal():
+    config = yaml.safe_load(
+        (ROOT / "dep_car/config/p6_memory_navigation_v43_shadow.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    _, scenario = runner.load_scenario(
+        config, config["interactive_default_scenario"]
+    )
+    invalid = runner.regression_goal_preflight(
+        {
+            "coordinate_frame": "map",
+            "goals": [[6.536, -4.331, 0.0]],
+        },
+        scenario,
+    )
+    assert invalid["status"] == "FAIL"
+    assert invalid["reason"] == "INVALID_REPLAY_GOAL"
+    assert invalid["goals"][0]["minimum_static_clearance_m"] == 0.0
+
+
+def test_v43_regression_goals_are_stable_odom_points_with_static_clearance():
+    config = yaml.safe_load(
+        (ROOT / "dep_car/config/p6_memory_navigation_v43_shadow.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    _, scenario = runner.load_scenario(
+        config, config["interactive_default_scenario"]
+    )
+    for sequence in config["regression_sequences"].values():
+        result = runner.regression_goal_preflight(
+            sequence,
+            scenario,
+            sequence["minimum_static_goal_clearance_m"],
+        )
+        assert result["status"] == "PASS"
+        command = runner.automated_goal_command(
+            sequence["goals"], 10.0, frame=sequence["coordinate_frame"]
+        )
+        assert command[command.index("--frame") + 1] == "odom"
 
 
 def test_local_route_command_has_explicit_memory_control_modes():
@@ -301,7 +345,12 @@ def test_m6_far_route_owns_recovery_and_memory_markers_use_one_rigid_tf():
     assert "FAR_DEAD_END_EGRESS" in source
     assert "directed_failed_branches" in source
     assert "validate_dead_end_egress_route" in source
+    assert "live_dead_end_egress_reanchor" in source
+    assert "FAILED_BRANCH_EXIT_LOCK" in source
+    assert "failed_branch_exit_lock_waiting_for_branch_safe_far_route" in source
+    assert "EGRESS_REANCHOR_EXHAUSTED_CURRENT_MAP" in source
     assert "dead_end_escape_lookahead_m" in config
+    assert "failed_branch_exit_lock_progress_m" in config
     assert "far_static_replans_before_egress" in config
     assert '"confirmed_local_static_block"' in source
     assert '"slam_map_odom_correction"' in source

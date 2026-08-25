@@ -1,0 +1,23 @@
+schema: DEPCarJointGearV3AcceptanceContractV2
+revision: 2
+test_split_sealed: true
+candidate:
+  maximum_zero_hard_feasible_rate: 0.08
+  minimum_forward_bank_capable_rate: 0.80
+  minimum_reverse_bank_capable_rate: 0.60
+score:
+  minimum_selected_hard_feasible_rate: 0.95
+  maximum_unnecessary_reverse_rate: 0.08
+  minimum_oracle_reverse_recall_within_required: 0.90
+  maximum_oracle_forward_false_reverse_rate_within_required: 0.05
+  minimum_no_hard_forward_reverse_selection_rate: 0.85
+sequence:
+  minimum_selected_hard_feasible_rate: 0.95
+  maximum_unnecessary_reverse_rate: 0.05
+  minimum_oracle_reverse_recall_within_required: 0.95
+  maximum_oracle_forward_false_reverse_rate_within_required: 0.03
+  minimum_no_hard_forward_reverse_selection_rate: 0.92
+scope:
+  score: NEXT_TRAINING_STAGE_ONLY
+  sequence: P6_SHADOW_ONLY
+  production_qualified: false

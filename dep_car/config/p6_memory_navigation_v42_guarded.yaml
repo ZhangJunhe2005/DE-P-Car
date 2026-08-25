@@ -1,0 +1,38 @@
+schema: DEPCarP6V42FarVisibilityMemoryGuardedSimulationConfigV1
+scenario_manifest: data/p6_static/scenario_manifest.json
+interactive_default_scenario: p6_c344e792d09ac2d6
+fixed_default_scenario: p6_c344e792d09ac2d6
+
+fixed_recovery_probe:
+  goal: [4.0, 4.8, 0.0]
+  frame: odom
+  expected_terminal_state: AUTOMATIC_GOAL_RESUME
+  contract: accumulated_map_topology_dead_end_escape
+regression_sequences:
+  latest_interactive_turnaround_20260821:
+    scenario_id: p6_c344e792d09ac2d6
+    coordinate_frame: odom
+    minimum_static_goal_clearance_m: 0.70
+    goals:
+      - [4.900, -5.700, 1.887]
+      - [-2.800, 3.900, 3.120]
+    goal_timeout_s: 180.0
+  logged_t_junction_turnaround:
+    scenario_id: p6_c344e792d09ac2d6
+    coordinate_frame: odom
+    minimum_static_goal_clearance_m: 0.70
+    goals:
+      - [6.500, -5.800, -0.984]
+      - [-3.300, 0.200, 1.565]
+    goal_timeout_s: 180.0
+
+checkpoint: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.pth
+checkpoint_contract: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.contract.json
+p6_authority: models/dep_car/p5_hybrid_sequence_v42/fusion_guarded_simulation_v43_runtime.authority.json
+runtime:
+  ros_master_port: 11431
+  gazebo_master_port: 11461
+  startup_timeout_s: 120
+  shutdown_timeout_s: 20
+  fixed_goal_delay_s: 6.0
+  policy_python: /home/zjh/miniconda3/envs/yopo/bin/python

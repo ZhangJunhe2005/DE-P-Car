@@ -1,0 +1,824 @@
+{
+  "bounded_examples": [
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000001",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000002",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000003",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000042",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000043",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000044",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000045",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000046",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000047",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "REVERSE_EXIT",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3_ddcdafb20141aebc-000048",
+      "task_id": "p3_ddcdafb20141aebc",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_058c42373cbb012a-000000",
+      "task_id": "p3v3_058c42373cbb012a",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_058c42373cbb012a-000050",
+      "task_id": "p3v3_058c42373cbb012a",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_058c42373cbb012a-000051",
+      "task_id": "p3v3_058c42373cbb012a",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_FORWARD_ONLY_REVERSE_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "FORWARD",
+      "sample_id": "p3v3_203cbd6c6b82a61d-000092",
+      "task_id": "p3v3_203cbd6c6b82a61d",
+      "teacher_gear": "REVERSE"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_203cbd6c6b82a61d-000148",
+      "task_id": "p3v3_203cbd6c6b82a61d",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_203cbd6c6b82a61d-000149",
+      "task_id": "p3v3_203cbd6c6b82a61d",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000041",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000042",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000043",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000044",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000045",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000046",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000047",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000048",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000049",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_3606232ea9ce2861-000081",
+      "task_id": "p3v3_3606232ea9ce2861",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_59bf4d0c6aa3971f-000000",
+      "task_id": "p3v3_59bf4d0c6aa3971f",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_59bf4d0c6aa3971f-000002",
+      "task_id": "p3v3_59bf4d0c6aa3971f",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_59bf4d0c6aa3971f-000004",
+      "task_id": "p3v3_59bf4d0c6aa3971f",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_59bf4d0c6aa3971f-000005",
+      "task_id": "p3v3_59bf4d0c6aa3971f",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 1,
+      "fallback_type": "REQUEST_FORWARD_ONLY_REVERSE_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "FORWARD",
+      "sample_id": "p3v3_5f56e56a9ac4b46a-000073",
+      "task_id": "p3v3_5f56e56a9ac4b46a",
+      "teacher_gear": "REVERSE"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_657e6f8ecf63abcd-000060",
+      "task_id": "p3v3_657e6f8ecf63abcd",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_657e6f8ecf63abcd-000061",
+      "task_id": "p3v3_657e6f8ecf63abcd",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_657e6f8ecf63abcd-000062",
+      "task_id": "p3v3_657e6f8ecf63abcd",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_657e6f8ecf63abcd-000119",
+      "task_id": "p3v3_657e6f8ecf63abcd",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_657e6f8ecf63abcd-000120",
+      "task_id": "p3v3_657e6f8ecf63abcd",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000000",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000001",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000002",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000003",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000004",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000076",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000077",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_814aac8a545ec8e9-000079",
+      "task_id": "p3v3_814aac8a545ec8e9",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_8b4109674ec0ae1c-000048",
+      "task_id": "p3v3_8b4109674ec0ae1c",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_8b4109674ec0ae1c-000049",
+      "task_id": "p3v3_8b4109674ec0ae1c",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": -1,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_8b4109674ec0ae1c-000050",
+      "task_id": "p3v3_8b4109674ec0ae1c",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_9012501ea838016b-000002",
+      "task_id": "p3v3_9012501ea838016b",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_9012501ea838016b-000003",
+      "task_id": "p3v3_9012501ea838016b",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "RECOVERY",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_9eebb05f400ad16d-000042",
+      "task_id": "p3v3_9eebb05f400ad16d",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "RECOVERY",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_9eebb05f400ad16d-000043",
+      "task_id": "p3v3_9eebb05f400ad16d",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "NARROW_CORRIDOR",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_a3bdcf0e170e27fd-000001",
+      "task_id": "p3v3_a3bdcf0e170e27fd",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_aa97f78484fea42e-000000",
+      "task_id": "p3v3_aa97f78484fea42e",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_aa97f78484fea42e-000001",
+      "task_id": "p3v3_aa97f78484fea42e",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_aa97f78484fea42e-000002",
+      "task_id": "p3v3_aa97f78484fea42e",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "SHARP_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_aa97f78484fea42e-000003",
+      "task_id": "p3v3_aa97f78484fea42e",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "RECOVERY",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_FORWARD_ONLY_REVERSE_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "FORWARD",
+      "sample_id": "p3v3_b58a57d43b246e13-000052",
+      "task_id": "p3v3_b58a57d43b246e13",
+      "teacher_gear": "REVERSE"
+    },
+    {
+      "candidate_context": "RECOVERY",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_FORWARD_ONLY_REVERSE_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "FORWARD",
+      "sample_id": "p3v3_bb0f0c8fc9ddc4c0-000051",
+      "task_id": "p3v3_bb0f0c8fc9ddc4c0",
+      "teacher_gear": "REVERSE"
+    },
+    {
+      "candidate_context": "RECOVERY",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_FORWARD_ONLY_REVERSE_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "FORWARD",
+      "sample_id": "p3v3_bb0f0c8fc9ddc4c0-000052",
+      "task_id": "p3v3_bb0f0c8fc9ddc4c0",
+      "teacher_gear": "REVERSE"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_bb0f0c8fc9ddc4c0-000056",
+      "task_id": "p3v3_bb0f0c8fc9ddc4c0",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "DEAD_END_ESCAPE",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_bb0f0c8fc9ddc4c0-000057",
+      "task_id": "p3v3_bb0f0c8fc9ddc4c0",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_d32f02f81289f999-000002",
+      "task_id": "p3v3_d32f02f81289f999",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_d32f02f81289f999-000048",
+      "task_id": "p3v3_d32f02f81289f999",
+      "teacher_gear": "FORWARD"
+    },
+    {
+      "candidate_context": "MISSION",
+      "current_gear": 0,
+      "fallback_type": "REQUEST_REVERSE_ONLY_FORWARD_SAFE",
+      "maneuver_mode": "THREE_POINT_TURN",
+      "map_uuid": "4b5d966a-238d-57a3-b9d9-8c3141ed98ee",
+      "requested_gear": "REVERSE",
+      "sample_id": "p3v3_d32f02f81289f999-000049",
+      "task_id": "p3v3_d32f02f81289f999",
+      "teacher_gear": "FORWARD"
+    }
+  ],
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v33/fusion_explicit_gear_selector.best.pth",
+  "checkpoint_sha256": "2e83c674765b0f159a5220a6293dfc56805a14c444e17dd96db2f0e6fe238e5e",
+  "counts_by_candidate_context": {
+    "MISSION": 358,
+    "RECOVERY": 17
+  },
+  "counts_by_current_gear": {
+    "-1": 18,
+    "0": 339,
+    "1": 18
+  },
+  "counts_by_direction": {
+    "REQUEST_FORWARD_ONLY_REVERSE_SAFE": 86,
+    "REQUEST_REVERSE_ONLY_FORWARD_SAFE": 289
+  },
+  "counts_by_maneuver_mode": {
+    "DEAD_END_ESCAPE": 19,
+    "NARROW_CORRIDOR": 66,
+    "NORMAL": 3,
+    "REVERSE_EXIT": 12,
+    "SHARP_TURN": 174,
+    "THREE_POINT_TURN": 98,
+    "U_TURN": 3
+  },
+  "counts_by_teacher_relation": {
+    "DISAGREE_TEACHER": 375
+  },
+  "fallback_samples": 375,
+  "generated_at_utc": "2026-08-25T07:02:48.408827+00:00",
+  "hard_safety_fallback_rate": 0.03972457627118644,
+  "samples": 9440,
+  "schema": "DEPCarJointGearV33FallbackDiagnosticV1",
+  "status": "DIAGNOSTIC_COMPLETE",
+  "test_split_accessed": false,
+  "top_task_ids": [
+    {
+      "count": 56,
+      "task_id": "p3v3_23418e1e30f418a7"
+    },
+    {
+      "count": 18,
+      "task_id": "p3v3_91e83fdb021d8638"
+    },
+    {
+      "count": 11,
+      "task_id": "p3v3_ee2b3f134d8b68eb"
+    },
+    {
+      "count": 10,
+      "task_id": "p3_ddcdafb20141aebc"
+    },
+    {
+      "count": 10,
+      "task_id": "p3v3_3606232ea9ce2861"
+    },
+    {
+      "count": 10,
+      "task_id": "p3v3_8139c2e4dee4f8d1"
+    },
+    {
+      "count": 9,
+      "task_id": "p3v3_0cb8fbc1c367dfbe"
+    },
+    {
+      "count": 8,
+      "task_id": "p3v3_814aac8a545ec8e9"
+    },
+    {
+      "count": 8,
+      "task_id": "p3v3_cb829583e2b56bac"
+    },
+    {
+      "count": 8,
+      "task_id": "p3v3_dc9d21cc651e5142"
+    },
+    {
+      "count": 7,
+      "task_id": "p3v3_67b0e1adb62b245c"
+    },
+    {
+      "count": 6,
+      "task_id": "p3v3_064d8458c48930a3"
+    },
+    {
+      "count": 6,
+      "task_id": "p3v3_8becdf11440a6bb0"
+    },
+    {
+      "count": 6,
+      "task_id": "p3_23f9e7302b4b8086"
+    },
+    {
+      "count": 6,
+      "task_id": "p3v3_0fea4a54fc49fe41"
+    },
+    {
+      "count": 6,
+      "task_id": "p3v3_ec34bfdb5750a08d"
+    },
+    {
+      "count": 6,
+      "task_id": "p3v3_fea0f673ee734402"
+    },
+    {
+      "count": 5,
+      "task_id": "p3v3_657e6f8ecf63abcd"
+    },
+    {
+      "count": 5,
+      "task_id": "p3v3_2abd5f72f2bd1db6"
+    },
+    {
+      "count": 5,
+      "task_id": "p3v3_3e06b07afb118ec6"
+    }
+  ]
+}

@@ -152,6 +152,51 @@ def build_policy_state(
     return values
 
 
+def build_joint_policy_state(
+    *,
+    signed_speed,
+    longitudinal_acceleration,
+    steering,
+    yaw_rate,
+    subgoal_body,
+    heading_error,
+    reference_curvature,
+):
+    """Build V3/V4 measured state without prescribing a drive direction."""
+
+    subgoal = np.asarray(subgoal_body, dtype=np.float32)
+    if subgoal.shape != (2,) or not np.all(np.isfinite(subgoal)):
+        raise ValueError("subgoal_body must be finite [2]")
+    values = np.asarray(
+        [
+            signed_speed,
+            longitudinal_acceleration,
+            steering,
+            yaw_rate,
+            subgoal[0],
+            subgoal[1],
+            math.sin(float(heading_error)),
+            math.cos(float(heading_error)),
+            reference_curvature,
+        ],
+        dtype=np.float32,
+    )
+    if not np.all(np.isfinite(values)):
+        raise ValueError("joint policy state contains a non-finite value")
+    values[0] = np.clip(
+        values[0], -REVERSE_SPEED_LIMIT_MPS, FORWARD_SPEED_LIMIT_MPS
+    )
+    values[1] = np.clip(
+        values[1], -DECELERATION_LIMIT_MPS2, ACCELERATION_LIMIT_MPS2
+    )
+    values[2] = np.clip(
+        values[2], -STEERING_OPERATING_LIMIT_RAD, STEERING_OPERATING_LIMIT_RAD
+    )
+    values[3] = np.clip(values[3], -YAW_RATE_SCALE_RADPS, YAW_RATE_SCALE_RADPS)
+    values[6:8] = np.clip(values[6:8], -1.0, 1.0)
+    return values
+
+
 def current_gear_from_speed(signed_speed, stop_tolerance=0.03):
     speed = float(signed_speed)
     if abs(speed) <= float(stop_tolerance):
@@ -163,6 +208,7 @@ __all__ = [
     "DEPTH_MAXIMUM_M",
     "DEPTH_MINIMUM_M",
     "LIDAR_BEV_SHAPE",
+    "build_joint_policy_state",
     "build_policy_state",
     "current_gear_from_speed",
     "normalize_depth_metric",

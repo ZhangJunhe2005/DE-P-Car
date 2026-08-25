@@ -1,0 +1,71 @@
+{
+  "acceptance_contract": "/home/zjh/DE-P-Car/dep_car/config/p5_joint_gear_v33_acceptance.yaml",
+  "acceptance_contract_sha256": "bd11584def435eb18666a3963cca83f11fef7e6fa51f520cb02f0631272a9b19",
+  "active_control_authorized": false,
+  "architecture_id": "dep_car_multimodal_v33_explicit_gear_selector_route_ackermann",
+  "base_architecture_id": "dep_car_multimodal_v3_joint_gear_route_ackermann_2x3x5",
+  "base_policy_frozen": true,
+  "batch_size": 64,
+  "bounded_smoke": false,
+  "data_authority_gate": {
+    "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+    "bundle_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+    "errors": [],
+    "passed": true,
+    "samples": {
+      "train": 35940,
+      "validation": 9440
+    },
+    "schema": "DEPCarJointGearV3DataGateV1",
+    "sequence_authority": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_authority.json",
+    "sequence_authority_sha256": "be18ed8b2db8467c7bdae27392ca9d48ae47a5db192e6b49604c0cb60af4eb0b",
+    "sequence_index": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_index.json",
+    "sequence_index_sha256": "1be1d48e9e3f554fe3d971d8b756bb6cd0c00ffb63c2218a64ab10f24425b238",
+    "test_split_sealed": true
+  },
+  "device": "cuda",
+  "epochs": 12,
+  "explicit_gear_logit_order": [
+    "FORWARD",
+    "REVERSE"
+  ],
+  "formal_training_authorized": true,
+  "hard_safety_fallback_reported_separately": true,
+  "loss_implementation_sha256": "3b9ace208c1cbd443c11b75e03f1e3df9d691989e18710018d25503704a7c07e",
+  "maximum_samples": null,
+  "maximum_steps": null,
+  "model_implementation_sha256": "9303d6e0f5b8c1eb1d6a50b941caf47afaae7e0f3d1830aef54432a0546db367",
+  "objective_id": "dep_car_objective_v9_explicit_gear_selector_hard_veto",
+  "output": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v33/fusion_explicit_gear_selector.pth",
+  "production_qualified": false,
+  "schema": "DEPCarJointGearV33TrainingPlanV1",
+  "source": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.pth",
+  "source_gate": {
+    "acceptance": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.acceptance.json",
+    "acceptance_sha256": "c7200f06ce91ee49410531c1a1c6d0b44a6b9129074e8808151704158a4535b8",
+    "accepted_for_explicit_selector_initialization_only": true,
+    "allowed_failed_checks": [
+      "no_hard_forward_reverse_selection_rate",
+      "oracle_reverse_recall_within_required"
+    ],
+    "base_policy_frozen": true,
+    "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.pth",
+    "checkpoint_contract": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.contract.json",
+    "checkpoint_contract_sha256": "342144358c21d13575280e1f9fd4fdc67b42879215af85a3a033d6cc495866f1",
+    "checkpoint_sha256": "a3ce5814e5d61506154ee90ed5d5870213e7fbf895702845a5a359eaa0e4d124",
+    "errors": [],
+    "p6_authorized_by_source": false,
+    "passed": true,
+    "schema": "DEPCarJointGearV33SourceGateV1",
+    "test_split_accessed": false
+  },
+  "source_scope": "EXPLICIT_SELECTOR_INITIALIZATION_ONLY",
+  "source_sha256": "a3ce5814e5d61506154ee90ed5d5870213e7fbf895702845a5a359eaa0e4d124",
+  "stage": "explicit_gear_selector",
+  "status": "DRY_RUN_READY",
+  "test_split_sealed": true,
+  "trainer_sha256": "6c84e92913721d1f222cb2bd3067f01c95e07387c3df048b311f9dfd6be3cdb1",
+  "training_config": "/home/zjh/DE-P-Car/dep_car/config/p5_joint_gear_v33_explicit_selector.yaml",
+  "training_config_sha256": "2dcbbd5e10c9e9c18a43e1a4a8df7c44aa85a8e4ad875fc92d410530ebf261f5",
+  "workers": 8
+}

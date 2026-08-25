@@ -12,6 +12,7 @@ import socket
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
 
 import yaml
 
@@ -143,6 +144,10 @@ def command(config, scenario, args, ros_port):
         "enable_rviz:=" + ("false" if args.headless else "true"),
         "paused:=true",
     ]
+    if config.get("p6_authority"):
+        launch.append(
+            "p6_authority:=" + str(resolve(config["p6_authority"]))
+        )
     reset = [
         "rosrun", "dep_car_dataset", "reset_pilot_pose.py",
         "--x", str(scenario["start"][0]),
@@ -169,13 +174,15 @@ def command(config, scenario, args, ros_port):
     return launch, reset, publish, goal
 
 
-def automated_goal_command(goals, timeout_s, report_path=None):
+def automated_goal_command(goals, timeout_s, report_path=None, *, frame="map"):
     command = [
         "rosrun",
         "dep_car_memory_navigation",
         "replay_memory_goals.py",
         "--goal-timeout",
         str(float(timeout_s)),
+        "--frame",
+        str(frame),
     ]
     if report_path is not None:
         command.extend(["--output", str(Path(report_path).resolve())])
@@ -186,7 +193,99 @@ def automated_goal_command(goals, timeout_s, report_path=None):
 
 def episode_automated_goal_command(effective_goal, timeout_s, report_path=None):
     """Build an episode replay from the effective, possibly CLI-overridden goal."""
-    return automated_goal_command([list(effective_goal)], timeout_s, report_path)
+    return automated_goal_command(
+        [list(effective_goal)], timeout_s, report_path, frame="odom"
+    )
+
+
+def _scenario_collision_boxes(scenario):
+    """Read axis-aligned Gazebo wall boxes for host-only replay preflight.
+
+    These boxes are test-fixture evidence only.  They are never passed to the
+    online SLAM, FAR or local-planner runtime.
+    """
+
+    world = resolve(scenario["world"])
+    model = world.parent / "model.sdf"
+    if not model.is_file():
+        raise ValueError("frozen scenario has no model.sdf beside its world")
+    boxes = []
+    for link in ET.parse(str(model)).getroot().findall(".//link"):
+        pose_text = link.findtext("pose")
+        size_text = link.findtext("collision/geometry/box/size")
+        if pose_text is None or size_text is None:
+            continue
+        pose = [float(value) for value in pose_text.split()]
+        size = [float(value) for value in size_text.split()]
+        if len(pose) < 2 or len(size) < 2:
+            continue
+        boxes.append({
+            "name": str(link.get("name", "unnamed_collision")),
+            "center": (pose[0], pose[1]),
+            "size": (size[0], size[1]),
+        })
+    if not boxes:
+        raise ValueError("frozen scenario model contains no wall collision boxes")
+    return boxes
+
+
+def regression_goal_preflight(sequence, scenario, minimum_clearance_m=0.70):
+    """Reject stale online-map coordinates and goals inside frozen walls."""
+
+    frame = str(sequence.get("coordinate_frame", "map")).lstrip("/") or "map"
+    goals = sequence.get("goals", [])
+    errors = []
+    evidence = []
+    if frame != "odom":
+        errors.append(
+            "fixed replay goals must use stable odom coordinates; an online "
+            "SLAM map frame is not reproducible across restarts"
+        )
+    boxes = _scenario_collision_boxes(scenario)
+    x_min = min(box["center"][0] - 0.5 * box["size"][0] for box in boxes)
+    x_max = max(box["center"][0] + 0.5 * box["size"][0] for box in boxes)
+    y_min = min(box["center"][1] - 0.5 * box["size"][1] for box in boxes)
+    y_max = max(box["center"][1] + 0.5 * box["size"][1] for box in boxes)
+    for index, goal in enumerate(goals):
+        if not isinstance(goal, (list, tuple)) or len(goal) != 3:
+            errors.append("goal %d must contain x, y and yaw" % index)
+            continue
+        x, y, yaw = (float(value) for value in goal)
+        nearest = None
+        for box in boxes:
+            center_x, center_y = box["center"]
+            size_x, size_y = box["size"]
+            dx = max(abs(x - center_x) - 0.5 * size_x, 0.0)
+            dy = max(abs(y - center_y) - 0.5 * size_y, 0.0)
+            clearance = (dx * dx + dy * dy) ** 0.5
+            if nearest is None or clearance < nearest[0]:
+                nearest = (clearance, box["name"])
+        clearance, obstacle = nearest
+        inside_bounds = x_min <= x <= x_max and y_min <= y <= y_max
+        valid = bool(inside_bounds and clearance >= float(minimum_clearance_m))
+        evidence.append({
+            "goal_index": int(index),
+            "goal": [x, y, yaw],
+            "minimum_static_clearance_m": float(clearance),
+            "nearest_collision": obstacle,
+            "inside_frozen_world_bounds": bool(inside_bounds),
+            "valid": valid,
+        })
+        if not valid:
+            errors.append(
+                "goal %d has %.3fm static clearance (required %.3fm; nearest %s)"
+                % (index, clearance, float(minimum_clearance_m), obstacle)
+            )
+    return {
+        "schema": "DEPCarRegressionGoalPreflightV1",
+        "status": "PASS" if not errors else "FAIL",
+        "reason": "VALID_REPLAY_GOALS" if not errors else "INVALID_REPLAY_GOAL",
+        "coordinate_frame": frame,
+        "minimum_clearance_m": float(minimum_clearance_m),
+        "goals": evidence,
+        "errors": errors,
+        "runtime_ground_truth_input": False,
+    }
 
 
 def archive_previous_report(path):
@@ -253,6 +352,10 @@ def implementation_audit(config):
         "checkpoint:=" + str(resolve(config["checkpoint"])),
         "checkpoint_contract:=" + str(resolve(config["checkpoint_contract"])),
     ]
+    if config.get("p6_authority"):
+        launch_args.append(
+            "p6_authority:=" + str(resolve(config["p6_authority"]))
+        )
     nodes_result = subprocess.run(
         ["roslaunch", "--nodes", "dep_car_bringup", "p6_memory_static.launch"]
         + launch_args,
@@ -822,7 +925,11 @@ def main():
     parser.add_argument("--goal-timeout", type=float, default=90.0)
     parser.add_argument("--fail-fast", action="store_true")
     parser.add_argument("--allow-holdout", action="store_true")
-    parser.add_argument("--policy-mode", choices=("disabled", "shadow", "active"), default="shadow")
+    parser.add_argument(
+        "--policy-mode",
+        choices=("disabled", "shadow", "guarded", "active"),
+        default="shadow",
+    )
     parser.add_argument("--goal-x", type=float)
     parser.add_argument("--goal-y", type=float)
     parser.add_argument("--goal-yaw", type=float)
@@ -1012,20 +1119,43 @@ def main():
         )
     )
     if args.stage == "replay":
+        replay_frame = str(sequence.get("coordinate_frame", "map"))
+        replay_preflight = regression_goal_preflight(
+            sequence,
+            scenario,
+            minimum_clearance_m=float(
+                sequence.get("minimum_static_goal_clearance_m", 0.70)
+            ),
+        )
         automated = automated_goal_command(
             sequence["goals"],
             sequence.get("goal_timeout_s", args.goal_timeout),
             automatic_report,
+            frame=replay_frame,
         )
     elif args.stage == "episode":
+        replay_frame = "odom"
+        replay_preflight = None
         automated = episode_automated_goal_command(
             goal, args.goal_timeout, automatic_report
         )
     else:
+        replay_frame = None
+        replay_preflight = None
         automated = None
     if args.dry_run:
+        dry_run_goal_valid = bool(
+            replay_preflight is None
+            or replay_preflight["status"] == "PASS"
+        )
         print(json.dumps({
-            "status": "DRY_RUN_PASS" if not missing else "DRY_RUN_DEPENDENCIES_MISSING",
+            "status": (
+                "DRY_RUN_INVALID_REPLAY_GOAL"
+                if not dry_run_goal_valid
+                else "DRY_RUN_PASS"
+                if not missing
+                else "DRY_RUN_DEPENDENCIES_MISSING"
+            ),
             "missing_packages": missing,
             "navigation_backend": "online_far_visibility_memory",
             "map_server_started": False,
@@ -1041,10 +1171,20 @@ def main():
             "reset": reset,
             "publish_goal": None if args.stage == "interactive" else publish,
             "automated_goal_replay": automated,
+            "automated_goal_frame": replay_frame,
+            "replay_goal_preflight": replay_preflight,
             "automatic_report": str(automatic_report),
             "regression_is_runtime_policy_input": False,
         }, indent=2, sort_keys=True))
-        return
+        return 0 if dry_run_goal_valid else 2
+    if replay_preflight is not None and replay_preflight["status"] != "PASS":
+        automatic_report.parent.mkdir(parents=True, exist_ok=True)
+        automatic_report.write_text(
+            json.dumps(replay_preflight, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        print(json.dumps(replay_preflight, indent=2, sort_keys=True))
+        return 2
     if port_in_use(ros_port) or port_in_use(gazebo_port):
         raise RuntimeError("configured memory-navigation ROS/Gazebo port is in use")
     env = dict(os.environ)

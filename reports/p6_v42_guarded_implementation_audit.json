@@ -1,0 +1,42 @@
+{
+  "architecture_id": "dep_car_multimodal_v42_calibrated_hybrid_sequence_execution_15x6",
+  "authority_sha256": "7dfc79b42c589eadc108f969a298b3c86be4ebefa0bd6d519ea4dfed50eb2352",
+  "authority_status": "P6_GUARDED_SIMULATION_AUTHORIZED",
+  "checkpoint_contract_sha256": "780ecb4a2cc4ce3d1b603d963b53f1dfb367709cfb890c263c8b87cd73888b8b",
+  "checkpoint_sha256": "f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff",
+  "deterministic_motion_fallback": false,
+  "entry_points": {
+    "interactive": "scripts/run_p6_v42_guarded.sh --stage interactive",
+    "replay": "scripts/run_p6_v42_guarded.sh --stage replay --sequence logged_t_junction_turnaround"
+  },
+  "errors": [],
+  "gazebo_simulation_only": true,
+  "legacy_turnaround_state_machine_enabled": false,
+  "mandatory_full_sequence_hard_veto": true,
+  "model_selects_complete_gear_sequence": true,
+  "model_selects_first_gear": true,
+  "physical_vehicle_authorized": false,
+  "production_qualified": false,
+  "ros_nodes": [
+    "/dep_car_dynamic_tracker",
+    "/dep_car_ekf",
+    "/dep_car_lidar",
+    "/dep_car_lidar_dynamic_observations",
+    "/dep_car_local_planner",
+    "/dep_car_map_odometry",
+    "/dep_car_memory_navigation",
+    "/dep_car_policy",
+    "/dep_car_wheel_odometry",
+    "/gazebo",
+    "/gazebo_gui",
+    "/rviz",
+    "/slam_toolbox",
+    "/spawn_urban_car",
+    "/urban_car_adapter",
+    "/urban_model/urban_controllers",
+    "/urban_robot_state_publisher"
+  ],
+  "runtime_executes_learned_sequence_prefix": true,
+  "schema": "DEPCarP6V42GuardedImplementationAuditV1",
+  "status": "PASS"
+}

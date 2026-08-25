@@ -1,0 +1,62 @@
+{
+  "bias_step": 0.0025,
+  "closest": {
+    "checks": {
+      "no_hard_forward_reverse_selection_rate": "PASS",
+      "oracle_forward_false_reverse_rate_within_required": "PASS",
+      "oracle_reverse_recall_within_required": "PASS",
+      "selected_hard_feasible_rate": "FAIL",
+      "unnecessary_reverse_rate": "PASS"
+    },
+    "gate_passed": false,
+    "no_hard_forward_reverse_selection_rate": 0.9255039439088519,
+    "oracle_forward_false_reverse_rate_within_required": 0.022533022533022532,
+    "oracle_reverse_recall_within_required": 0.9503771337832473,
+    "reverse_score_bias": -0.13999999999999985,
+    "selected_hard_feasible_rate": 0.9470338821411133,
+    "unnecessary_reverse_rate": 0.005928853754940711
+  },
+  "data_authority_gate": {
+    "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+    "bundle_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+    "errors": [],
+    "passed": true,
+    "samples": {
+      "train": 35940,
+      "validation": 9440
+    },
+    "schema": "DEPCarJointGearV3DataGateV1",
+    "sequence_authority": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_authority.json",
+    "sequence_authority_sha256": "be18ed8b2db8467c7bdae27392ca9d48ae47a5db192e6b49604c0cb60af4eb0b",
+    "sequence_index": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_index.json",
+    "sequence_index_sha256": "1be1d48e9e3f554fe3d971d8b756bb6cd0c00ffb63c2218a64ab10f24425b238",
+    "test_split_sealed": true
+  },
+  "maximum_bias": 0.05,
+  "minimum_bias": -0.3,
+  "passing_bias_count": 0,
+  "production_qualified": false,
+  "samples": 9440,
+  "schema": "DEPCarJointGearReverseBiasDiagnosticV1",
+  "smallest_absolute_passing_bias": null,
+  "source_gate": {
+    "acceptance": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.acceptance.json",
+    "acceptance_sha256": "c7200f06ce91ee49410531c1a1c6d0b44a6b9129074e8808151704158a4535b8",
+    "accepted_for_correction_continuation_only": true,
+    "allowed_failed_checks": [
+      "no_hard_forward_reverse_selection_rate",
+      "oracle_reverse_recall_within_required"
+    ],
+    "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.pth",
+    "checkpoint_contract": "/home/zjh/DE-P-Car/models/dep_car/p5_joint_gear_v31/fusion_sequence_correction.best.contract.json",
+    "checkpoint_contract_sha256": "342144358c21d13575280e1f9fd4fdc67b42879215af85a3a033d6cc495866f1",
+    "checkpoint_sha256": "a3ce5814e5d61506154ee90ed5d5870213e7fbf895702845a5a359eaa0e4d124",
+    "errors": [],
+    "p6_authorized_by_source": false,
+    "passed": true,
+    "schema": "DEPCarJointGearV32SourceGateV1",
+    "test_split_accessed": false
+  },
+  "status": "NO_PASSING_BIAS",
+  "test_split_accessed": false
+}

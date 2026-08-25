@@ -1,0 +1,13 @@
+{
+  "data_authority": "/home/zjh/DE-P-Car/data/p3_v7_v43/index/closed_loop_data_authority.json",
+  "data_authority_sha256": "045cef9e02a48b7c1b70ad123178382f86ece0154af70bb615f913e937bf4330",
+  "formal_training_started": false,
+  "integrity_audit": "/home/zjh/DE-P-Car/reports/p3_v7_v43_independent_integrity_audit.json",
+  "integrity_audit_sha256": "94c31c21e6cd0fae54ba047fc0c3c9a63cb935ff7c54c32e1cdad25d69ea3c1c",
+  "output": "/home/zjh/DE-P-Car/dep_car/config/p5_closed_loop_v43.yaml",
+  "output_sha256": "b39a54df6c462e679ef1dc2c34732b3b32aee86de115c200d635f319d102f713",
+  "schema": "DEPCarV43TrainingAuthorizationV1",
+  "source_checkpoint_sha256": "f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff",
+  "status": "PASS",
+  "test_split_opened": false
+}

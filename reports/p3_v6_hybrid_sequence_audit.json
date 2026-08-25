@@ -1,0 +1,63 @@
+{
+  "available_supervision": {
+    "action_controls": false,
+    "action_duration_s": false,
+    "action_terminal_pose": false,
+    "history": true,
+    "sequence_gears": true,
+    "sequence_mask": true,
+    "terminal_route_alignment": false
+  },
+  "counts_by_action_count": {
+    "1": 29387,
+    "2": 3190,
+    "3": 3843,
+    "4": 5237,
+    "5": 3347,
+    "6": 376
+  },
+  "counts_by_split": {
+    "train": 35940,
+    "validation": 9440
+  },
+  "counts_by_start_gear": {
+    "FORWARD": 34071,
+    "REVERSE": 11309
+  },
+  "errors": [],
+  "formal_v4_training_allowed": true,
+  "multi_switch_sequence_samples": 12803,
+  "p6_active_control_authorized": false,
+  "production_qualified": false,
+  "reverse_sequence_samples": 23777,
+  "reverse_then_forward_samples": 14043,
+  "samples": 45380,
+  "schema": "DEPCarP3V6HybridSequenceAuditV1",
+  "sequence_authority": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_authority.json",
+  "sequence_authority_sha256": "be18ed8b2db8467c7bdae27392ca9d48ae47a5db192e6b49604c0cb60af4eb0b",
+  "sequence_index": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_index.json",
+  "sequence_index_sha256": "1be1d48e9e3f554fe3d971d8b756bb6cd0c00ffb63c2218a64ab10f24425b238",
+  "sequence_patterns": {
+    "F": 21603,
+    "F-R": 1950,
+    "F-R-F": 2464,
+    "F-R-F-R": 4419,
+    "F-R-F-R-F": 3259,
+    "F-R-F-R-F-R": 376,
+    "R": 7784,
+    "R-F": 1240,
+    "R-F-R": 1379,
+    "R-F-R-F": 818,
+    "R-F-R-F-R": 88
+  },
+  "status": "READY_FOR_V4_WEAK_SEQUENCE_BOOTSTRAP",
+  "test_split_opened": false,
+  "v4_contract": {
+    "continuous_teacher_claim_allowed": false,
+    "first_action_geometry_uses_sealed_p3_candidate_trajectories": true,
+    "gear_tokens_are_weak_episode_supervision": true,
+    "later_action_geometry_uses_differentiable_rollout_route_and_map_losses": true,
+    "maximum_macro_actions": 6,
+    "test_split_sealed": true
+  }
+}

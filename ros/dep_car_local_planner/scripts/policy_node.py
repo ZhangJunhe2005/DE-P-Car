@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GPU DEPCarNetV1 inference node for P6 shadow/active simulation.
+"""GPU DE-P-Car inference node for P6 shadow/active simulation.
 
 The process intentionally publishes raw learned trajectories only.  The
 system-Python local planner remains the sole static/dynamic hard-safety and
@@ -16,6 +16,7 @@ from dep_car.core.vehicle import (
     world_velocity_to_body_longitudinal,
 )
 from dep_car.runtime.p6_policy import P6PolicyRuntime, PolicyArtifactError
+from dep_car.runtime.hybrid_sequence import JointGearHistoryTracker
 from dep_car.runtime.online_sync import (
     StampedHistory,
     interpolated,
@@ -23,6 +24,7 @@ from dep_car.runtime.online_sync import (
     newest_synchronized_anchor,
 )
 from dep_car.runtime.preprocessing import (
+    build_joint_policy_state,
     build_policy_state,
     current_gear_from_speed,
     normalize_depth_metric,
@@ -73,6 +75,7 @@ class PolicyNode:
         )
         self.mode = str(rospy.get_param("~mode", "shadow"))
         self.modality = str(rospy.get_param("~modality", "fusion"))
+        self.gear_history = JointGearHistoryTracker()
         self.raw_pub = rospy.Publisher(
             "/dep_car/policy_candidates_raw",
             PolicyCandidateArray,
@@ -204,6 +207,10 @@ class PolicyNode:
         state.mode = self.mode
         state.modality = self.modality
         state.checkpoint_sha256 = self.runtime.checkpoint_sha256 if self.runtime else ""
+        state.architecture_id = self.runtime.architecture_id if self.runtime else ""
+        state.hybrid_sequence = bool(
+            self.runtime is not None and self.runtime.hybrid_sequence
+        )
         state.model_loaded = self.runtime is not None
         state.sensor_ready = bool(sensor_ready)
         state.inference_ok = bool(inference_ok)
@@ -220,6 +227,8 @@ class PolicyNode:
         state.candidate_count = int(candidate_count)
         state.feasible_count = 0
         state.selected_candidate_id = -1
+        state.selected_first_gear = 0
+        state.selected_action_gears = []
         state.reason = str(reason)
         self.state_pub.publish(state)
 
@@ -325,17 +334,33 @@ class PolicyNode:
             speed = float(values["odom"][0])
             acceleration, yaw_rate = (float(value) for value in values["imu"])
             steering = float(values["joints"][0])
-            state = build_policy_state(
-                signed_speed=speed,
-                longitudinal_acceleration=acceleration,
-                steering=steering,
-                yaw_rate=yaw_rate,
-                subgoal_body=(query.subgoal_body.x, query.subgoal_body.y),
-                heading_error=query.heading_error,
-                reference_curvature=query.reference_curvature,
-                requested_gear=query.requested_gear,
-                current_gear=current_gear_from_speed(speed),
+            current_gear, gear_history = self.gear_history.observe(
+                anchor_stamp,
+                speed,
+                recovery_mode=bool(query.recovery_mode),
             )
+            if self.runtime.hybrid_sequence:
+                state = build_joint_policy_state(
+                    signed_speed=speed,
+                    longitudinal_acceleration=acceleration,
+                    steering=steering,
+                    yaw_rate=yaw_rate,
+                    subgoal_body=(query.subgoal_body.x, query.subgoal_body.y),
+                    heading_error=query.heading_error,
+                    reference_curvature=query.reference_curvature,
+                )
+            else:
+                state = build_policy_state(
+                    signed_speed=speed,
+                    longitudinal_acceleration=acceleration,
+                    steering=steering,
+                    yaw_rate=yaw_rate,
+                    subgoal_body=(query.subgoal_body.x, query.subgoal_body.y),
+                    heading_error=query.heading_error,
+                    reference_curvature=query.reference_curvature,
+                    requested_gear=query.requested_gear,
+                    current_gear=current_gear_from_speed(speed),
+                )
             depth = values.get("depth", np.zeros((2, 96, 160), dtype=np.float32))
             bev = values.get("bev", np.zeros((6, 160, 160), dtype=np.float32))
             route_pose = np.zeros((80, 3), dtype=np.float32)
@@ -347,18 +372,32 @@ class PolicyNode:
                 for index, pose in enumerate(query.route_corridor_body[:count]):
                     route_pose[index] = (pose.x, pose.y, pose.theta)
                 route_mask[:count] = True
-            trajectories, controls, scores = self.runtime.infer(
+            inference = self.runtime.infer(
                 depth,
                 bev,
                 state,
                 int(query.requested_gear),
                 route_pose=route_pose,
                 route_mask=route_mask,
+                current_gear=current_gear,
+                gear_history=gear_history,
             )
+            if self.runtime.hybrid_sequence:
+                trajectories = inference.trajectories
+                controls = inference.controls
+                scores = inference.scores
+            else:
+                trajectories, controls, scores = inference
             output = PolicyCandidateArray()
             output.header.stamp = rospy.Time.from_sec(anchor_stamp)
             output.header.frame_id = "chassis"
+            output.architecture_id = self.runtime.architecture_id
+            output.hybrid_sequence = bool(self.runtime.hybrid_sequence)
+            output.actions_per_candidate = 6 if self.runtime.hybrid_sequence else 1
+            output.steps_per_action = 5 if self.runtime.hybrid_sequence else 10
             output.requested_gear = int(query.requested_gear)
+            output.current_gear = int(current_gear)
+            output.gear_history = gear_history.astype(np.float64).tolist()
             output.generation = int(query.generation)
             output.subgoal_body = query.subgoal_body
             output.recovery_mode = bool(query.recovery_mode)
@@ -366,10 +405,23 @@ class PolicyNode:
                 trajectory = trajectories[candidate_id]
                 candidate = PolicyCandidate()
                 candidate.candidate_id = candidate_id
-                candidate.gear = int(query.requested_gear)
-                candidate.speed_anchor = float(controls[candidate_id, 2])
-                candidate.steering_anchor = float(controls[candidate_id, 1])
-                candidate.duration = float(controls[candidate_id, 3])
+                if self.runtime.hybrid_sequence:
+                    first = controls[candidate_id, 0]
+                    candidate.gear = int(inference.action_gears[candidate_id, 0])
+                    candidate.speed_anchor = float(first[2])
+                    candidate.steering_anchor = float(first[1])
+                    candidate.duration = float(first[3])
+                    candidate.action_gears = inference.action_gears[candidate_id].tolist()
+                    candidate.action_mask = inference.action_mask[candidate_id].tolist()
+                    candidate.action_durations = controls[candidate_id, :, 3].tolist()
+                    candidate.shift_required = inference.shift_required[candidate_id].tolist()
+                    candidate.transition_duration = inference.transition_duration[candidate_id].tolist()
+                    candidate.motion_gears = inference.motion_gears[candidate_id].tolist()
+                else:
+                    candidate.gear = int(query.requested_gear)
+                    candidate.speed_anchor = float(controls[candidate_id, 2])
+                    candidate.steering_anchor = float(controls[candidate_id, 1])
+                    candidate.duration = float(controls[candidate_id, 3])
                 candidate.learned_score = float(scores[candidate_id])
                 candidate.time = trajectory[:, 0].tolist()
                 candidate.x = trajectory[:, 1].tolist()

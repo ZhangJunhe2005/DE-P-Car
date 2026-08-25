@@ -206,9 +206,14 @@ class VisibilityRouteAcquisitionGate:
     filling the first wall contour even when every edge of each individual
     hypothesis happens to lie in currently known cells.
 
-    Motion which reveals the next viewpoint is supplied independently by the
-    local exploration controller while this gate settles.  Consequently this
-    gate never needs to trade route reliability for liveness.
+    ``accepted`` and ``motion_authorized`` deliberately have different
+    meanings.  A high-detour route may remain too unknown to be accepted as a
+    complete route, while its stable, currently observed prefix is still the
+    best way to reveal the next viewpoint.  The caller must independently
+    certify that bounded prefix against the latest inflated occupancy map
+    before using ``motion_authorized``.  This prevents the old deadlock where
+    the route needed more observations but the vehicle was forbidden to move
+    far enough to create them.
     """
 
     def __init__(
@@ -420,14 +425,17 @@ class VisibilityRouteAcquisitionGate:
         )
         # A short, ordinary attemptable route may reveal its next viewpoint
         # after the direction and cost settle.  A highly unknown *detour* is a
-        # qualitatively different hypothesis: following it was observed to
-        # steer the Ackermann car down the wrong branch before the enclosing
-        # wall contour existed.  Local exploration supplies liveness until at
-        # least the configured fraction of that detour is observed.
+        # qualitatively different hypothesis: it cannot become full route
+        # authority until enough of the suffix is observed, but its measured
+        # local prefix must remain usable to avoid a mapping-motion deadlock.
+        # This is only *candidate* motion authority.  In particular, a stable
+        # high-detour route may expose an unknown suffix.  The ROS owner must
+        # still prove that the short execution prefix is observed and clear;
+        # ``locally_certified_route_motion`` below is the common fail-closed
+        # boundary used for that check.
         self.motion_authorized = bool(
             self.confirmations >= self.minimum_confirmations
             and stable_s >= self.minimum_stable_s
-            and (not high_detour or sufficiently_observed)
         )
         self.accepted = bool(
             sufficiently_observed
@@ -461,6 +469,25 @@ class VisibilityRouteAcquisitionGate:
             self.reason,
             self.motion_authorized,
         )
+
+
+def locally_certified_route_motion(plan, acquisition, observed_prefix_clear):
+    """Authorize only a stable FAR route's measured, bounded local prefix.
+
+    The whole visibility path may still cross unknown space.  This helper does
+    not accept that suffix and does not weaken collision checking: it merely
+    permits the rolling FAR target to advance through the already observed
+    prefix so the sensor can reveal the next contour corner.
+    """
+
+    return bool(
+        plan is not None
+        and plan.status == "PASS"
+        and len(plan.path) >= 2
+        and acquisition is not None
+        and acquisition.motion_authorized
+        and observed_prefix_clear
+    )
 
 
 class DynamicVisibilityPlanner:

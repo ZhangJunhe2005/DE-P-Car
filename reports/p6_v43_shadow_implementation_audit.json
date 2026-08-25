@@ -1,0 +1,114 @@
+{
+  "active_control_authorized": false,
+  "architecture_id": "dep_car_multimodal_v43_guarded_contextual_residual_closed_loop_hybrid_sequence_ackermann_15x6",
+  "authority_sha256": "b5263432afc548f8cbd8ba5cc593de28fa09b985544c9f3264c902c5eb55cc3e",
+  "authority_status": "P6_SHADOW_AUTHORIZED",
+  "checkpoint_contract_sha256": "6898eff068db8249d74973a125c8614b577cd460d1ca24ac0ec519919896dc1e",
+  "checkpoint_sha256": "c89d5401774477caf11159495ee3d5e8eb3fbe6c95fe742ee0c8d528f0f535ac",
+  "deterministic_shadow_control": true,
+  "entry_points": {
+    "interactive": "scripts/run_p6_v43_shadow.sh --stage interactive",
+    "replay": "scripts/run_p6_v43_shadow.sh --stage replay --sequence logged_t_junction_turnaround"
+  },
+  "errors": [],
+  "legacy_turnaround_state_machine_enabled": false,
+  "mandatory_full_sequence_hard_veto": true,
+  "model_control_authorized": false,
+  "model_selects_complete_gear_sequence": true,
+  "model_selects_first_gear": true,
+  "physical_vehicle_authorized": false,
+  "production_qualified": false,
+  "regression_goal_preflight": {
+    "latest_interactive_turnaround_20260821": {
+      "coordinate_frame": "odom",
+      "errors": [],
+      "goals": [
+        {
+          "goal": [
+            4.9,
+            -5.7,
+            1.887
+          ],
+          "goal_index": 0,
+          "inside_frozen_world_bounds": true,
+          "minimum_static_clearance_m": 0.7499999999999998,
+          "nearest_collision": "wall_511",
+          "valid": true
+        },
+        {
+          "goal": [
+            -2.8,
+            3.9,
+            3.12
+          ],
+          "goal_index": 1,
+          "inside_frozen_world_bounds": true,
+          "minimum_static_clearance_m": 0.8499999999999996,
+          "nearest_collision": "wall_216",
+          "valid": true
+        }
+      ],
+      "minimum_clearance_m": 0.7,
+      "reason": "VALID_REPLAY_GOALS",
+      "runtime_ground_truth_input": false,
+      "schema": "DEPCarRegressionGoalPreflightV1",
+      "status": "PASS"
+    },
+    "logged_t_junction_turnaround": {
+      "coordinate_frame": "odom",
+      "errors": [],
+      "goals": [
+        {
+          "goal": [
+            6.5,
+            -5.8,
+            -0.984
+          ],
+          "goal_index": 0,
+          "inside_frozen_world_bounds": true,
+          "minimum_static_clearance_m": 0.8499999999999992,
+          "nearest_collision": "wall_531",
+          "valid": true
+        },
+        {
+          "goal": [
+            -3.3,
+            0.2,
+            1.565
+          ],
+          "goal_index": 1,
+          "inside_frozen_world_bounds": true,
+          "minimum_static_clearance_m": 0.95,
+          "nearest_collision": "wall_309",
+          "valid": true
+        }
+      ],
+      "minimum_clearance_m": 0.7,
+      "reason": "VALID_REPLAY_GOALS",
+      "runtime_ground_truth_input": false,
+      "schema": "DEPCarRegressionGoalPreflightV1",
+      "status": "PASS"
+    }
+  },
+  "ros_nodes": [
+    "/dep_car_dynamic_tracker",
+    "/dep_car_ekf",
+    "/dep_car_lidar",
+    "/dep_car_lidar_dynamic_observations",
+    "/dep_car_local_planner",
+    "/dep_car_map_odometry",
+    "/dep_car_memory_navigation",
+    "/dep_car_policy",
+    "/dep_car_wheel_odometry",
+    "/gazebo",
+    "/gazebo_gui",
+    "/rviz",
+    "/slam_toolbox",
+    "/spawn_urban_car",
+    "/urban_car_adapter",
+    "/urban_model/urban_controllers",
+    "/urban_robot_state_publisher"
+  ],
+  "schema": "DEPCarP6V43ShadowImplementationAuditV1",
+  "status": "PASS"
+}

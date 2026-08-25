@@ -1,0 +1,65 @@
+schema: DEPCarV42ExecutionQualificationContractV1
+architecture_id: dep_car_multimodal_v42_calibrated_hybrid_sequence_execution_15x6
+source_architecture_id: dep_car_multimodal_v4_hybrid_sequence_route_ackermann_15x6
+scope: fusion_only_calibrated_score_plus_mandatory_hard_veto
+test_split_sealed: true
+
+implementation:
+  adapter: dep_car/src/dep_car/model/dep_car_net_v42.py
+  adapter_sha256: ae7296ae629d97a9abd2f6ce439b5ad62640213ca0c9c247c543d62b68450835
+  model: dep_car/src/dep_car/model/dep_car_net_v4.py
+  model_sha256: 691f6b3adf16a28c86202cf7a70508deb82700ede06fe0c0ac55fce5d0a6d2d2
+  rollout: dep_car/src/dep_car/model/hybrid_sequence_rollout.py
+  rollout_sha256: ff42cd5b98614e2acc4d34c4a45d33c70983639a4883b0437fa1066d1944b451
+  loss: dep_car/src/dep_car/training/losses_v41.py
+  loss_sha256: 5a8e25b83471721a8da855f0b77a8986971a372250847669d5ab22d0b266d463
+  dataset: dep_car/src/dep_car/training/v4_dataset.py
+  dataset_sha256: ada78de69b0c9d222ab264cbfeeca1b89667f8f716e3c1022a9e20efa165f2fd
+
+source:
+  checkpoint: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.pth
+  checkpoint_sha256: f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff
+  checkpoint_contract: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.contract.json
+  checkpoint_contract_sha256: 780ecb4a2cc4ce3d1b603d963b53f1dfb367709cfb890c263c8b87cd73888b8b
+  legacy_acceptance: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.acceptance.json
+  legacy_acceptance_sha256: 3c344cb75aeaee020ac72d8658ae2c62b60af4011ad96bbf5941071d2fd37177
+  expected_legacy_failed_checks:
+    - mean_oracle_regret
+    - selected_hard_feasible_rate
+
+calibration_authority:
+  pareto_audit: reports/p5_hybrid_sequence_v41_execution_pareto_audit.json
+  pareto_audit_sha256: 76b55ba3bdb611696ec9065a74b7a4b340525997b573f47edfa912fc901e0529
+  safety_risk_weight: 0.0
+  viability_risk_weight: 8.0
+  hard_veto_mandatory: true
+  legacy_cross_tier_regret_is_gate: false
+
+model:
+  candidates: 15
+  actions: 6
+  hidden_dim: 128
+  primitive_dim: 64
+  stage_dim: 32
+  template_logit_bias: 1.25
+  steps_per_action: 5
+
+audit:
+  batch_size: 64
+  workers: 8
+  prefetch_factor: 4
+  mixed_precision: true
+
+qualification:
+  maximum_hard_veto_stop_rate: 0.08
+  minimum_selected_hard_feasible_rate: 0.95
+  minimum_selected_viable_rate: 0.60
+  minimum_hierarchy_selection_rate_when_executable: 0.90
+  maximum_hierarchical_oracle_regret: 0.20
+  active_control_authorized_by_audit: false
+  p6_shadow_authorized_by_audit: true
+  production_qualified_by_audit: false
+
+artifacts:
+  authority: models/dep_car/p5_hybrid_sequence_v42/fusion_calibrated_execution.authority.json
+  report: reports/p5_hybrid_sequence_v42_execution_acceptance.json

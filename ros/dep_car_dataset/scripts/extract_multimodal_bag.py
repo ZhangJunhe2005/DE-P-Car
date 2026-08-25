@@ -7,6 +7,7 @@ import copy
 import hashlib
 import json
 import math
+import os
 import sys
 from collections import Counter, defaultdict, deque
 from pathlib import Path
@@ -39,6 +40,13 @@ TOPICS = (
     "/dep_car/local_route_command",
     "/tf",
     "/tf_static",
+    "/dep_car/lidar/bev",
+    "/odometry/filtered",
+    "/dep_car/policy_query",
+    "/dep_car/policy_candidates_raw",
+    "/dep_car/dagger_teacher_forward",
+    "/dep_car/dagger_teacher_reverse",
+    "/dep_car/cmd_ackermann",
 )
 
 
@@ -257,6 +265,123 @@ def decode_cloud(message, matrix):
     return output
 
 
+def decode_bev(message):
+    if message.encoding != "32FC6" or message.height != 160 or message.width != 160:
+        raise ValueError("recorded LiDAR BEV must be 32FC6 160x160")
+    values = np.frombuffer(message.data, dtype=np.float32)
+    if values.size != 6 * 160 * 160:
+        raise ValueError("recorded LiDAR BEV byte count is invalid")
+    return values.reshape(160, 160, 6).transpose(2, 0, 1).copy()
+
+
+def ground_truth_chassis_to_map(odom):
+    """Training-only static-map pose; never exposed to the deployed policy."""
+
+    yaw = yaw_from_quaternion(odom.pose.pose.orientation)
+    cosine, sine = math.cos(yaw), math.sin(yaw)
+    matrix = np.eye(4, dtype=np.float32)
+    matrix[0, 0], matrix[0, 1] = cosine, -sine
+    matrix[1, 0], matrix[1, 1] = sine, cosine
+    matrix[0, 3] = float(odom.pose.pose.position.x)
+    matrix[1, 3] = float(odom.pose.pose.position.y)
+    matrix[2, 3] = float(odom.pose.pose.position.z)
+    return matrix
+
+
+def route_from_policy_query(message, maximum_points=80):
+    rows = np.asarray(
+        [(pose.x, pose.y, pose.theta) for pose in message.route_corridor_body],
+        dtype=np.float32,
+    )
+    if rows.ndim != 2 or rows.shape[1:] != (3,) or len(rows) < 2:
+        raise ValueError("V4.3 policy query has no usable route corridor")
+    return rows[:maximum_points].copy()
+
+
+def selected_candidate(message):
+    feasible = [candidate for candidate in message.candidates if candidate.feasible]
+    if not feasible:
+        return None
+    selected_id = int(message.selected_candidate_id)
+    for candidate in feasible:
+        if int(candidate.candidate_id) == selected_id:
+            return candidate
+    return min(feasible, key=lambda item: (float(item.guidance_cost), int(item.candidate_id)))
+
+
+def teacher_candidate_cost(candidate, subgoal, gear, current_gear):
+    if candidate is None or not candidate.path.poses:
+        return float("inf"), -float("inf"), float("inf")
+    pose = candidate.path.poses[-1].pose
+    endpoint = np.asarray([pose.position.x, pose.position.y], dtype=np.float64)
+    target = np.asarray(subgoal, dtype=np.float64)
+    start_distance = float(np.linalg.norm(target))
+    end_distance = float(np.linalg.norm(target - endpoint))
+    progress = start_distance - end_distance
+    target_bearing = math.atan2(target[1] - endpoint[1], target[0] - endpoint[0])
+    terminal_yaw = yaw_from_quaternion(pose.orientation)
+    heading_error = abs(math.atan2(
+        math.sin(terminal_yaw - target_bearing),
+        math.cos(terminal_yaw - target_bearing),
+    ))
+    shift_penalty = 0.10 if int(current_gear) in (-1, 1) and int(current_gear) != int(gear) else 0.0
+    # Reverse is not forbidden: it pays a small efficiency cost only when a
+    # safe forward primitive produces comparable route progress.
+    reverse_penalty = 0.22 if int(gear) < 0 else 0.0
+    cost = end_distance + 0.28 * heading_error + shift_penalty + reverse_penalty
+    return cost, progress, heading_error
+
+
+def choose_dagger_teacher(forward_message, reverse_message, query, current_gear):
+    forward = selected_candidate(forward_message)
+    reverse = selected_candidate(reverse_message)
+    subgoal = (float(query.subgoal_body.x), float(query.subgoal_body.y))
+    f_cost, f_progress, f_heading = teacher_candidate_cost(
+        forward, subgoal, 1, current_gear
+    )
+    r_cost, r_progress, r_heading = teacher_candidate_cost(
+        reverse, subgoal, -1, current_gear
+    )
+    if forward is None and reverse is None:
+        # Do not discard precisely the closed-loop states DAgger is intended
+        # to correct.  This bank choice is storage-only; the exact signed
+        # Hybrid A* oracle at index time decides STOP/FORWARD/REVERSE and the
+        # complete multi-action sequence from both preserved banks.
+        preferred_gear = int(getattr(query, "requested_gear", 0))
+        if preferred_gear not in (-1, 1):
+            preferred_gear = -1 if subgoal[0] < -0.20 else 1
+        chosen = reverse_message if preferred_gear < 0 else forward_message
+        reason = "NO_HARD_SAFE_BANK_PRESERVED_FOR_OFFLINE_SEQUENCE_ORACLE"
+    elif forward is None:
+        chosen, reason = reverse_message, "REVERSE_ONLY_HARD_SAFE"
+    elif reverse is None:
+        chosen, reason = forward_message, "FORWARD_ONLY_HARD_SAFE"
+    else:
+        # A forward candidate that is making non-negative progress retains
+        # authority unless reverse offers a material geometric advantage.
+        reverse_advantage = f_cost - r_cost
+        route_is_rearward = subgoal[0] < -0.20
+        if (
+            (route_is_rearward and r_progress > f_progress + 0.08)
+            or reverse_advantage > 0.30
+            or (f_progress < -0.08 and r_progress > f_progress + 0.15)
+        ):
+            chosen, reason = reverse_message, "REVERSE_REQUIRED_FOR_ROUTE_ALIGNMENT"
+        else:
+            chosen, reason = forward_message, "FORWARD_PREFERRED_WHEN_COMPARABLY_SAFE"
+    diagnostics = {
+        "forward_hard_safe": forward is not None,
+        "reverse_hard_safe": reverse is not None,
+        "forward_cost": f_cost,
+        "forward_progress_m": f_progress,
+        "forward_heading_error_rad": f_heading,
+        "reverse_cost": r_cost,
+        "reverse_progress_m": r_progress,
+        "reverse_heading_error_rad": r_heading,
+    }
+    return chosen, int(chosen.requested_gear), reason, diagnostics
+
+
 def actual_steering(message, simulator_positive_right=True):
     positions = dict(zip(message.name, message.position))
     left, right = positions["front_left_steer_joint"], positions["front_right_steer_joint"]
@@ -337,6 +462,59 @@ def core_candidates(message):
     return output
 
 
+def dagger_bank_arrays(message, prefix):
+    """Preserve both hard-vetoed banks for the offline sequence oracle.
+
+    The extraction-time one-step selector remains diagnostic metadata only.
+    V4.3 training chooses the first bank from an exact signed plan produced at
+    index time, so both alternatives must remain available in the sample.
+    """
+
+    values = core_candidates(message)
+    if len(values) != 15:
+        raise ValueError("V4.3 teacher bank must contain exactly 15 candidates")
+    return {
+        "dagger_%s_trajectories" % prefix: np.stack(
+            [np.asarray(value.trajectory, dtype=np.float32) for value in values]
+        ),
+        "dagger_%s_feasible" % prefix: np.asarray(
+            [value.feasible for value in values], dtype=np.uint8
+        ),
+        "dagger_%s_static_clearance" % prefix: np.asarray(
+            [value.static_clearance for value in values], dtype=np.float32
+        ),
+        "dagger_%s_guidance_cost" % prefix: np.asarray(
+            [value.guidance_cost for value in values], dtype=np.float32
+        ),
+    }
+
+
+def append_dagger_arrays(path, arrays):
+    """Atomically extend a V4.3 sample without changing the frozen V2 writer."""
+
+    path = Path(path)
+    extras = {}
+    for name, value in arrays.items():
+        if not str(name).startswith("dagger_"):
+            raise ValueError("V4.3 arrays must use the dagger_ namespace")
+        array = np.asarray(value)
+        if array.dtype.kind in "fc" and not np.all(np.isfinite(array)):
+            raise ValueError("V4.3 arrays must be finite")
+        extras[str(name)] = array
+    with np.load(path, allow_pickle=False) as archive:
+        collision = set(archive.files) & set(extras)
+        base = {name: np.asarray(archive[name]) for name in archive.files}
+    # Re-extraction intentionally replaces earlier V4.3 arrays with the same
+    # names, but a base-contract collision remains impossible.
+    for name in collision:
+        if not name.startswith("dagger_"):
+            raise ValueError("V4.3 array collides with the base sample contract")
+        base.pop(name)
+    temporary = path.with_name(path.name + ".v43.tmp.npz")
+    np.savez_compressed(str(temporary), **base, **extras)
+    os.replace(temporary, path)
+
+
 def file_hash(path):
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -354,11 +532,19 @@ def main():
     parser.add_argument("--simulator-seed", type=int, default=-1)
     parser.add_argument("--stride", type=int, default=1)
     parser.add_argument("--maximum-samples", type=int, default=0)
+    parser.add_argument(
+        "--maximum-duration-s", type=float, default=0.0,
+        help="limit accepted synchronized frames by their recorded timestamps",
+    )
     parser.add_argument("--embed-raw-lidar", action="store_true", help="duplicate raw points into NPZ for diagnostics")
     parser.add_argument("--task-id", default="")
     parser.add_argument("--task-manifest-sha256", default="")
     parser.add_argument("--maneuver-mode", choices=sorted(MANEUVER_MODES))
     parser.add_argument("--episode-result", type=Path)
+    parser.add_argument(
+        "--dagger-v43", action="store_true",
+        help="label re-observed guarded-policy states with two-bank route/safety teacher",
+    )
     args = parser.parse_args()
     episode_result = {}
     if args.episode_result:
@@ -376,6 +562,7 @@ def main():
         values.sort(key=lambda item: item[0])
     graph = build_tf_graph(tf_messages)
     accepted, rejected = 0, Counter()
+    accepted_start_stamp = None
     bag_sha256 = file_hash(args.bag)
     anchors = streams["/velodyne_points"][::max(1, args.stride)]
     bev_contract = lidar_bev_preprocessing_contract(LidarBEVConfig())
@@ -387,10 +574,22 @@ def main():
             "odom": interpolate_odometry(streams["/base_pose_ground_truth"], lidar_stamp, 0.02),
             "joint_state": interpolate_joint_state(streams["/urban_model/joint_states"], lidar_stamp, 0.05),
             "imu": interpolate_imu(streams["/imu/data"], lidar_stamp, 0.02),
-            "candidates": nearest(streams["/dep_car/candidates"], lidar_stamp, 0.15),
             "route": latest(streams["/dep_car/global_route"], lidar_stamp),
             "route_command": latest(streams["/dep_car/local_route_command"], lidar_stamp),
         }
+        if args.dagger_v43:
+            matches.update({
+                "bev": nearest(streams["/dep_car/lidar/bev"], lidar_stamp, 0.05),
+                "policy_query": nearest(streams["/dep_car/policy_query"], lidar_stamp, 0.15),
+                "policy_raw": nearest(streams["/dep_car/policy_candidates_raw"], lidar_stamp, 0.30),
+                "teacher_forward": nearest(streams["/dep_car/dagger_teacher_forward"], lidar_stamp, 0.15),
+                "teacher_reverse": nearest(streams["/dep_car/dagger_teacher_reverse"], lidar_stamp, 0.15),
+                "executed_command": latest(streams["/dep_car/cmd_ackermann"], lidar_stamp),
+            })
+        else:
+            matches["candidates"] = nearest(
+                streams["/dep_car/candidates"], lidar_stamp, 0.15
+            )
         missing = [name for name, value in matches.items() if value is None]
         if missing:
             rejected["missing_" + "+".join(missing)] += 1
@@ -400,7 +599,6 @@ def main():
             odom, odom_interpolation = matches["odom"]
             joints, joint_interpolation = matches["joint_state"]
             imu, imu_interpolation = matches["imu"]
-            candidate_stamp, candidate_index, candidate_message = matches["candidates"]
             route_stamp, route_index, route = matches["route"]
             command_stamp, command_index, route_command = matches["route_command"]
             matrix = resolve_transform(graph, "chassis", cloud.header.frame_id, lidar_stamp)
@@ -409,35 +607,105 @@ def main():
             depth, depth_validity = decode_depth(depth_message)
             points = decode_cloud(cloud, matrix)
             environment_points = filter_lidar_obstacles(points)
-            candidate_requested_gear = Gear(int(candidate_message.requested_gear))
-            recovery_mode = bool(getattr(candidate_message, "recovery_mode", False)) or (
-                int(candidate_requested_gear) != int(route_command.requested_gear)
-            )
-            if recovery_mode:
-                path, path_gears, gx, gy = recovery_route(candidate_message)
-            else:
-                path, path_gears = local_route(route, odom)
-                gx, gy = body_xy(route_command.target.position.x, route_command.target.position.y, odom)
             vehicle_yaw = yaw_from_quaternion(odom.pose.pose.orientation)
-            if recovery_mode:
-                heading_error = 0.0
-            else:
-                target_yaw = yaw_from_quaternion(route_command.target.orientation)
-                heading_error = math.atan2(math.sin(target_yaw - vehicle_yaw), math.cos(target_yaw - vehicle_yaw))
             speed = signed_body_speed(odom)
-            state = np.asarray([
-                speed, imu.linear_acceleration.x, actual_steering(joints), imu.angular_velocity.z,
-                gx, gy, math.sin(heading_error), math.cos(heading_error), reference_curvature(path),
-            ], dtype=np.float32)
             current_gear = Gear.NEUTRAL if abs(speed) < 0.03 else (Gear.FORWARD if speed > 0 else Gear.REVERSE)
+            dagger_metadata = {}
+            dagger_arrays = {}
+            if args.dagger_v43:
+                _bev_stamp, _bev_index, bev_message = matches["bev"]
+                _query_stamp, _query_index, policy_query = matches["policy_query"]
+                _raw_stamp, _raw_index, policy_raw = matches["policy_raw"]
+                _forward_stamp, _forward_index, teacher_forward = matches["teacher_forward"]
+                _reverse_stamp, _reverse_index, teacher_reverse = matches["teacher_reverse"]
+                _command_stamp, _command_index, executed_command = matches["executed_command"]
+                selected_bank, teacher_gear, teacher_reason, teacher_diagnostics = choose_dagger_teacher(
+                    teacher_forward, teacher_reverse, policy_query, int(policy_raw.current_gear)
+                )
+                candidate_message = selected_bank
+                candidate_requested_gear = Gear(int(teacher_gear))
+                if int(candidate_requested_gear) > 0:
+                    candidate_stamp, candidate_index = _forward_stamp, _forward_index
+                    candidate_topic = "/dep_car/dagger_teacher_forward"
+                else:
+                    candidate_stamp, candidate_index = _reverse_stamp, _reverse_index
+                    candidate_topic = "/dep_car/dagger_teacher_reverse"
+                current_gear = Gear(int(policy_raw.current_gear))
+                recovery_mode = bool(policy_query.recovery_mode)
+                path = route_from_policy_query(policy_query)
+                path_gears = np.full(len(path), int(candidate_requested_gear), dtype=np.int8)
+                gx, gy = float(policy_query.subgoal_body.x), float(policy_query.subgoal_body.y)
+                heading_error = float(policy_query.heading_error)
+                map_matrix = ground_truth_chassis_to_map(odom)
+                processed_bev = decode_bev(bev_message)
+                raw_candidates = list(policy_raw.candidates)
+                raw_selected = min(
+                    raw_candidates,
+                    key=lambda item: (float(item.learned_score), int(item.candidate_id)),
+                ) if raw_candidates else None
+                raw_sequence = (
+                    [int(value) for value, keep in zip(raw_selected.action_gears, raw_selected.action_mask) if keep]
+                    if raw_selected is not None else []
+                )
+                dagger_metadata = {
+                    "dagger_schema": "DEPCarV43ClosedLoopObservationV1",
+                    "dagger_reobserved_state": True,
+                    "dagger_teacher_gear": int(candidate_requested_gear),
+                    "dagger_teacher_reason": teacher_reason,
+                    "dagger_teacher_diagnostics": teacher_diagnostics,
+                    "dagger_model_raw_sequence": raw_sequence,
+                    "dagger_executed_gear": int(executed_command.gear),
+                    "dagger_gear_history": [float(value) for value in policy_raw.gear_history],
+                    "dagger_policy_generation": int(policy_raw.generation),
+                    "dagger_ground_truth_used_for_offline_map_label_only": True,
+                }
+                dagger_arrays.update(dagger_bank_arrays(teacher_forward, "forward"))
+                dagger_arrays.update(dagger_bank_arrays(teacher_reverse, "reverse"))
+            else:
+                candidate_stamp, candidate_index, candidate_message = matches["candidates"]
+                candidate_requested_gear = Gear(int(candidate_message.requested_gear))
+                recovery_mode = bool(getattr(candidate_message, "recovery_mode", False)) or (
+                    int(candidate_requested_gear) != int(route_command.requested_gear)
+                )
+                if recovery_mode:
+                    path, path_gears, gx, gy = recovery_route(candidate_message)
+                    heading_error = 0.0
+                else:
+                    path, path_gears = local_route(route, odom)
+                    gx, gy = body_xy(
+                        route_command.target.position.x,
+                        route_command.target.position.y,
+                        odom,
+                    )
+                    target_yaw = yaw_from_quaternion(route_command.target.orientation)
+                    heading_error = math.atan2(
+                        math.sin(target_yaw - vehicle_yaw),
+                        math.cos(target_yaw - vehicle_yaw),
+                    )
+                processed_bev = build_lidar_bev(environment_points, LidarBEVConfig())
+                candidate_topic = "/dep_car/candidates"
+            state = np.asarray([
+                speed, imu.linear_acceleration.x, actual_steering(joints),
+                imu.angular_velocity.z, gx, gy, math.sin(heading_error),
+                math.cos(heading_error), reference_curvature(path),
+            ], dtype=np.float32)
+            if accepted_start_stamp is None:
+                accepted_start_stamp = float(lidar_stamp)
+            if (
+                args.maximum_duration_s > 0.0
+                and float(lidar_stamp) - accepted_start_stamp
+                > args.maximum_duration_s + 1.0e-6
+            ):
+                break
             sample_id = "%s-%06d" % (args.bag.stem, accepted)
+            sample_path = args.output / args.map_uuid / (sample_id + ".npz")
             save_multimodal_sample(
-                args.output / args.map_uuid / (sample_id + ".npz"),
+                sample_path,
                 map_uuid=args.map_uuid,
                 depth_metric=depth,
                 depth_validity=depth_validity,
                 lidar_points=points if args.embed_raw_lidar else None,
-                lidar_bev=build_lidar_bev(environment_points, LidarBEVConfig()),
+                lidar_bev=processed_bev,
                 imu_measurement=imu_vector(imu),
                 vehicle_state=state,
                 current_gear=current_gear,
@@ -468,7 +736,10 @@ def main():
                         "odom_after": raw_message_reference("/base_pose_ground_truth", bracket(streams["/base_pose_ground_truth"], lidar_stamp, 0.02)[1]),
                         "joint_before": raw_message_reference("/urban_model/joint_states", bracket(streams["/urban_model/joint_states"], lidar_stamp, 0.05)[0]),
                         "joint_after": raw_message_reference("/urban_model/joint_states", bracket(streams["/urban_model/joint_states"], lidar_stamp, 0.05)[1]),
-                        "candidates": raw_message_reference("/dep_car/candidates", matches["candidates"]),
+                        "candidates": raw_message_reference(
+                            candidate_topic,
+                            (candidate_stamp, candidate_index, candidate_message),
+                        ),
                         "route": raw_message_reference("/dep_car/global_route", (route_stamp, route_index, route)),
                         "route_command": raw_message_reference("/dep_car/local_route_command", (command_stamp, command_index, route_command)),
                     },
@@ -495,8 +766,11 @@ def main():
                     "pilot_episode_status": episode_result.get("status", ""),
                     "pilot_episode_result_schema": episode_result.get("schema", ""),
                     "candidate_context": "RECOVERY" if recovery_mode else "MISSION",
+                    **dagger_metadata,
                 },
             )
+            if dagger_arrays:
+                append_dagger_arrays(sample_path, dagger_arrays)
             accepted += 1
         except Exception as exc:
             rejected[type(exc).__name__ + ":" + str(exc)[:80]] += 1

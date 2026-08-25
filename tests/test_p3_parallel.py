@@ -70,6 +70,32 @@ def test_p3_recorder_defaults_to_bz2_without_changing_config_contract():
     assert commands[2][-1] == "lz4"
 
 
+def test_v43_collection_accepts_raw_dual_bank_hard_veto_observations():
+    module = load_collection_module()
+    task = {
+        "task_id": "task", "map_uuid": "map", "map_split": "train",
+        "world": "data/map.world", "map_yaml": "data/map.yaml",
+        "start": [0.0, 0.0, 0.0], "goal": [-1.0, 0.0, 3.14],
+        "maneuver_mode": "DEAD_END_ESCAPE",
+        "map_occupancy_sha256": "b" * 64, "map_seed": 1, "task_seed": 2,
+    }
+    collection = {
+        "pipeline": "p6_v43_dagger", "startup_timeout_s": 90,
+        "episode_timeout_s": 45, "extraction_stride": 2,
+        "checkpoint": "model.pth", "checkpoint_contract": "model.json",
+        "p6_authority": "authority.json", "policy_python": "/usr/bin/python3",
+    }
+    commands = module.task_commands(
+        task, collection, ROOT / "data/test-run",
+        {"DEP_CAR_P3_TASK_MANIFEST_SHA256": "a" * 64}, 11321,
+    )
+    runner, extractor = commands[3], commands[4]
+    assert "--dagger-v43" in runner
+    assert "--dagger-v43" in extractor
+    duration = extractor.index("--maximum-duration-s")
+    assert extractor[duration + 1] == "45"
+
+
 def test_lidar_costmap_does_not_duplicate_planning_inflation():
     config = ROOT / "ros/dep_car_perception/config/lidar.yaml"
     content = config.read_text(encoding="utf-8")

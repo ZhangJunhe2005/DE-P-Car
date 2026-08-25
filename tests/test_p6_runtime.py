@@ -49,8 +49,15 @@ from dep_car.runtime.route_guidance import (
     visible_corridor_subgoal,
 )
 from dep_car.runtime.safety import (
+    evaluate_hybrid_sequence_candidate_bank,
     evaluate_learned_candidate_bank,
+    hybrid_sequence_kinematic_veto_reason,
     kinematic_veto_reason,
+)
+from dep_car.runtime.hybrid_sequence import JointGearHistoryTracker
+from dep_car.runtime.hybrid_execution import (
+    HybridFirstActionLatch,
+    align_trajectory_between_chassis_frames,
 )
 from dep_car.runtime.start_robustness import audit_start_robustness
 
@@ -144,6 +151,197 @@ def test_learned_bank_applies_hard_veto_before_score_ranking():
     assert not result.candidates[0].feasible
     assert result.candidates[0].veto_reason == "static_footprint_collision"
     assert result.selected.candidate_id == 1
+
+
+def hybrid_candidate(candidate_id, score=0.0):
+    time = np.linspace(0.0, 3.0, 31)
+    value = Candidate(
+        candidate_id=candidate_id,
+        speed_anchor=0.1,
+        steering_anchor=0.0,
+        duration=0.5,
+        trajectory=np.column_stack(
+            (
+                time,
+                0.1 * time,
+                np.zeros(31),
+                np.zeros(31),
+                np.full(31, 0.1),
+                np.zeros(31),
+            )
+        ),
+        gear=Gear.FORWARD,
+        learned_score=score,
+    )
+    value.action_gears = np.ones(6, dtype=np.int8)
+    value.action_mask = np.ones(6, dtype=bool)
+    value.action_durations = np.full(6, 0.5)
+    value.shift_required = np.zeros(6, dtype=bool)
+    value.transition_duration = np.zeros(6)
+    value.motion_gears = np.ones(31, dtype=np.int8)
+    return value
+
+
+def test_hybrid_sequence_hard_veto_covers_complete_31_row_trajectory():
+    grid = OccupancyGrid2D(
+        np.zeros((200, 200), dtype=np.int16), 0.1, (-10.0, -10.0)
+    )
+    candidates = [hybrid_candidate(index, float(index)) for index in range(15)]
+    candidates[0].trajectory[-1, 1] = 20.0
+    result = evaluate_hybrid_sequence_candidate_bank(
+        candidates, (1.0, 0.0), grid
+    )
+    assert result.executable
+    assert result.selected.candidate_id == 1
+    assert result.candidates[0].veto_reason == "static_footprint_collision"
+
+
+def test_hybrid_sequence_rejects_hidden_opposite_action_motion():
+    value = hybrid_candidate(0)
+    value.action_gears[2] = -1
+    assert (
+        hybrid_sequence_kinematic_veto_reason(value)
+        == "hybrid_action_opposite_motion"
+    )
+
+
+def test_online_joint_gear_history_uses_measured_motion_and_retains_stop_gear():
+    tracker = JointGearHistoryTracker()
+    current, history = tracker.observe(1.0, 0.4)
+    assert current == 1 and history[0] == 1
+    current, history = tracker.observe(1.5, 0.0)
+    assert current == 0 and history[0] == 1
+    current, history = tracker.observe(2.0, -0.3, recovery_mode=True)
+    assert current == -1 and history[0] == -1
+    assert history[4] == 1 and history[5] == 1
+
+
+def test_hybrid_first_action_latch_preserves_learned_gear_not_old_candidate():
+    reverse = candidate(0, score=0.0, speed=-0.1, x_end=-0.1, gear=Gear.REVERSE)
+    forward = candidate(1, score=1.0, gear=Gear.FORWARD)
+    reverse.action_durations = np.full(6, 0.5)
+    forward.action_durations = np.full(6, 0.5)
+    initial = PlanningResult(
+        selected=reverse,
+        candidates=[reverse, forward],
+        retime_factor=1.0,
+        blocked_by_static=False,
+        blocked_by_dynamic=False,
+        generation=1,
+    )
+    latch = HybridFirstActionLatch()
+    selected, reason = latch.select(initial, 0.0)
+    assert selected.selected.gear == Gear.REVERSE
+    assert reason == "new_model_sequence"
+    assert latch.observe_drive_authorized(1.0, Gear.REVERSE)
+
+    # A fresh score can choose a new trajectory, but it cannot cancel the
+    # learned reverse action before its own duration has elapsed.
+    forward.learned_score = 0.0
+    reverse.learned_score = 2.0
+    refreshed = PlanningResult(
+        selected=forward,
+        candidates=[reverse, forward],
+        retime_factor=1.0,
+        blocked_by_static=False,
+        blocked_by_dynamic=False,
+        generation=2,
+    )
+    selected, reason = latch.select(refreshed, 1.2)
+    assert selected.selected.gear == Gear.REVERSE
+    assert selected.selected.candidate_id == reverse.candidate_id
+    assert reason == "committed_sequence_action_0"
+
+    selected, reason = latch.select(refreshed, 1.6)
+    assert selected.selected.gear == Gear.FORWARD
+    assert reason == "new_model_sequence"
+
+
+def test_hybrid_first_action_latch_never_overrides_current_hard_veto():
+    reverse = candidate(0, score=0.0, speed=-0.1, x_end=-0.1, gear=Gear.REVERSE)
+    forward = candidate(1, score=1.0, gear=Gear.FORWARD)
+    reverse.action_durations = np.full(6, 1.0)
+    forward.action_durations = np.full(6, 1.0)
+    result = PlanningResult(
+        selected=reverse,
+        candidates=[reverse, forward],
+        retime_factor=1.0,
+        blocked_by_static=False,
+        blocked_by_dynamic=False,
+        generation=1,
+    )
+    latch = HybridFirstActionLatch()
+    latch.select(result, 0.0)
+    latch.observe_drive_authorized(0.0, Gear.REVERSE)
+    reverse.feasible = False
+    result.selected = forward
+    selected, reason = latch.select(result, 0.1)
+    assert not selected.executable
+    assert reason == "committed_sequence_action_unavailable"
+    # It never executes the vetoed reverse trajectory.  If that committed
+    # gear stays unavailable for the bounded safety wait, a fresh complete
+    # model sequence may acquire control.
+    selected, reason = latch.select(result, 1.0)
+    assert selected.selected.gear == Gear.FORWARD
+    assert reason == "new_model_sequence"
+
+
+def test_hybrid_sequence_latch_advances_model_prefix_across_replans():
+    reverse = candidate(0, score=0.0, speed=-0.1, x_end=-0.1, gear=Gear.REVERSE)
+    forward = candidate(1, score=1.0, gear=Gear.FORWARD)
+    reverse.action_gears = np.asarray([-1, 1, -1, 0, 0, 0], dtype=np.int8)
+    reverse.action_mask = np.asarray([1, 1, 1, 0, 0, 0], dtype=bool)
+    reverse.action_durations = np.asarray([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+    forward.action_gears = np.asarray([1, -1, 1, 0, 0, 0], dtype=np.int8)
+    forward.action_mask = np.asarray([1, 1, 1, 0, 0, 0], dtype=bool)
+    forward.action_durations = np.asarray([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+    result = PlanningResult(
+        selected=reverse,
+        candidates=[reverse, forward],
+        retime_factor=1.0,
+        blocked_by_static=False,
+        blocked_by_dynamic=False,
+        generation=1,
+    )
+    latch = HybridFirstActionLatch()
+    selected, reason = latch.select(result, 0.0)
+    assert reason == "new_model_sequence"
+    assert latch.locked_sequence == (-1, 1, -1)
+    assert latch.observe_drive_authorized(0.0, Gear.REVERSE)
+
+    # Even though receding-horizon ranking still prefers a new reverse-first
+    # plan, the next action of the already selected model sequence is forward.
+    selected, reason = latch.select(result, 0.6)
+    assert selected.selected.gear == Gear.FORWARD
+    assert reason == "committed_sequence_action_1"
+    assert latch.action_index == 1
+
+
+def test_hybrid_motion_veto_allows_only_sub_deadband_shift_residual():
+    value = hybrid_candidate(0)
+    value.trajectory[0, 4] = -0.02
+    value.motion_gears[0] = 1
+    assert hybrid_sequence_kinematic_veto_reason(value) == ""
+    value.trajectory[0, 4] = -0.04
+    assert hybrid_sequence_kinematic_veto_reason(value) == "hybrid_opposite_motion"
+
+
+def test_delayed_hybrid_trajectory_is_rigidly_aligned_to_current_chassis():
+    value = trajectory(speed=0.2, x_end=1.0)
+    value[:, 2] = np.linspace(0.0, 0.3, len(value))
+    value[:, 3] = 0.2
+    aligned = align_trajectory_between_chassis_frames(
+        value,
+        anchor_pose=(2.0, 3.0, math.pi / 2.0),
+        current_pose=(2.0, 3.5, math.pi / 2.0),
+    )
+    # The vehicle moved 0.5 m along its old +x while CUDA was evaluating.
+    assert np.allclose(aligned[:, 1], value[:, 1] - 0.5, atol=1.0e-9)
+    assert np.allclose(aligned[:, 2], value[:, 2], atol=1.0e-9)
+    assert np.allclose(aligned[:, 3], value[:, 3], atol=1.0e-9)
+    assert np.allclose(aligned[:, (0, 4, 5)], value[:, (0, 4, 5)])
+    # The source candidate remains immutable to the caller.
+    assert value[0, 1] == 0.0
 
 
 def test_p6_runtime_contract_covers_ros_policy_and_safety_boundary():

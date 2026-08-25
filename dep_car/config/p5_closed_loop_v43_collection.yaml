@@ -1,0 +1,25 @@
+schema: DEPCarV43DaggerCollectionContractV1
+collection:
+  pipeline: p6_v43_dagger
+  ros_master_port: 11821
+  gazebo_master_port: 11851
+  startup_timeout_s: 120
+  episode_timeout_s: 45
+  shutdown_timeout_s: 30
+  extraction_stride: 2
+  minimum_samples_per_episode: 20
+  minimum_free_disk_gb: 30
+  keep_bags: true
+  bag_compression: lz4
+  checkpoint: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.pth
+  checkpoint_contract: models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.contract.json
+  p6_authority: models/dep_car/p5_hybrid_sequence_v42/fusion_guarded_simulation.authority.json
+  policy_python: /home/zjh/miniconda3/envs/yopo/bin/python
+
+authority_boundary:
+  executed_policy: V4.2_GUARDED
+  teacher_controls_vehicle: false
+  teacher_labels_both_gear_banks: true
+  runtime_ground_truth_input: false
+  offline_ground_truth_static_map_label: true
+  test_split_sealed: true

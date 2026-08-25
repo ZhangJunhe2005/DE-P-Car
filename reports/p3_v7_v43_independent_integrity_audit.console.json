@@ -1,0 +1,85 @@
+{
+  "authority": "/home/zjh/DE-P-Car/data/p3_v7_v43/index/closed_loop_data_authority.json",
+  "authority_content_sha256": "957f37a72bac9c6aafc414bb5a573fb40a12c27b6835a5314e09eb881563b6f3",
+  "authority_file_sha256": "045cef9e02a48b7c1b70ad123178382f86ece0154af70bb615f913e937bf4330",
+  "episodes": 80,
+  "errors": [],
+  "file_hashes": {
+    "authority": "045cef9e02a48b7c1b70ad123178382f86ece0154af70bb615f913e937bf4330",
+    "collection_state": "dd0ba5ff86ca432ab1e431bfe28ceeb9aa338f49b86f5f911c138dc23704cee7",
+    "manifest": "de437d2d63533a27fc5c7d791ec10f11ef145100c1206fb4abed3b72c98d8f70",
+    "sequence_index": "93f96cb19fc5bb2c8f8a755350e3aba6d602bf864c8662d5c7afe3e82f9d8245",
+    "training_index": "9e7d81a5ba0af40adf5d08ce449d9b7030fbd56e203957a3f767db09028df059"
+  },
+  "gates": {
+    "all_episodes_complete": true,
+    "authority_internal_sha256": true,
+    "authority_references_current_files": true,
+    "collection_config_sha256": true,
+    "content_aggregate_sha256": true,
+    "episode_timestamp_window_bounded": true,
+    "exact_teacher_plan_success": true,
+    "implementation_hashes_current": true,
+    "manifest_internal_sha256": true,
+    "map_contract_aggregate_sha256": true,
+    "one_current_bag_per_task": true,
+    "recovered_episode_weight_bounded": true,
+    "recovery_evidence_valid": true,
+    "sample_content_hashes_and_contracts": true,
+    "sample_ids_unique": true,
+    "sample_root_exactly_matches_index": true,
+    "sealed_test_split": true,
+    "sequence_contracts_valid": true,
+    "sequence_internal_sha256": true,
+    "sequence_rows_exactly_match_samples": true,
+    "sequence_statistics_match_authority": true,
+    "task_set_exactly_matches_manifest": true,
+    "train_validation_maps_disjoint": true
+  },
+  "implementation_errors": [],
+  "maximum_episode_timestamp_span_s": 45.0,
+  "per_task_samples": {
+    "maximum": 226,
+    "median": 114.0,
+    "minimum": 31
+  },
+  "recovered_sample_ratios_to_same_mode_median": {
+    "p3v3_5985913e480fa94d": 2.0925925925925926,
+    "p3v3_5ee3d095be1d3886": 2.0925925925925926,
+    "p3v3_8aa99886e340fc90": 2.0925925925925926
+  },
+  "recovered_tasks": [
+    "p3v3_5985913e480fa94d",
+    "p3v3_5ee3d095be1d3886",
+    "p3v3_8aa99886e340fc90"
+  ],
+  "sample_error_count": 0,
+  "sample_errors": {},
+  "samples": 9305,
+  "schema": "DEPCarV43IndependentIntegrityAuditV1",
+  "sequence_errors": [],
+  "sequence_patterns": {
+    "F": 6445,
+    "F-R": 102,
+    "F-R-F": 894,
+    "R": 473,
+    "R-F": 1320,
+    "R-F-R": 60,
+    "R-F-R-F": 11
+  },
+  "status": "PASS",
+  "teacher": {
+    "attempt_statuses": {
+      "SUCCESS": 9305
+    },
+    "expansions_maximum": 5508,
+    "expansions_median": 55,
+    "expansions_p95": 2074.0,
+    "final_success_rate": 1.0,
+    "target_sources": {
+      "ROUTE_CORRIDOR": 8605,
+      "TASK_GOAL_FALLBACK": 700
+    }
+  },
+  "test_split_opened": false
+}

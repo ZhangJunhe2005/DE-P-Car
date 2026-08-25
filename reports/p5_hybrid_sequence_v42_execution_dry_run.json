@@ -1,0 +1,56 @@
+{
+  "active_control_authorized": false,
+  "architecture_id": "dep_car_multimodal_v42_calibrated_hybrid_sequence_execution_15x6",
+  "auditor_sha256": "99a4c8bf194e66d65358165c7e4ffd3c38e4d5d172d833ef5998aad06a689beb",
+  "config": "/home/zjh/DE-P-Car/dep_car/config/p5_hybrid_sequence_v42_execution.yaml",
+  "config_sha256": "b3a442fb5fa114979360fa2cb26c14d96773260c4e3eb83070aa604a8a3bf141",
+  "data_authority_gate": {
+    "bundle_authority": "/home/zjh/DE-P-Car/data/p3_v4/bundle_v1/bundle_authority.json",
+    "bundle_authority_sha256": "9d4ce9dab93e40414eb1ddc587d685a2e2624d0b8a91c629a25e09faee6b62f4",
+    "continuous_sequence_authority": "FIRST_ACTION_ONLY",
+    "errors": [],
+    "hybrid_sequence_audit": "/home/zjh/DE-P-Car/reports/p3_v6_hybrid_sequence_audit.json",
+    "hybrid_sequence_audit_sha256": "d1e51d95cdf481fa135fcffb4d196e57e03522864540cddfd63a4d894a0541f0",
+    "inherited_v4_contract": "/home/zjh/DE-P-Car/dep_car/config/p5_hybrid_sequence_v4.yaml",
+    "later_action_supervision": "DIFFERENTIABLE_ROLLOUT_ROUTE_MAP",
+    "passed": true,
+    "samples": {
+      "train": 35940,
+      "validation": 9440
+    },
+    "schema": "DEPCarV41DataGateV1",
+    "sequence_authority": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_authority.json",
+    "sequence_authority_sha256": "be18ed8b2db8467c7bdae27392ca9d48ae47a5db192e6b49604c0cb60af4eb0b",
+    "sequence_index": "/home/zjh/DE-P-Car/data/p3_v5/joint_gear_sequence_index.json",
+    "sequence_index_sha256": "1be1d48e9e3f554fe3d971d8b756bb6cd0c00ffb63c2218a64ab10f24425b238",
+    "test_split_sealed": true
+  },
+  "mandatory_hard_veto": true,
+  "production_qualified": false,
+  "safety_risk_weight": 0.0,
+  "schema": "DEPCarV42ExecutionAuditPlanV1",
+  "source_checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.pth",
+  "source_checkpoint_sha256": "f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff",
+  "source_gate": {
+    "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.pth",
+    "checkpoint_contract": "/home/zjh/DE-P-Car/models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.contract.json",
+    "checkpoint_contract_sha256": "780ecb4a2cc4ce3d1b603d963b53f1dfb367709cfb890c263c8b87cd73888b8b",
+    "checkpoint_sha256": "f0fa2735478a840d2384d55464b3d1f70c1132fb38eeb06a8703da476e384fff",
+    "legacy_acceptance": "/home/zjh/DE-P-Car/models/dep_car/p5_hybrid_sequence_v41/fusion_hierarchical_score.best.acceptance.json",
+    "legacy_acceptance_sha256": "3c344cb75aeaee020ac72d8658ae2c62b60af4011ad96bbf5941071d2fd37177",
+    "legacy_failed_checks": [
+      "mean_oracle_regret",
+      "selected_hard_feasible_rate"
+    ],
+    "mandatory_hard_veto": true,
+    "pareto_audit": "/home/zjh/DE-P-Car/reports/p5_hybrid_sequence_v41_execution_pareto_audit.json",
+    "pareto_audit_sha256": "76b55ba3bdb611696ec9065a74b7a4b340525997b573f47edfa912fc901e0529",
+    "passed": true,
+    "schema": "DEPCarV42SourceGateV1",
+    "test_split_accessed": false
+  },
+  "status": "DRY_RUN_READY",
+  "test_split_sealed": true,
+  "training_required": false,
+  "viability_risk_weight": 8.0
+}

@@ -1,0 +1,50 @@
+{
+  "baseline": {
+    "mean_oracle_regret": 0.051867444068193436,
+    "selected_hard_feasible_rate": 0.8957627118644068,
+    "selected_viable_rate": 0.42828389830508473
+  },
+  "best_static_logit_policy": {
+    "mean_oracle_regret": 0.26020747423171997,
+    "safety_weight": 16.0,
+    "selected_hard_feasible_rate": 0.9516949152542373,
+    "selected_viable_rate": 0.4222457627118644,
+    "viability_weight": 0.0
+  },
+  "checkpoint": "/home/zjh/DE-P-Car/models/dep_car/p5_hybrid_sequence_v4/fusion_hybrid_sequence_score.best.pth",
+  "checkpoint_sha256": "3c1fb0d9a2140d6d1f686f48921ed33352f44983a0aa8bfe9fe5789cf12dedda",
+  "conclusion": "RETRAIN_SAFETY_VIABILITY_AND_SCORE_AS_HIERARCHICAL_V41",
+  "oracle_hard_veto_then_score": {
+    "mean_oracle_regret": 0.04726719483733177,
+    "selected_hard_feasible_rate": 0.9648305084745763,
+    "selected_viable_rate": 0.44290254237288135
+  },
+  "oracle_viability_hierarchy_then_score": {
+    "mean_oracle_regret": 0.10437934845685959,
+    "selected_hard_feasible_rate": 0.9648305084745763,
+    "selected_viable_rate": 0.7487288135593221
+  },
+  "production_qualified": false,
+  "safety_head": {
+    "accuracy": 0.9190324858757062,
+    "fn": 1799,
+    "fp": 9666,
+    "precision": 0.9250034914575671,
+    "recall": 0.9851345656467166,
+    "tn": 10915,
+    "tp": 119220
+  },
+  "samples": 9440,
+  "schema": "DEPCarV4ScoreHierarchyDiagnosticV1",
+  "status": "DIAGNOSTIC_COMPLETE",
+  "test_split_accessed": false,
+  "viability_head": {
+    "accuracy": 0.9335098870056497,
+    "fn": 4048,
+    "fp": 5367,
+    "precision": 0.904811734033308,
+    "recall": 0.926485544094145,
+    "tn": 81169,
+    "tp": 51016
+  }
+}

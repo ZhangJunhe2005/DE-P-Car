@@ -25,6 +25,9 @@ data/arena_maps/
 data/p3_pilot/
 data/p3_v3/
 data/p3_v4/
+data/p3_v5/
+data/p3_v6/
+data/p3_v7_v43/
 data/p6_static/
 !data/**/.gitkeep
 *.bag
@@ -34,6 +37,24 @@ models/dep_car/p5/
 models/dep_car/p5_v2/
 models/dep_car/p5_score_v1/
 models/dep_car/p5_route_v2/
+
+# Iterative learned-gear and hybrid-sequence training runs are reproducible
+# local artifacts.  Keep only the formally accepted V4.3 checkpoint needed by
+# the current P6 shadow entry; do not upload pilots, optimizer states or failed
+# intermediate checkpoints.
+models/dep_car/p5_joint_gear_v3/
+models/dep_car/p5_joint_gear_v31/
+models/dep_car/p5_joint_gear_v32/
+models/dep_car/p5_joint_gear_v33/
+models/dep_car/p5_joint_gear_v331/
+models/dep_car/p5_hybrid_sequence_v4/
+models/dep_car/p5_hybrid_sequence_v41/
+models/dep_car/p5_hybrid_sequence_v42/
+models/dep_car/p5_closed_loop_v43/*
+!models/dep_car/p5_closed_loop_v43/fusion_closed_loop_sequence.best.pth
+!models/dep_car/p5_closed_loop_v43/fusion_closed_loop_sequence.best.contract.json
+!models/dep_car/p5_closed_loop_v43/fusion_closed_loop_sequence.best.acceptance.json
+!models/dep_car/p5_closed_loop_v43/fusion_p6_shadow.authority.json
 
 # Local upstream references; provenance is pinned in third_party.lock.yaml.
 FAR Planner.pdf
