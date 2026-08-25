@@ -1,7 +1,9 @@
+import hashlib
 import json
 from pathlib import Path
 import sys
 
+import pytest
 import yaml
 
 
@@ -9,6 +11,49 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
 
 import run_memory_navigation as runner
+
+
+def test_v43_reproduction_scenario_passes_frozen_map_and_start_preflight():
+    config = yaml.safe_load(
+        (ROOT / "dep_car/config/p6_memory_navigation_v43_shadow.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest, manifest_path = runner.load_scenario_manifest(config)
+    assert manifest_path == (ROOT / "data/p6_static/reproduction_manifest.json")
+    report = runner.scenario_artifact_preflight(manifest["scenarios"][0])
+    assert report["status"] == "PASS"
+    assert report["start_robustness_passed"] is True
+    assert report["errors"] == []
+
+
+def test_scenario_preflight_rejects_hash_change_and_nonrobust_start():
+    config = yaml.safe_load(
+        (ROOT / "dep_car/config/p6_memory_navigation_v43_shadow.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest, _ = runner.load_scenario_manifest(config)
+    scenario = json.loads(json.dumps(manifest["scenarios"][0]))
+    scenario["world_sha256"] = "0" * 64
+    scenario["start_robustness"]["status"] = "FAIL"
+    report = runner.scenario_artifact_preflight(scenario)
+    assert report["status"] == "FAIL"
+    assert "world SHA-256 mismatch" in " ".join(report["errors"])
+    assert "start robustness evidence is not PASS" in report["errors"]
+
+
+def test_full_manifest_identity_is_self_consistent():
+    path = ROOT / "data/p6_static/scenario_manifest.json"
+    if not path.is_file():
+        pytest.skip("full generated P6 corpus is intentionally not bundled")
+    manifest = json.loads(path.read_text(encoding="utf-8"))
+    content = dict(manifest)
+    expected = content.pop("scenario_manifest_sha256")
+    observed = hashlib.sha256(
+        json.dumps(content, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    assert observed == expected
 
 
 def test_memory_launch_is_dual_backend_and_excludes_frozen_map_authority():
@@ -177,9 +222,10 @@ def test_logged_regression_is_input_only_and_multi_seed_manifest_remains_availab
     ).read_text(encoding="utf-8")
     assert "logged_t_junction_turnaround" not in runtime
     assert "6.536" not in runtime
-    manifest = json.loads(
-        (ROOT / "data/p6_static/scenario_manifest.json").read_text(encoding="utf-8")
-    )
+    full_manifest = ROOT / "data/p6_static/scenario_manifest.json"
+    if not full_manifest.is_file():
+        pytest.skip("full generated P6 corpus is intentionally not bundled")
+    manifest = json.loads(full_manifest.read_text(encoding="utf-8"))
     development_maps = {
         row["map_uuid"] for row in manifest["scenarios"] if row["cohort"] == "development"
     }
@@ -197,9 +243,10 @@ def test_bounded_matrix_prioritizes_distinct_reproducible_map_seeds():
             encoding="utf-8"
         )
     )
-    manifest = json.loads(
-        (ROOT / "data/p6_static/scenario_manifest.json").read_text(encoding="utf-8")
-    )
+    full_manifest = ROOT / "data/p6_static/scenario_manifest.json"
+    if not full_manifest.is_file():
+        pytest.skip("full generated P6 corpus is intentionally not bundled")
+    manifest = json.loads(full_manifest.read_text(encoding="utf-8"))
 
     class Args:
         cohort = "development"
@@ -214,6 +261,31 @@ def test_bounded_matrix_prioritizes_distinct_reproducible_map_seeds():
     assert [row[0] for row in first] == [row[0] for row in second]
     selected_map_seeds = [row[2]["map_seed"] for row in first]
     assert len(selected_map_seeds) == len(set(selected_map_seeds))
+
+
+def test_matrix_children_preserve_scenario_manifest_override():
+    config = yaml.safe_load(
+        (ROOT / "dep_car/config/p6_memory_navigation_v43_shadow.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    manifest_path = ROOT / "data/p6_static/scenario_manifest.json"
+    if not manifest_path.is_file():
+        pytest.skip("full generated P6 corpus is intentionally not bundled")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    class Args:
+        cohort = "development"
+        maximum_scenarios = 1
+        selection_seed = 12345
+        config = ROOT / "dep_car/config/p6_memory_navigation_v43_shadow.yaml"
+        scenario_manifest = Path("data/p6_static/scenario_manifest.json")
+        policy_mode = "shadow"
+        goal_timeout = 90.0
+
+    _, command, _ = runner.matrix_commands(config, manifest, Args())[0]
+    index = command.index("--scenario-manifest")
+    assert command[index + 1] == str(manifest_path.resolve())
 
 
 def test_m5_uses_accumulated_slam_map_without_reintroducing_dense_global_astar():

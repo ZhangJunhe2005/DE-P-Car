@@ -201,6 +201,36 @@ RViz 图例：
 | `Policy Selected Path` | V4.3 shadow 推荐，用于与实际控制候选比较。 |
 | `Navigation Memory` | breadcrumb、拓扑边、有向失败支路和退出连接器。 |
 
+### 切换冻结地图
+
+先列出当前 manifest 中通过文件、哈希和起点鲁棒性预检的场景：
+
+```bash
+bash scripts/run_p6_v43_shadow.sh \
+  --stage list
+```
+
+仓库默认的 `data/p6_static/reproduction_manifest.json` 只包含一张可直接复现的精简地图。本机已经生成完整 P6 地图集时，可切换 manifest 并列出地图 seed、UUID、场景类型和场景 ID：
+
+```bash
+bash scripts/run_p6_v43_shadow.sh \
+  --stage list \
+  --scenario-manifest data/p6_static/scenario_manifest.json
+```
+
+从输出的 `scenarios` 中选择一个 development 场景，例如：
+
+```bash
+bash scripts/run_p6_v43_shadow.sh \
+  --stage interactive \
+  --scenario-manifest data/p6_static/scenario_manifest.json \
+  --scenario p6_48667c45aa2e32f1
+```
+
+启动前会校验 manifest 身份、`map.world`/`map.yaml` SHA-256、解码后的占用图哈希、地图 seed/UUID，以及冻结的 27 组起点扰动证据。未通过预检的场景列在 `excluded` 中，不能启动。Holdout 场景默认封存；只应在最终独立验收时显式增加 `--allow-holdout`。
+
+`--scenario-manifest` 只更换 Gazebo 测试输入，不修改 V4.3 checkpoint、FAR/DE-P 导航算法或 shadow 权限边界。完整多地图 corpus 体积较大，不随 Git 仓库分发；新克隆的仓库可直接运行默认精简地图，其他地图需先由数据生成流程构建或从受信任的同版本数据集恢复。
+
 ### 固定双目标回放
 
 仓库还提供同一张冻结地图上的坐标合同回放：
@@ -293,7 +323,7 @@ PYTHONPATH=$PWD/dep_car/src \
 最近一次结果：
 
 ```text
-501 passed
+505 passed
 ```
 
 P6 V4.3 权限与入口审计：

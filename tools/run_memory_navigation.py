@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import random
@@ -14,6 +15,7 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
+from PIL import Image
 import yaml
 
 
@@ -26,6 +28,12 @@ def sha256_file(path):
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def canonical_sha256(value):
+    return hashlib.sha256(
+        json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
 
 
 def resolve(value):
@@ -112,18 +120,159 @@ def require_runtime_packages(dry_run=False):
     return missing
 
 
-def load_scenario(config, scenario_id):
-    manifest = json.loads(
-        resolve(config["scenario_manifest"]).read_text(encoding="utf-8")
+def load_scenario_manifest(config):
+    path = resolve(config["scenario_manifest"])
+    if not path.is_file():
+        raise ValueError("scenario manifest does not exist: " + str(path))
+    try:
+        manifest = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("unable to read scenario manifest: %s" % exc) from exc
+    if manifest.get("schema") not in {
+        "DEPCarP6StaticScenarioManifestV1",
+        "DEPCarP6ReproductionScenarioManifestV1",
+    }:
+        raise ValueError("unsupported P6 scenario manifest schema")
+    scenarios = manifest.get("scenarios")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise ValueError("scenario manifest contains no scenarios")
+    identifiers = [row.get("scenario_id") for row in scenarios]
+    if any(not isinstance(value, str) or not value for value in identifiers):
+        raise ValueError("scenario manifest contains an invalid scenario_id")
+    if len(identifiers) != len(set(identifiers)):
+        raise ValueError("scenario manifest contains duplicate scenario_id values")
+    expected = manifest.get("scenario_manifest_sha256")
+    if expected is not None:
+        content = dict(manifest)
+        content.pop("scenario_manifest_sha256", None)
+        if canonical_sha256(content) != expected:
+            raise ValueError("scenario manifest identity mismatch: " + str(path))
+    return manifest, path
+
+
+def scenario_artifact_preflight(scenario, require_robust_start=True):
+    """Verify a frozen map and its audited start before Gazebo is launched."""
+
+    scenario_id = str(scenario.get("scenario_id", "<unknown>"))
+    errors = []
+    required = (
+        "world", "world_sha256", "map_yaml", "map_yaml_sha256",
+        "map_name", "map_uuid", "map_seed", "map_occupancy_sha256",
+        "start", "goal", "gazebo_seed",
     )
+    errors.extend("missing field: " + key for key in required if key not in scenario)
+    world = resolve(scenario.get("world", ""))
+    map_yaml = resolve(scenario.get("map_yaml", ""))
+    map_folder = world.parent
+    if not world.is_file():
+        errors.append("world does not exist: " + str(world))
+    elif sha256_file(world) != scenario.get("world_sha256"):
+        errors.append("world SHA-256 mismatch: " + str(world))
+    if not map_yaml.is_file():
+        errors.append("map YAML does not exist: " + str(map_yaml))
+    elif sha256_file(map_yaml) != scenario.get("map_yaml_sha256"):
+        errors.append("map YAML SHA-256 mismatch: " + str(map_yaml))
+    if world.parent != map_yaml.parent:
+        errors.append("world and map YAML are not in the same frozen map folder")
+    if map_folder.name != scenario.get("map_name"):
+        errors.append("map folder name does not match map_name")
+
+    map_manifest_path = map_folder / "manifest.json"
+    model_path = map_folder / "model.sdf"
+    if not model_path.is_file():
+        errors.append("frozen map has no model.sdf: " + str(model_path))
+    if not map_manifest_path.is_file():
+        errors.append("frozen map has no manifest.json: " + str(map_manifest_path))
+    else:
+        try:
+            map_manifest = json.loads(map_manifest_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            errors.append("unable to read frozen map manifest: %s" % exc)
+        else:
+            identity = {
+                "name": scenario.get("map_name"),
+                "map_uuid": scenario.get("map_uuid"),
+                "seed": scenario.get("map_seed"),
+                "occupancy_sha256": scenario.get("map_occupancy_sha256"),
+            }
+            for key, expected in identity.items():
+                observed = map_manifest.get(key)
+                if key == "seed":
+                    try:
+                        observed, expected = int(observed), int(expected)
+                    except (TypeError, ValueError):
+                        pass
+                if observed != expected:
+                    errors.append("map manifest %s identity mismatch" % key)
+
+    if map_yaml.is_file():
+        try:
+            map_metadata = yaml.safe_load(map_yaml.read_text(encoding="utf-8"))
+            image = (map_yaml.parent / str(map_metadata["image"])).resolve()
+            if image.parent != map_yaml.parent or not image.is_file():
+                errors.append("map image is missing or escapes its frozen folder")
+            else:
+                with Image.open(str(image)) as map_image:
+                    occupancy_bytes = map_image.convert("L").tobytes()
+                occupancy_sha256 = hashlib.sha256(occupancy_bytes).hexdigest()
+                if occupancy_sha256 != scenario.get("map_occupancy_sha256"):
+                    errors.append("decoded map occupancy SHA-256 mismatch")
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            errors.append("unable to validate map image: %s" % exc)
+
+    for key in ("start", "goal"):
+        pose = scenario.get(key)
+        try:
+            valid_pose = (
+                isinstance(pose, (list, tuple))
+                and len(pose) == 3
+                and all(math.isfinite(float(value)) for value in pose)
+            )
+        except (TypeError, ValueError):
+            valid_pose = False
+        if not valid_pose:
+            errors.append("%s must contain finite x, y and yaw" % key)
+
+    robustness = scenario.get("start_robustness", {})
+    try:
+        robust = bool(
+            robustness.get("schema") == "DEPCarP6StartRobustnessV1"
+            and robustness.get("status") == "PASS"
+            and int(robustness.get("failure_count", -1)) == 0
+            and int(robustness.get("perturbations", 0)) > 0
+            and int(robustness.get("minimum_safe_ackermann_primitives", 0)) > 0
+        )
+    except (AttributeError, TypeError, ValueError):
+        robust = False
+    if require_robust_start and not robust:
+        errors.append("start robustness evidence is not PASS")
+    return {
+        "scenario_id": scenario_id,
+        "status": "PASS" if not errors else "FAIL",
+        "map_name": scenario.get("map_name"),
+        "map_seed": scenario.get("map_seed"),
+        "map_uuid": scenario.get("map_uuid"),
+        "world": str(world),
+        "map_yaml": str(map_yaml),
+        "start_robustness_passed": robust,
+        "errors": errors,
+    }
+
+
+def load_scenario(config, scenario_id):
+    manifest, _ = load_scenario_manifest(config)
     scenario = next(
         (row for row in manifest["scenarios"] if row["scenario_id"] == scenario_id),
         None,
     )
     if scenario is None:
         raise ValueError("scenario is not present in frozen manifest: " + scenario_id)
-    if scenario.get("start_robustness", {}).get("status") != "PASS":
-        raise ValueError("memory navigation requires a perturbation-robust start")
+    preflight = scenario_artifact_preflight(scenario, require_robust_start=True)
+    if preflight["status"] != "PASS":
+        raise ValueError(
+            "scenario preflight failed for %s: %s"
+            % (scenario_id, "; ".join(preflight["errors"]))
+        )
     return manifest, scenario
 
 
@@ -340,6 +489,12 @@ def matrix_commands(config, manifest, args):
             str(args.goal_timeout),
             "--headless",
         ]
+        scenario_manifest = getattr(args, "scenario_manifest", None)
+        if scenario_manifest is not None:
+            item.extend([
+                "--scenario-manifest",
+                str(resolve(scenario_manifest)),
+            ])
         commands.append((row["scenario_id"], item, row))
     return commands
 
@@ -913,6 +1068,14 @@ def main():
         default=ROOT / "dep_car/config/p6_memory_navigation.yaml",
     )
     parser.add_argument("--scenario")
+    parser.add_argument(
+        "--scenario-manifest",
+        type=Path,
+        help=(
+            "override the config's frozen scenario manifest; relative paths "
+            "are resolved from the DE-P-Car project root"
+        ),
+    )
     parser.add_argument("--sequence", default="logged_t_junction_turnaround")
     parser.add_argument("--cohort", choices=("development", "holdout"), default="development")
     parser.add_argument("--maximum-scenarios", type=int, default=0)
@@ -943,22 +1106,40 @@ def main():
     if (args.goal_x is None) != (args.goal_y is None):
         raise ValueError("--goal-x and --goal-y must be provided together")
     config = yaml.safe_load(args.config.resolve().read_text(encoding="utf-8"))
+    if args.scenario_manifest is not None:
+        config["scenario_manifest"] = str(resolve(args.scenario_manifest))
     if args.stage == "audit":
         return implementation_audit(config)
-    manifest = json.loads(resolve(config["scenario_manifest"]).read_text(encoding="utf-8"))
+    manifest, manifest_path = load_scenario_manifest(config)
     if args.stage == "list":
+        launchable, excluded = [], []
+        for row in manifest["scenarios"]:
+            preflight = scenario_artifact_preflight(
+                row, require_robust_start=True
+            )
+            item = {
+                key: row.get(key)
+                for key in (
+                    "scenario_id", "cohort", "maneuver_mode", "map_name",
+                    "map_seed", "map_uuid", "start", "goal",
+                )
+            }
+            item["preflight"] = preflight["status"]
+            if preflight["status"] == "PASS":
+                launchable.append(item)
+            else:
+                item["errors"] = preflight["errors"]
+                excluded.append(item)
         print(json.dumps({
             "status": "PASS",
-            "scenarios": [
-                {
-                    key: row[key]
-                    for key in ("scenario_id", "cohort", "maneuver_mode", "map_name", "start", "goal")
-                }
-                for row in manifest["scenarios"]
-                if row.get("start_robustness", {}).get("status") == "PASS"
-            ],
+            "scenario_manifest": str(manifest_path),
+            "scenario_manifest_file_sha256": sha256_file(manifest_path),
+            "launchable_scenarios": len(launchable),
+            "excluded_scenarios": len(excluded),
+            "scenarios": launchable,
+            "excluded": excluded,
         }, indent=2, sort_keys=True))
-        return
+        return 0
     if args.stage == "matrix":
         if args.cohort == "holdout" and not args.allow_holdout:
             raise RuntimeError(
@@ -1105,6 +1286,10 @@ def main():
             "interactive_default_scenario" if args.stage == "interactive" else "fixed_default_scenario"
         ]
     _, scenario = load_scenario(config, scenario_id)
+    if scenario.get("cohort") == "holdout" and not args.allow_holdout:
+        raise RuntimeError(
+            "holdout scenario is sealed; pass --allow-holdout only for final acceptance"
+        )
     missing = require_runtime_packages(args.dry_run)
     ros_port = int(config["runtime"]["ros_master_port"])
     gazebo_port = int(config["runtime"]["gazebo_master_port"])
