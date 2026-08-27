@@ -226,6 +226,10 @@ resume_forward_distance_m: 1.00
 resume_maximum_travel_m: 3.00
 resume_timeout_s: 25.0
 local_route_horizon_m: 2.50
+# P6 V4.3.2 speed authority is derived from this live route tube.  At 2.0 m/s
+# the configured 0.45 s reaction allowance, 2.0 m/s^2 braking and 0.25 m
+# margin require 2.15 m, so the 2.50 m horizon can certify a full stop without
+# raising any physical speed or acceleration limit.
 local_route_minimum_m: 0.45
 obstacle_standoff_m: 0.35
 route_point_count: 40

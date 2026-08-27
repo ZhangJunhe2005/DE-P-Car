@@ -2,7 +2,7 @@
 
 DE-P-Car 将 [DE-P](https://github.com/ZhangJunhe2005/DE-P) 的局部规划思想迁移到 ROS Noetic 下的地面阿克曼小车。工程使用缩放至原模型 `1/3` 的 [hifzhil/car-simulator](https://github.com/hifzhil/car-simulator) Urban Car、深度相机、360° VLP-16、在线 SLAM，以及参考 [FAR Planner](https://github.com/MichaelFYang/far_planner) 构建的动态可见图导航。
 
-当前开发主线是 **DEPCarNet V4.3 Fusion + P6 V4.3.1 shadow runtime**：网络同时生成 15 组最多 6 把的前进/倒车 Ackermann 机动序列，并在闭环 DAgger 状态上学习完整序列排序。P6 V4.3.1 为当前目标保留密集 FAR 求得的完整连通路线，防止它在接管窗口被短 `PARTIAL/NO_ROUTE` 覆盖；该事务不使用地图 ID，也不跨目标或进程复用。运行时仍由确定性局部控制链驾驶，V4.3 只发布 shadow 对照结果；连续车身碰撞检查、动态 reachability veto 和停车换挡安全合同始终拥有最终否决权。
+当前开发主线是 **DEPCarNet V4.3 Fusion + P6 V4.3.2 shadow runtime**：网络同时生成 15 组最多 6 把的前进/倒车 Ackermann 机动序列，并在闭环 DAgger 状态上学习完整序列排序。P6 V4.3.1 为当前目标保留密集 FAR 求得的完整连通路线，防止它在接管窗口被短 `PARTIAL/NO_ROUTE` 覆盖；V4.3.2 在此基础上增加路线置信度与实时安全前缀速度合同。只有目标连通、稳定且具有完整停车距离的在线路线才能从 `0.6` 逐级提升到 `1.2/2.0 m/s`，局部探索、倒车、掉头和终点捕获仍使用保守速度。所有事务均不使用地图 ID，也不跨目标或进程复用。运行时仍由确定性局部控制链驾驶，V4.3 只发布 shadow 对照结果；连续车身碰撞检查、动态 reachability veto 和停车换挡安全合同始终拥有最终否决权。
 
 > 当前资格边界：V4.3 离线正式验收和 P6 实现审计均为 PASS，但 Gazebo 跨地图闭环资格仍在验证。模型没有 active、真实车辆或 production 权限。
 
@@ -15,7 +15,7 @@ DE-P-Car 将 [DE-P](https://github.com/ZhangJunhe2005/DE-P) 的局部规划思�
 | P4～P5 V2 | 完成 | 路线走廊编码、15 候选双向 rollout、Candidate/Score 两阶段训练与 P6 shadow 基线。 |
 | V3～V4.2 | 完成诊断 | 将挡位从外部状态机迁入模型，发展为统一的多把前进/倒车机动序列；保留完整失败报告和门禁链。 |
 | P5 V4.3 | 完成 | 80 个闭环 episode、9,305 个重观测样本；精确 signed Hybrid-A* 教师序列；24 epoch Fusion 训练；正式 acceptance PASS。 |
-| P6 V4.3.1 | 进行中 | 在线 SLAM、FAR-style 可见图、目标连通路线事务、滚动路线游标、有向失败支路、实时重锚和 RViz 任意目标 shadow 入口已经实现。 |
+| P6 V4.3.2 | 进行中 | 在线 SLAM、FAR-style 可见图、目标连通路线事务、滚动路线游标、有向失败支路、实时重锚，以及基于停车距离、动态净空和路线稳定性的安全巡航速度包络已经实现。 |
 | P7/P8 | 未开始 | 动态场景独立测试、holdout 资格和真实部署签发尚未完成。 |
 
 V4.3 正式产物已随仓库提供：
@@ -47,6 +47,8 @@ rear wheel joints + IMU
             |                                  |
             +---------> rolling route corridor + local carrot
                                                |
+                         route confidence + verified safe prefix
+                                               |
                            DEPCarNet V4.3 shadow sequences
                                                |
                          deterministic local Ackermann control
@@ -60,6 +62,8 @@ rear wheel joints + IMU
 
 - 在线导航不启动 `map_server`，也不在完整 OccupancyGrid 上调用栅格 A*。
 - 可见图只提供连通方向和路线管道，不直接输出油门、方向盘或强制离散 waypoint。
+- 绿色/青色显示本身不授予高速权限；局部规划器只接受同一在线路线事务携带的 `goal_connected`、`route_stable` 和 `verified_prefix_m` 证据。
+- 安全巡航使用现有 `0.6/1.2/2.0 m/s` 候选与原有 `2.5 m/s` 物理上限。升速需要连续确认，并且只在当前最优候选的同一转向通道内提升纵向速度；路线证据减弱、动态目标靠近或净空变窄会立即降速。缓弯速度由 `0.75 m/s²` 横向加速度包络约束，90° 急弯仍保留约 `0.26 m/s` 的保守限制。
 - DE-P 局部规划器根据深度、360° LiDAR、车辆状态和路线走廊产生 Ackermann 轨迹。
 - V4.3 将 `FORWARD/REVERSE/STOP` 和最多六把的控制序列放在同一个候选内，不再由高层状态机分别挑选前进/倒车银行。
 - shadow 模式下，V4.3 的序列会被记录和比较，但不会取得底盘控制权限。
@@ -259,6 +263,10 @@ source catkin_ws/devel/setup.bash
 
 创建名为 `yopo` 的环境，或设置 `DEP_CAR_POLICY_PYTHON`。ROS 节点使用系统 Python，只有模型推理节点使用该解释器。
 
+### 车辆为什么没有立即提升到 2.0 m/s
+
+V4.3.2 不把 RViz 颜色当成速度授权。日志中的 `P6 V4.3.2 safe cruise` 会显示路线置信度、实时已验证前缀、当前目标速度层、停车距离和限速原因。局部探索维持 `0.6 m/s`；完整路线稳定后约每 5 个控制周期最多提升一档。急弯、窄净空、动态障碍、掉头、恢复和终点接近仍会覆盖巡航速度。
+
 ### authority 或 checkpoint hash mismatch
 
 不要编辑 committed checkpoint、contract 或 runtime 文件后继续使用旧 authority。先恢复对应 Git commit；开发者修改运行时代码后必须重新审计并签发 shadow authority。
@@ -323,10 +331,15 @@ PYTHONPATH=$PWD/dep_car/src \
 最近一次结果：
 
 ```text
-524 passed
+532 passed
 ```
 
-P6 V4.3.1 运行时权限与入口审计（入口文件名继续沿用 `p6_v43`）：
+V4.3.2 在冻结开发 episode 上的无界面 Gazebo 小规模回归为 `PASS`：
+5.93 m 目标完成、实际命令峰值 1.06 m/s、`static_block_samples=0`、
+恢复循环 0、定位跳变 0。该结果只证明安全巡航接线和降速生命周期真实运行，
+不代替跨地图 P6 资格验证。
+
+P6 V4.3.2 运行时权限与入口审计（入口文件名继续沿用 `p6_v43`）：
 
 ```bash
 bash scripts/run_p6_v43_shadow.sh --stage audit

@@ -1,6 +1,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from dep_car.core.occupancy import OccupancyGrid2D
 from dep_car.core.planner import DeterministicPlanner, PlanningResult
@@ -1072,6 +1073,12 @@ def test_corner_speed_limit_only_caps_a_material_upcoming_turn():
     corner = np.asarray([[0.0, 0.0], [0.5, 0.0], [0.5, 1.0]])
     assert corner_speed_limit(route_turn_angle(straight)) is None
     assert corner_speed_limit(route_turn_angle(corner)) < 0.35
+
+
+def test_corner_speed_limit_allows_safe_cruise_on_a_gentle_bend():
+    limit = corner_speed_limit(0.25)
+    assert 1.5 < limit < 2.0
+    assert corner_speed_limit(0.5 * math.pi) == pytest.approx(0.26)
 
 
 def test_corner_soft_clearance_prefers_outer_candidate_without_hard_blocking():

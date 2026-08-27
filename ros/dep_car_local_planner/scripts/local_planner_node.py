@@ -20,6 +20,13 @@ from dep_car.runtime.route_guidance import (
     route_turn_angle,
     segment_is_visible,
 )
+from dep_car.runtime.safe_cruise import (
+    ROUTE_CONFIDENCE_LOCAL,
+    SafeCruiseConfig,
+    SafeCruiseContext,
+    SafeCruiseSupervisor,
+    prefer_progress_candidate,
+)
 from dep_car.runtime.forward_preference import (
     ForwardPreferenceConfig,
     ForwardPreferenceState,
@@ -94,6 +101,46 @@ class LocalPlannerNode:
         self.recovery = RecoveryManager()
         self.gear_supervisor = GearSupervisor()
         self.hybrid_action_latch = HybridFirstActionLatch()
+        self.safe_cruise = SafeCruiseSupervisor(
+            SafeCruiseConfig(
+                speed_tiers_mps=tuple(
+                    float(value)
+                    for value in rospy.get_param(
+                        "~safe_cruise_speed_tiers", [0.60, 1.20, 2.00]
+                    )
+                ),
+                exploration_speed_mps=float(
+                    rospy.get_param("~safe_cruise_exploration_speed", 0.60)
+                ),
+                reaction_time_s=float(
+                    rospy.get_param("~safe_cruise_reaction_time_s", 0.45)
+                ),
+                braking_deceleration_mps2=float(
+                    rospy.get_param(
+                        "~safe_cruise_braking_deceleration", 2.00
+                    )
+                ),
+                stopping_margin_m=float(
+                    rospy.get_param("~safe_cruise_stopping_margin_m", 0.25)
+                ),
+                promotion_confirmation_cycles=int(
+                    rospy.get_param(
+                        "~safe_cruise_promotion_confirmation_cycles", 5
+                    )
+                ),
+                dynamic_time_headway_s=float(
+                    rospy.get_param("~safe_cruise_dynamic_headway_s", 1.00)
+                ),
+                narrow_clearance_m=float(
+                    rospy.get_param("~safe_cruise_narrow_clearance_m", 0.10)
+                ),
+                narrow_clearance_speed_mps=float(
+                    rospy.get_param(
+                        "~safe_cruise_narrow_clearance_speed", 0.60
+                    )
+                ),
+            )
+        )
         self.grid = self.grid_stamp = self.joint_state = None
         self.odom = self.goal = self.mission_goal = self.route_command = self.route = None
         # Route geometry and its command are published on separate ROS topics.
@@ -333,10 +380,18 @@ class LocalPlannerNode:
             rospy.get_param("~corner_soft_candidate_full_strength", 0.60)
         )
         self.corner_straight_speed = float(
-            rospy.get_param("~corner_straight_speed", 0.55)
+            rospy.get_param("~corner_straight_speed", 2.00)
         )
         self.corner_ninety_speed = float(
             rospy.get_param("~corner_ninety_speed", 0.26)
+        )
+        self.corner_turn_window = float(
+            rospy.get_param("~corner_turn_window_m", 1.20)
+        )
+        self.corner_lateral_acceleration_limit = float(
+            rospy.get_param(
+                "~corner_lateral_acceleration_limit_mps2", 0.75
+            )
         )
         if self.route_reference_horizon <= 0.0:
             raise ValueError("route_reference_horizon must be positive")
@@ -346,10 +401,15 @@ class LocalPlannerNode:
             self.route_clearance_weight,
             self.corner_soft_clearance_target,
             self.corner_soft_clearance_weight,
+        ) < 0.0:
+            raise ValueError("route guidance weights and clearances cannot be negative")
+        if min(
             self.corner_straight_speed,
             self.corner_ninety_speed,
-        ) < 0.0:
-            raise ValueError("route guidance weights, clearances and speeds cannot be negative")
+            self.corner_turn_window,
+            self.corner_lateral_acceleration_limit,
+        ) <= 0.0:
+            raise ValueError("corner speed-envelope parameters must be positive")
         if not 0.0 <= self.corner_corridor_minimum_scale <= 1.0:
             raise ValueError("corner_corridor_minimum_scale must be in [0,1]")
         if not 0.0 <= self.corner_soft_trigger < self.corner_soft_full_strength <= math.pi:
@@ -1919,6 +1979,18 @@ class LocalPlannerNode:
         command.brake = False
         command.source = source
         self.command_pub.publish(command)
+        rospy.loginfo_throttle(
+            1.0,
+            "P6 command source=%s gear=%s candidate=%d anchor=%.2fmps "
+            "raw=%.2fmps command=%.2fmps active_limit=%s",
+            source,
+            Gear.require_drive(candidate.gear).name,
+            int(candidate.candidate_id),
+            abs(float(candidate.speed_anchor)),
+            abs(float(candidate.trajectory[lookahead, 4])),
+            abs(float(command.speed)),
+            "none" if speed_limit is None else "%.2f" % float(speed_limit),
+        )
         self.report_runtime_status(
             "DRIVING_FORWARD" if int(candidate.gear) > 0 else "DRIVING_REVERSE",
             source,
@@ -2506,6 +2578,10 @@ class LocalPlannerNode:
             turn_angle,
             straight_speed_mps=self.corner_straight_speed,
             ninety_degree_speed_mps=self.corner_ninety_speed,
+            turn_window_m=self.corner_turn_window,
+            lateral_acceleration_limit_mps2=(
+                self.corner_lateral_acceleration_limit
+            ),
         )
         if self.learned_route_authority and self.policy_mode in ("guarded", "active"):
             # V2 must demonstrate its own smooth corner trajectory.  The hard
@@ -3182,12 +3258,84 @@ class LocalPlannerNode:
             result.blocked_by_dynamic,
         )
         if lifecycle == RecoveryState.STATIC_DEADLOCK:
+            self.safe_cruise.reset()
             self.stop("maneuver_no_safe_micro_primitive")
             self.publish_state(
                 result,
                 "all shortened forward/reverse primitives failed continuous hard safety",
             )
             return
+        safe_cruise_decision = None
+        if result.executable:
+            forward_cruise = bool(
+                requested_gear == Gear.FORWARD
+                and not maneuver_started
+                and not exact_route
+                and not memory_backtrack
+                and not memory_resume
+                and not terminal_capture_active
+                and not forward_course_capture_active
+                and str(self.global_route_source).startswith("FAR_")
+            )
+            route_confidence = int(
+                getattr(
+                    route_command,
+                    "route_confidence",
+                    ROUTE_CONFIDENCE_LOCAL,
+                )
+            )
+            safe_cruise_decision = self.safe_cruise.update(
+                SafeCruiseContext(
+                    route_confidence=route_confidence,
+                    goal_connected=bool(
+                        getattr(route_command, "goal_connected", False)
+                    ),
+                    route_stable=bool(
+                        getattr(route_command, "route_stable", False)
+                    ),
+                    verified_prefix_m=float(
+                        getattr(route_command, "verified_prefix_m", 0.0)
+                    ),
+                    forward_cruise=forward_cruise,
+                    dynamic_clearance_m=float(
+                        result.selected.dynamic_clearance
+                    ),
+                    static_clearance_m=float(
+                        result.selected.static_clearance
+                    ),
+                )
+            )
+            if (
+                requested_gear == Gear.FORWARD
+                and not maneuver_started
+                and not exact_route
+                and not memory_backtrack
+                and not memory_resume
+                and not terminal_capture_active
+            ):
+                result = prefer_progress_candidate(
+                    result,
+                    safe_cruise_decision.speed_limit_mps,
+                    config=self.safe_cruise.config,
+                )
+            rospy.loginfo_throttle(
+                1.0,
+                "P6 V4.3.2 safe cruise source=%s confidence=%d "
+                "connected=%s stable=%s prefix=%.3fm tier=%.2fmps "
+                "limit=%.2fmps stop_required=%.3fm cycles=%d reason=%s",
+                self.global_route_source,
+                route_confidence,
+                bool(getattr(route_command, "goal_connected", False)),
+                bool(getattr(route_command, "route_stable", False)),
+                float(getattr(route_command, "verified_prefix_m", 0.0)),
+                safe_cruise_decision.target_tier_mps,
+                safe_cruise_decision.speed_limit_mps,
+                safe_cruise_decision.required_stopping_distance_m,
+                safe_cruise_decision.stable_cycles,
+                safe_cruise_decision.reason,
+            )
+        else:
+            self.safe_cruise.reset()
         self.publish_candidates(
             result,
             requested_gear,
@@ -3272,6 +3420,7 @@ class LocalPlannerNode:
                         self.forward_course_capture_speed
                         if forward_course_capture_active
                         else None,
+                        safe_cruise_decision.speed_limit_mps,
                     ),
                 )
             else:

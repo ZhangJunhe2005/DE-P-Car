@@ -58,6 +58,9 @@ def main():
     far_visibility = (
         ROOT / "dep_car/src/dep_car/runtime/far_visibility.py"
     ).read_text(encoding="utf-8")
+    safe_cruise = (
+        ROOT / "dep_car/src/dep_car/runtime/safe_cruise.py"
+    ).read_text(encoding="utf-8")
     runner = (ROOT / "tools/run_memory_navigation.py").read_text(
         encoding="utf-8"
     )
@@ -95,6 +98,9 @@ def main():
             "connected_known_route_transaction_promoted",
             "visibility_connected_candidate_suppressed_weaker",
             "partial_frontier_authority_reason",
+            "def route_speed_authority",
+            "ROUTE_CONFIDENCE_CONNECTED",
+            "verified_prefix_m",
         ),
         "far_visibility": (
             "stable_attemptable_navigation_high_detour",
@@ -108,6 +114,14 @@ def main():
             "def visibility_plan_is_goal_connected",
             "def goal_route_direction_continuity_hold",
             "def partial_frontier_authority_reason",
+        ),
+        "safe_cruise": (
+            "def stopping_distance_m",
+            "class SafeCruiseSupervisor",
+            "conservative_nonconnected_route",
+            "dynamic_headway",
+            "narrow_clearance",
+            "def prefer_progress_candidate",
         ),
         "runner": (
             "regression_goal_preflight",
@@ -126,6 +140,7 @@ def main():
             "policy": policy,
             "memory": memory,
             "far_visibility": far_visibility,
+            "safe_cruise": safe_cruise,
             "runner": runner,
             "replay": replay,
         }[owner]
@@ -176,6 +191,14 @@ def main():
             "string architecture_id",
             "int8[] selected_action_gears",
         ),
+        "ros/dep_car_msgs/msg/LocalRouteCommand.msg": (
+            "uint8 ROUTE_CONFIDENCE_LOCAL=0",
+            "uint8 ROUTE_CONFIDENCE_PARTIAL=1",
+            "uint8 ROUTE_CONFIDENCE_CONNECTED=2",
+            "bool goal_connected",
+            "bool route_stable",
+            "float64 verified_prefix_m",
+        ),
     }
     for relative, fields in required_fields.items():
         source = (ROOT / relative).read_text(encoding="utf-8")
@@ -191,6 +214,18 @@ def main():
         encoding="utf-8"
     ):
         errors.append("generated_ros_messages")
+    generated_route = (
+        ROOT
+        / "catkin_ws/devel/lib/python3/dist-packages/dep_car_msgs/msg/"
+        "_LocalRouteCommand.py"
+    )
+    if (
+        not generated_route.is_file()
+        or "verified_prefix_m" not in generated_route.read_text(
+            encoding="utf-8"
+        )
+    ):
+        errors.append("generated_route_speed_contract")
 
     launch = subprocess.run(
         [
@@ -220,8 +255,8 @@ def main():
         errors.append("roslaunch_nodes")
 
     report = {
-        "schema": "DEPCarP6V43ShadowImplementationAuditV2",
-        "runtime_revision": "P6_V4.3.1_CONNECTED_ROUTE_TRANSACTION",
+        "schema": "DEPCarP6V43ShadowImplementationAuditV3",
+        "runtime_revision": "P6_V4.3.2_ROUTE_CONFIDENCE_SAFE_CRUISE",
         "status": "PASS" if not errors else "FAIL",
         "errors": errors,
         "architecture_id": V43_ARCHITECTURE_ID,
@@ -250,6 +285,14 @@ def main():
             "process_local_only": True,
             "map_identity_input": False,
             "cross_episode_route_cache": False,
+        },
+        "safe_cruise": {
+            "route_confidence_contract": True,
+            "live_verified_prefix": True,
+            "stopping_distance_bounded": True,
+            "slow_promotion_immediate_revocation": True,
+            "hard_veto_precedes_progress_preference": True,
+            "physical_limits_unchanged": True,
         },
         "active_control_authorized": False,
         "physical_vehicle_authorized": False,

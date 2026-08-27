@@ -142,6 +142,8 @@ def test_v43_acceptance_and_shadow_authority_never_grant_control(tmp_path):
                 "runtime_executes_learned_sequence_prefix": False,
                 "legacy_turnaround_state_machine_enabled": False,
                 "deterministic_shadow_control": True,
+                "route_confidence_safe_cruise": True,
+                "physical_speed_and_acceleration_limits_unchanged": True,
                 "model_control_authorized": False,
                 "active_control_authorized": False,
                 "physical_vehicle_authorized": False,

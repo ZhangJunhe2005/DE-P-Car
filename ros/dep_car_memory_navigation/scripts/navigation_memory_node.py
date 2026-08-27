@@ -4715,6 +4715,61 @@ class NavigationMemoryNode:
             map_pose[1] + sine * values[:, 0] + cosine * values[:, 1],
         ))
 
+    def route_speed_authority(self, world_points, route_source):
+        """Describe how much of this online route is safe to cruise on.
+
+        This is current-map evidence only.  It is deliberately recomputed for
+        every published transaction and never cached by map/scenario ID.  The
+        local planner still applies live LiDAR, dynamic-object and swept-body
+        hard vetoes before any command is sent.
+        """
+
+        source = str(route_source or "")
+        far_route = source.startswith("FAR_")
+        goal_connected = bool(
+            far_route
+            and self.visibility_active_route_motion_authorized
+            and visibility_plan_is_goal_connected(self.visibility_plan)
+        )
+        route_stable = bool(
+            goal_connected
+            and self.visibility_active_route_accepted
+            and self.visibility_plan is not None
+            and self.visibility_plan.status == "PASS"
+        )
+        confidence = (
+            LocalRouteCommand.ROUTE_CONFIDENCE_CONNECTED
+            if goal_connected
+            else LocalRouteCommand.ROUTE_CONFIDENCE_PARTIAL
+            if far_route
+            else LocalRouteCommand.ROUTE_CONFIDENCE_LOCAL
+        )
+        verified_prefix_m = 0.0
+        points = np.asarray(world_points, dtype=float)
+        with self.lock:
+            accumulated = self.accumulated_grid
+        if (
+            points.ndim == 2
+            and points.shape[1:] == (2,)
+            and len(points) >= 2
+            and accumulated is not None
+        ):
+            values, resolution, origin, _ = accumulated
+            prefix = self.visibility.longest_traversable_prefix(
+                points,
+                values,
+                resolution,
+                origin,
+                maximum_unknown_fraction=0.02,
+            )
+            verified_prefix_m = self.polyline_length(prefix)
+        return {
+            "route_confidence": int(confidence),
+            "goal_connected": goal_connected,
+            "route_stable": route_stable,
+            "verified_prefix_m": float(verified_prefix_m),
+        }
+
     def publish_route(
         self,
         world_points,
@@ -4829,6 +4884,17 @@ class NavigationMemoryNode:
         command.rolling_target_latched = bool(
             rolling_target_world is not None
         )
+        speed_authority = self.route_speed_authority(
+            values, command.route_source
+        )
+        command.route_confidence = int(
+            speed_authority["route_confidence"]
+        )
+        command.goal_connected = bool(speed_authority["goal_connected"])
+        command.route_stable = bool(speed_authority["route_stable"])
+        command.verified_prefix_m = float(
+            speed_authority["verified_prefix_m"]
+        )
         self.path_pub.publish(path)
         self.route_pub.publish(route)
         self.subgoal_pub.publish(subgoal)
@@ -4852,6 +4918,10 @@ class NavigationMemoryNode:
             route_revision=int(command.route_revision),
             authority_epoch=int(command.authority_epoch),
             rolling_target_latched=bool(command.rolling_target_latched),
+            route_confidence=int(command.route_confidence),
+            goal_connected=bool(command.goal_connected),
+            route_stable=bool(command.route_stable),
+            verified_prefix_m=float(command.verified_prefix_m),
         )
         self.publish_status(state, detail, **evidence)
 

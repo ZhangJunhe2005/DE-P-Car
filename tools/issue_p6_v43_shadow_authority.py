@@ -54,6 +54,8 @@ def main():
         "runtime_executes_learned_sequence_prefix": False,
         "legacy_turnaround_state_machine_enabled": False,
         "deterministic_shadow_control": True,
+        "route_confidence_safe_cruise": True,
+        "physical_speed_and_acceleration_limits_unchanged": True,
         "model_control_authorized": False,
         "active_control_authorized": False,
         "physical_vehicle_authorized": False,
@@ -62,7 +64,9 @@ def main():
         "authorization_boundary": (
             "P6 shadow comparison only. V4.3 publishes complete learned "
             "sequences, but deterministic control remains authoritative and "
-            "the current occupancy hard-veto is always applied."
+            "the current occupancy hard-veto is always applied. P6 V4.3.2 "
+            "may only promote existing speed tiers inside a live verified "
+            "route prefix; physical speed and acceleration limits are frozen."
         ),
     }
     output = Path(args.output)

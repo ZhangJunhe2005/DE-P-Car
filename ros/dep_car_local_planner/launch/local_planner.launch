@@ -107,8 +107,23 @@
     <param name="corner_soft_candidate_full_strength" value="0.60"/>
     <param name="corner_soft_trigger" value="0.35"/>
     <param name="corner_soft_full_strength" value="1.20"/>
-    <param name="corner_straight_speed" value="0.55"/>
+    <param name="corner_straight_speed" value="2.00"/>
     <param name="corner_ninety_speed" value="0.26"/>
+    <param name="corner_turn_window_m" value="1.20"/>
+    <param name="corner_lateral_acceleration_limit_mps2" value="0.75"/>
+    <!-- P6 V4.3.2: higher speed is authorized only by a stable, goal-connected
+         FAR route whose live inflated-map prefix contains the complete
+         reaction + braking distance.  These values stay below the frozen
+         physical speed/acceleration limits. -->
+    <rosparam param="safe_cruise_speed_tiers">[0.60, 1.20, 2.00]</rosparam>
+    <param name="safe_cruise_exploration_speed" value="0.60"/>
+    <param name="safe_cruise_reaction_time_s" value="0.45"/>
+    <param name="safe_cruise_braking_deceleration" value="2.00"/>
+    <param name="safe_cruise_stopping_margin_m" value="0.25"/>
+    <param name="safe_cruise_promotion_confirmation_cycles" value="5"/>
+    <param name="safe_cruise_dynamic_headway_s" value="1.00"/>
+    <param name="safe_cruise_narrow_clearance_m" value="0.10"/>
+    <param name="safe_cruise_narrow_clearance_speed" value="0.60"/>
     <param name="approach_radius" value="1.5"/>
     <param name="approach_deceleration" value="0.8"/>
     <param name="approach_maximum_speed" value="0.45"/>

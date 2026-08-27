@@ -1,5 +1,5 @@
 schema: DEPCarP6V43FarVisibilityMemoryShadowConfigV1
-runtime_revision: P6_V4.3.1_CONNECTED_ROUTE_TRANSACTION
+runtime_revision: P6_V4.3.2_ROUTE_CONFIDENCE_SAFE_CRUISE
 scenario_manifest: data/p6_static/reproduction_manifest.json
 interactive_default_scenario: p6_c344e792d09ac2d6
 fixed_default_scenario: p6_c344e792d09ac2d6

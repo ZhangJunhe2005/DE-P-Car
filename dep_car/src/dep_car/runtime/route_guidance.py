@@ -493,16 +493,40 @@ def corner_speed_limit(
     turn_angle_rad: float,
     *,
     trigger_rad: float = 0.20,
-    straight_speed_mps: float = 0.55,
+    straight_speed_mps: float = 2.00,
     ninety_degree_speed_mps: float = 0.26,
+    turn_window_m: float = 1.20,
+    lateral_acceleration_limit_mps2: float = 0.75,
 ):
-    """Return no cap on straight routes and a smooth cap near corners."""
+    """Return a curvature-aware cap while preserving sharp-corner caution.
+
+    The old linear envelope started at 0.55 m/s immediately above the turn
+    trigger, so even a 13-degree bend over the 1.2 m lookahead disabled safe
+    cruise.  The new cap is the lower of the existing sharp-corner taper and
+    ``sqrt(a_lat / curvature)``.  It raises no physical limit and continues to
+    approach ``ninety_degree_speed_mps`` at a right angle.
+    """
 
     angle = abs(float(turn_angle_rad))
     if angle <= trigger_rad:
         return None
+    if min(
+        straight_speed_mps,
+        ninety_degree_speed_mps,
+        turn_window_m,
+        lateral_acceleration_limit_mps2,
+    ) <= 0.0:
+        raise ValueError("corner speed-envelope parameters must be positive")
     severity = min(1.0, (angle - trigger_rad) / (0.5 * math.pi - trigger_rad))
-    return float(straight_speed_mps + severity * (ninety_degree_speed_mps - straight_speed_mps))
+    tapered = float(
+        straight_speed_mps
+        + severity * (ninety_degree_speed_mps - straight_speed_mps)
+    )
+    curvature = angle / float(turn_window_m)
+    lateral = math.sqrt(
+        float(lateral_acceleration_limit_mps2) / max(curvature, 1.0e-6)
+    )
+    return float(min(tapered, lateral))
 
 
 __all__ = [
