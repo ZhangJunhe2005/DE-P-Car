@@ -472,6 +472,72 @@ def test_m6_far_route_owns_recovery_and_memory_markers_use_one_rigid_tf():
     assert "lookup_transform" not in marker_source
 
 
+def test_static_local_block_promotes_only_an_observed_far_recovery_prefix():
+    memory = (
+        ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
+    ).read_text(encoding="utf-8")
+
+    certification = memory.split(
+        "def far_recovery_prefix_authorized", 1
+    )[1].split("def bind_far_recovery_candidate", 1)[0]
+    assert 'plan.status != "PASS"' in certification
+    assert "polyline_prefix" in certification
+    assert "maximum_unknown_fraction=0.02" in certification
+    assert "polyline_enters_failed_branch" in certification
+
+    blocked = memory.split(
+        "blocked_guidance_source = str(self.last_guidance_source)", 1
+    )[1].split("previous_state = self.recovery.state", 1)[0]
+    assert '"LOCAL_SAFE_EXPLORATION"' in blocked
+    assert "visibility_static_recovery_pending = True" in blocked
+    assert "and not static_recovery_newly_armed" in blocked
+
+    candidate = memory.split(
+        "static_recovery_motion_authorized = bool(", 1
+    )[1].split("bootstrap_motion_authorized", 1)[0]
+    assert "visibility_static_recovery_pending" in candidate
+    assert "far_recovery_prefix_authorized" in candidate
+    assert "visibility_no_route_static_evidence_timeout" in candidate
+    assert "observed_far_detour_after_local_hard_block" in memory
+
+
+def test_far_dead_end_live_anchor_is_latched_and_recovery_stop_is_recoverable():
+    memory = (
+        ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
+    ).read_text(encoding="utf-8")
+    local = (
+        ROOT / "ros/dep_car_local_planner/scripts/local_planner_node.py"
+    ).read_text(encoding="utf-8")
+    config = (
+        ROOT / "ros/dep_car_memory_navigation/config/navigation_memory.yaml"
+    ).read_text(encoding="utf-8")
+
+    reanchor = memory.split(
+        "def live_dead_end_egress_reanchor", 1
+    )[1].split("def failed_branch_by_id", 1)[0]
+    assert "dead_end_escape_live_target_index" in reanchor
+    assert "Latched live FAR dead-end egress anchor" in reanchor
+    assert reanchor.count("dead_end_escape_route_revision += 1") == 1
+    assert "dead_end_escape_live_target_capture" in reanchor
+
+    backtrack = memory.split("def backtrack_route", 1)[1].split(
+        "def resume_route", 1
+    )[0]
+    assert "EGRESS_REANCHOR_REVALIDATION_HOLD" in backtrack
+    assert "dead_end_escape_connector_unavailable_since" in backtrack
+    assert "dead_end_escape_divergence_confirmation" in backtrack
+    assert "EGRESS_REANCHOR_WAIT" in memory
+    assert '"EGRESS_REANCHOR_WAIT"' in local
+    assert "dead_end_escape_live_target_capture_m" in config
+
+    safe_stop = memory.split(
+        "elif self.recovery.state == MemoryNavigationState.SAFE_STOP", 1
+    )[1]
+    assert "branch_safe_far_route_recovered_egress_stop" in safe_stop
+    assert "require_failed_branch_avoidance=True" in safe_stop
+    assert "RECOVERED_BY_BRANCH_SAFE_FAR_ROUTE" in safe_stop
+
+
 def test_m6_dead_end_egress_lifecycle_is_in_replay_reports():
     replay = (
         ROOT / "ros/dep_car_memory_navigation/scripts/replay_memory_goals.py"
@@ -749,12 +815,73 @@ def test_no_route_uses_full_lidar_safe_local_ackermann_authority():
     assert "currently observed LiDAR-free swept footprints" in config
 
 
+def test_node_capped_far_uses_process_local_background_dense_expansion():
+    memory = (
+        ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
+    ).read_text(encoding="utf-8")
+    runtime = (
+        ROOT / "dep_car/src/dep_car/runtime/far_visibility.py"
+    ).read_text(encoding="utf-8")
+    config = (
+        ROOT / "ros/dep_car_memory_navigation/config/navigation_memory.yaml"
+    ).read_text(encoding="utf-8")
+
+    assert "visibility_dense_replan_initial_nodes: 192" in config
+    assert "visibility_dense_replan_maximum_nodes: 320" in config
+    assert "visibility_dense_replan_node_step: 32" in config
+    assert "visibility_dense_replan_time_budget_s: 2.5" in config
+    assert "plan_progressive" in runtime
+    assert "ProgressiveVisibilitySession" in runtime
+    assert "PARTIAL_ATTEMPTABLE" in runtime
+    assert "Only pairs touching a newly admitted vertex" in runtime
+    assert "and plan.node_limit_hit" in memory
+    assert "and not plan.start_inside_inflation" in memory
+    assert "and not plan.goal_inside_inflation" in memory
+    assert "name=\"dep_car_far_dense_%d\"" in memory
+    assert "daemon=True" in memory
+    assert "FAR_DENSE_REPLAN_PENDING" in memory
+    assert "visibility_dense_replan_session" in memory
+    assert "FAR_PARTIAL_ATTEMPTABLE" in memory
+    assert "partial_frontier_authority" in memory
+    assert "information_gain_partial_frontier" in runtime
+    assert "visibility_trajectory_points_map" in memory
+    assert "trajectory_points=trajectory_points" in memory
+    assert "visibility_trajectory_bridge_enabled: true" in config
+    assert "visibility_trajectory_bridge_maximum_nodes: 64" in config
+    assert 'plan.mode == "PARTIAL_ATTEMPTABLE"' in memory
+    assert "not dense_replan_pending" in memory
+    assert "LocalRouteCommand.NAVIGATION_CONNECTIVITY" in memory
+    assert '"cross_episode_route_cache": False' in memory
+    assert '"map_identity_input": False' in memory
+    assert "planning_request_epoch" in memory
+    assert "occupancy_snapshot_version" in memory
+
+
+def test_observed_occupied_rviz_goal_is_rejected_before_local_exploration():
+    memory = (
+        ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
+    ).read_text(encoding="utf-8")
+
+    assert "def goal_endpoint_evidence" in memory
+    assert '"GOAL_IN_OBSERVED_OBSTACLE"' in memory
+    validation = memory.split(
+        "goal_endpoint = self.goal_endpoint_evidence", 1
+    )[1].split("stamp = odom.header.stamp.to_sec()", 1)[0]
+    assert 'self.last_guidance_source = "INVALID_GOAL"' in validation
+    assert '"INVALID_GOAL"' in validation
+    assert "local_exploration_authorized=False" in validation
+    assert validation.rstrip().endswith("return")
+
+
 def test_m6_far_route_renewal_retains_only_a_safe_certified_suffix():
     memory = (
         ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
     ).read_text(encoding="utf-8")
     config = (
         ROOT / "ros/dep_car_memory_navigation/config/navigation_memory.yaml"
+    ).read_text(encoding="utf-8")
+    far_runtime = (
+        ROOT / "dep_car/src/dep_car/runtime/far_visibility.py"
     ).read_text(encoding="utf-8")
 
     assert "visibility_route_renewal_period_s" in config
@@ -770,6 +897,12 @@ def test_m6_far_route_renewal_retains_only_a_safe_certified_suffix():
     assert "visibility_initial_exploration_minimum_m" in config
     assert "visibility_initial_exploration_maximum_duration_s" in config
     assert "observe_initial_local_exploration" in memory
+    assert "visibility_mapping_session_established" in memory
+    assert '"online_mapping_session_already_established"' in memory
+    goal_reset = memory.split(
+        "self.visibility_initial_exploration_distance_m = 0.0", 2
+    )[2].split("self.visibility_maneuver_transaction_active", 1)[0]
+    assert "self.visibility_mapping_session_established" in goal_reset
     assert "same cached grid cannot turn one speculative" in memory
     assert "unconfirmed_route_rolling_local_exploration" in memory
     assert "visibility_route_replacement_maximum_direction_change_rad" in config
@@ -785,6 +918,18 @@ def test_m6_far_route_renewal_retains_only_a_safe_certified_suffix():
     assert "route_lease_refresh_due" in memory
     assert "transient_route_lease_refresh" in memory
     assert "replacement_direction_discontinuous" in memory
+    assert "goal_connected_incumbent_retention_reason" in memory
+    assert "partial_candidate_cannot_preempt_goal_route" in far_runtime
+    assert "DEPCarP6V431ConnectedRouteTransactionV1" in memory
+    assert "PENDING_CONNECTED" in memory
+    assert "connected_known_route_transaction_promoted" in memory
+    assert "visibility_connected_candidate_suppressed_weaker" in memory
+    assert "partial_frontier_authority_reason" in memory
+    assert "visibility_partial_minimum_goal_progress_m" in config
+    assert "visibility_partial_minimum_information_gain" in config
+    assert "visibility_partial_maximum_information_detour_m" in config
+    assert "DISCARDED_STALE_SNAPSHOT" in memory
+    assert "visibility_dense_replan_maximum_start_drift_m" in config
     assert "previous_route_safe" in memory
     assert "self.visibility.path_is_traversable(" in memory
     assert "visibility_active_route_accepted" in memory

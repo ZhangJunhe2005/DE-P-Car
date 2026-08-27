@@ -1117,6 +1117,66 @@ def test_corner_soft_clearance_prefers_outer_candidate_without_hard_blocking():
     assert inner.guidance_cost > outer.guidance_cost
 
 
+def test_corner_soft_clearance_survives_short_local_route_handoff():
+    class EndpointClearance:
+        @staticmethod
+        def swept_footprint_clearance(trajectory):
+            clearance = 0.05 if trajectory[-1, 2] > 0.5 else 0.25
+            return True, clearance
+
+    time = np.asarray([0.0, 0.5, 1.0])
+    inner = Candidate(
+        0,
+        0.2,
+        0.4,
+        1.0,
+        np.column_stack(
+            (
+                time,
+                [0.0, 0.3, 0.6],
+                [0.0, 0.4, 0.8],
+                [0.0, 0.22, 0.44],
+                [0.2] * 3,
+                [0.4] * 3,
+            )
+        ),
+        learned_score=0.0,
+    )
+    outer = Candidate(
+        1,
+        0.2,
+        0.2,
+        1.0,
+        np.column_stack(
+            (
+                time,
+                [0.0, 0.4, 0.8],
+                [0.0, 0.1, 0.2],
+                [0.0, 0.16, 0.32],
+                [0.2] * 3,
+                [0.2] * 3,
+            )
+        ),
+        learned_score=0.20,
+    )
+    result = PlanningResult(inner, [inner, outer], 1.0, False, False, 1)
+    short_local_reference = np.asarray(
+        [[0.0, 0.0], [0.6, 0.0], [1.2, 0.20]]
+    )
+    assert corner_severity(short_local_reference) == 0.0
+    apply_corner_clearance_preference(
+        result,
+        short_local_reference,
+        EndpointClearance(),
+        learned_score_base=True,
+    )
+    assert result.corner_soft_route_severity == 0.0
+    assert result.corner_soft_candidate_severity > 0.0
+    assert result.corner_soft_applied
+    assert result.selected.candidate_id == 1
+    assert inner.feasible and outer.feasible
+
+
 def test_corner_soft_clearance_is_inactive_on_straight_route():
     straight = np.asarray([[0.0, 0.0], [0.5, 0.0], [1.2, 0.0]])
     corner = np.asarray([[0.0, 0.0], [0.5, 0.0], [0.5, 1.0]])

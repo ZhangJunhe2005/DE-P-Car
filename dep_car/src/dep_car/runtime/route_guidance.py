@@ -329,15 +329,48 @@ def corner_severity(
 ) -> float:
     """Return a smooth 0--1 activation for an upcoming route bend."""
 
+    return _angle_severity(
+        route_turn_angle(reference_path),
+        trigger_rad=trigger_rad,
+        full_strength_rad=full_strength_rad,
+    )
+
+
+def _angle_severity(
+    angle_rad: float,
+    *,
+    trigger_rad: float,
+    full_strength_rad: float,
+) -> float:
+    """Return a smooth activation for one absolute angular demand."""
+
     trigger = float(trigger_rad)
     full = float(full_strength_rad)
     if not 0.0 <= trigger < full <= math.pi:
         raise ValueError("corner severity thresholds are invalid")
-    angle = route_turn_angle(reference_path)
+    angle = abs(float(angle_rad))
     linear = min(1.0, max(0.0, (angle - trigger) / (full - trigger)))
     # Smoothstep avoids candidate-ranking chatter as the sampled route angle
     # moves by one grid cell around the activation threshold.
     return float(linear * linear * (3.0 - 2.0 * linear))
+
+
+def trajectory_turn_angle(trajectory) -> float:
+    """Return the largest body-yaw excursion in a candidate rollout.
+
+    A short rolling exploration reference can look almost straight while the
+    Ackermann bank is already beginning one long 90-degree turn.  Inspecting
+    the candidate bank keeps the elastic corner halo active across a temporary
+    FAR/local-authority handoff.
+    """
+
+    values = np.asarray(trajectory, dtype=float)
+    if values.ndim != 2 or values.shape[1] < 4 or len(values) < 2:
+        return 0.0
+    yaw = np.unwrap(values[:, 3])
+    if not np.all(np.isfinite(yaw)):
+        return 0.0
+    return float(np.max(np.abs(yaw - yaw[0])))
 
 
 def apply_corner_clearance_preference(
@@ -349,6 +382,8 @@ def apply_corner_clearance_preference(
     weight: float = 3.0,
     trigger_rad: float = 0.35,
     full_strength_rad: float = 1.20,
+    candidate_trigger_rad: float = 0.10,
+    candidate_full_strength_rad: float = 0.60,
     learned_score_base: bool = False,
 ):
     """Push feasible turning candidates away from walls without blocking them.
@@ -368,15 +403,37 @@ def apply_corner_clearance_preference(
         raise ValueError("corner soft-clearance parameters cannot be negative")
     if target == 0.0 or strength == 0.0:
         return result
-    severity = corner_severity(
+    route_severity = corner_severity(
         reference_path,
         trigger_rad=trigger_rad,
         full_strength_rad=full_strength_rad,
     )
+    feasible = [candidate for candidate in result.candidates if candidate.feasible]
+    candidate_turn = max(
+        (trajectory_turn_angle(candidate.trajectory) for candidate in feasible),
+        default=0.0,
+    )
+    candidate_severity = _angle_severity(
+        candidate_turn,
+        trigger_rad=candidate_trigger_rad,
+        full_strength_rad=candidate_full_strength_rad,
+    )
+    # Use one bank-wide activation.  Per-candidate activation would let a
+    # straight-but-wrong candidate evade the halo exactly when all of the
+    # useful candidates are turning around a convex wall corner.
+    severity = max(route_severity, candidate_severity)
+    result.corner_soft_route_severity = float(route_severity)
+    result.corner_soft_candidate_severity = float(candidate_severity)
+    result.corner_soft_candidate_turn_angle = float(candidate_turn)
+    result.corner_soft_effective_severity = float(severity)
+    result.corner_soft_applied = False
+    result.corner_soft_selected_clearance = None
+    result.corner_soft_selected_cost = 0.0
     if severity <= 0.0:
         return result
 
     soft_costs = {}
+    clearances = {}
     for candidate in result.candidates:
         if not candidate.feasible:
             continue
@@ -387,8 +444,8 @@ def apply_corner_clearance_preference(
         soft_cost = strength * severity * normalized_deficit ** 2
         candidate.guidance_cost += soft_cost
         soft_costs[id(candidate)] = soft_cost
+        clearances[id(candidate)] = float(future_clearance)
 
-    feasible = [candidate for candidate in result.candidates if candidate.feasible]
     if feasible:
         if learned_score_base:
             result.selected = min(
@@ -403,6 +460,11 @@ def apply_corner_clearance_preference(
                 feasible,
                 key=lambda candidate: (candidate.total_cost, candidate.candidate_id),
             )
+        result.corner_soft_applied = any(value > 0.0 for value in soft_costs.values())
+        result.corner_soft_selected_clearance = clearances.get(id(result.selected))
+        result.corner_soft_selected_cost = float(
+            soft_costs.get(id(result.selected), 0.0)
+        )
     return result
 
 
@@ -452,6 +514,7 @@ __all__ = [
     "required_center_clearance",
     "route_reference_body",
     "monotonic_route_reference_body",
+    "trajectory_turn_angle",
     "route_turn_angle",
     "segment_is_visible",
     "segment_minimum_clearance",

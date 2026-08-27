@@ -279,6 +279,28 @@ class MonotonicRouteProgress:
             )
             new_tangent = self._tangent(candidate, cumulative, progress)
             direction_change = abs(wrap_angle(new_tangent - old_tangent))
+            # A rebuilt route can agree for a few centimetres and then fold
+            # into another corridor or behind the vehicle.  Compare a second
+            # tangent over the local curvature horizon so that this delayed
+            # reversal cannot steal authority from a stable incumbent.  The
+            # candidate geometry itself is never translated or rotated.
+            old_future = min(
+                float(self.cumulative[-1]),
+                self.progress_m + self.curvature_window_m,
+            )
+            candidate_future = min(
+                float(cumulative[-1]), progress + self.curvature_window_m
+            )
+            old_future_tangent = self._tangent(
+                self.path, self.cumulative, old_future
+            )
+            candidate_future_tangent = self._tangent(
+                candidate, cumulative, candidate_future
+            )
+            direction_change = max(
+                direction_change,
+                abs(wrap_angle(candidate_future_tangent - old_future_tangent)),
+            )
         if distance > float(maximum_entry_deviation_m):
             return RouteHandoffDecision(
                 False,

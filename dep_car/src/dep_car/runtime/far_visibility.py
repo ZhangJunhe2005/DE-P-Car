@@ -12,6 +12,7 @@ of DE-P and its hard safety layer.
 from dataclasses import dataclass
 import heapq
 import math
+import time
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
 import cv2
@@ -51,6 +52,70 @@ class VisibilityPlan:
     reason: str
     path_length: Optional[float] = None
     path_unknown_fraction: float = 1.0
+    # Graph-construction evidence.  These fields deliberately describe only
+    # the current online occupancy snapshot; they are never persisted as a
+    # map-specific route cache.
+    candidate_vertices_total: int = 0
+    candidate_vertices_selected: int = 0
+    node_limit_hit: bool = False
+    planning_node_limit: int = 0
+    start_degree: int = 0
+    goal_degree: int = 0
+    connected_components: int = 0
+    start_component_size: int = 0
+    goal_component_size: int = 0
+    start_clearance_m: Optional[float] = None
+    goal_clearance_m: Optional[float] = None
+    start_inside_inflation: bool = False
+    goal_inside_inflation: bool = False
+    disconnect_class: str = "NONE"
+    progressive_stages: int = 1
+    progressive_complete: bool = True
+    partial_goal_progress_m: Optional[float] = None
+    partial_frontier_unknown_fraction: Optional[float] = None
+    # FAR upstream keeps driven trajectory/inter-navigation vertices in its
+    # dynamic global graph.  These counters make the corresponding online,
+    # map-agnostic bridge vertices auditable in the 2-D port.
+    trajectory_vertices_total: int = 0
+    trajectory_vertices_selected: int = 0
+
+
+@dataclass
+class ProgressiveVisibilitySession:
+    """Transient graph-construction state for one live pose/map request.
+
+    The owner must discard this object when the goal, measured start pose,
+    failed-branch set or online occupancy revision changes.  It deliberately
+    carries no map UUID and is never serialized, so resuming a dense solve
+    cannot become a cross-map route cache.
+    """
+
+    values: np.ndarray
+    resolution: float
+    origin: Tuple[float, float]
+    start: Tuple[float, float]
+    goal: Tuple[float, float]
+    start_yaw: Optional[float]
+    blocked_polylines: Tuple[Tuple[Tuple[float, float], ...], ...]
+    directed_failed_branches: Tuple[Tuple[Tuple[float, float], ...], ...]
+    trajectory_points: Tuple[Tuple[float, float], ...]
+    failure_buffer_m: float
+    occupied: np.ndarray
+    inflated: np.ndarray
+    all_nodes: Tuple[VisibilityNode, ...]
+    candidate_vertices_total: int
+    limits: Tuple[int, ...]
+    start_clearance_m: Optional[float]
+    goal_clearance_m: Optional[float]
+    start_inside_inflation: bool
+    goal_inside_inflation: bool
+    edges: List[VisibilityEdge]
+    trajectory_vertices_total: int = 0
+    trajectory_vertices_selected: int = 0
+    previous_node_count: int = 1
+    next_stage_index: int = 0
+    complete: bool = False
+    last_plan: Optional[VisibilityPlan] = None
 
 
 @dataclass(frozen=True)
@@ -147,7 +212,10 @@ def measured_pose_revalidation_authorized(
         and (
             plan.mode == "KNOWN_VISIBILITY"
             or (
-                plan.mode == "ATTEMPTABLE_VISIBILITY"
+                plan.mode in (
+                    "ATTEMPTABLE_VISIBILITY",
+                    "PARTIAL_ATTEMPTABLE",
+                )
                 and float(plan.path_unknown_fraction) <= limit
             )
         )
@@ -190,6 +258,129 @@ def transient_route_lease_authorized(
         and length >= minimum
         and 0.0 <= age <= grace
     )
+
+
+def goal_connected_incumbent_retention_reason(
+    *,
+    previous_route_motion_authorized: bool,
+    same_goal: bool,
+    previous_mode: str,
+    previous_route_globally_traversable: bool,
+    candidate_mode: str,
+    candidate_motion_authorized: bool,
+    handoff_accepted: bool,
+):
+    """Keep a valid goal route ahead of weaker rolling rebuild results.
+
+    Upstream FAR plans over a persistent graph and carries path momentum while
+    that path remains valid.  A snapshot rebuild in this adapter is only a
+    *candidate* replacement.  In particular, a bounded frontier prefix must
+    never erase a still-traversable route which already reaches the goal.
+
+    The complete incumbent geometry is checked on the newest inflated map.
+    A newly observed wall therefore revokes the hold and permits a genuine
+    reroute or turnaround; this cannot preserve a known-collision route.
+    """
+
+    if not (
+        previous_route_motion_authorized
+        and same_goal
+        and str(previous_mode)
+        in ("KNOWN_VISIBILITY", "ATTEMPTABLE_VISIBILITY")
+        and previous_route_globally_traversable
+    ):
+        return None
+    if str(candidate_mode) == "PARTIAL_ATTEMPTABLE":
+        return "partial_candidate_cannot_preempt_goal_route"
+    if not candidate_motion_authorized:
+        return "unsettled_candidate_cannot_preempt_goal_route"
+    if not handoff_accepted:
+        return "discontinuous_candidate_cannot_preempt_goal_route"
+    return None
+
+
+def visibility_plan_is_goal_connected(plan):
+    """Return whether a FAR result reaches the current mission goal.
+
+    ``PARTIAL_ATTEMPTABLE`` deliberately does not qualify: its last vertex is
+    only a frontier inside START's connected component.  Keeping this
+    distinction in one helper prevents a short frontier from being promoted to
+    the same authority class as a complete maze detour.
+    """
+
+    return bool(
+        plan is not None
+        and plan.status == "PASS"
+        and plan.mode in ("KNOWN_VISIBILITY", "ATTEMPTABLE_VISIBILITY")
+        and len(plan.path) >= 2
+    )
+
+
+def goal_route_direction_continuity_hold(
+    *, previous_plan, previous_route_safe, lease_prefix_clear, handoff_accepted
+):
+    """Protect direction continuity only for an incumbent goal route.
+
+    A short PARTIAL frontier is expendable.  Letting its initial tangent veto a
+    newly discovered complete detour recreates the exact local-minimum failure
+    that dense FAR expansion is intended to resolve.
+    """
+
+    return bool(
+        visibility_plan_is_goal_connected(previous_plan)
+        and (bool(previous_route_safe) or bool(lease_prefix_clear))
+        and not bool(handoff_accepted)
+    )
+
+
+def partial_frontier_authority_reason(
+    plan,
+    *,
+    path_clear,
+    connected_candidate_available=False,
+    explicit_egress=False,
+    minimum_goal_progress_m=0.05,
+    minimum_information_gain=0.05,
+    maximum_information_detour_m=0.50,
+):
+    """Classify whether a bounded partial route may move the vehicle.
+
+    A partial visibility route is useful while a connected route is not yet
+    available, but it must not become a local goal-seeking loop in a known
+    cul-de-sac.  Normal partial motion therefore needs either measurable goal
+    progress or information gain with tightly bounded regression.  Moving
+    away from the goal remains possible only inside an explicit dead-end
+    egress transaction.
+
+    The return value is a stable diagnostic reason; ``None`` means no motion
+    authority.  Physical hard-veto remains an independent final requirement.
+    """
+
+    if not (
+        plan is not None
+        and plan.status == "PASS"
+        and plan.mode == "PARTIAL_ATTEMPTABLE"
+        and len(plan.path) >= 2
+        and bool(path_clear)
+        and float(plan.path_unknown_fraction) <= 0.02
+    ):
+        return None
+    progress = plan.partial_goal_progress_m
+    information = plan.partial_frontier_unknown_fraction
+    progress = -math.inf if progress is None else float(progress)
+    information = 0.0 if information is None else float(information)
+    if explicit_egress:
+        return "explicit_egress_partial_frontier"
+    if connected_candidate_available:
+        return None
+    if progress >= float(minimum_goal_progress_m):
+        return "positive_progress_partial_frontier"
+    if (
+        information >= float(minimum_information_gain)
+        and progress >= -float(maximum_information_detour_m)
+    ):
+        return "information_gain_partial_frontier"
+    return None
 
 
 class VisibilityRouteAcquisitionGate:
@@ -279,6 +470,7 @@ class VisibilityRouteAcquisitionGate:
         self.last_bearing = None
         self.last_cost = None
         self.last_observer_position = None
+        self.last_candidate_signature = None
         self.reason = "waiting_for_visibility_route"
 
     @staticmethod
@@ -287,6 +479,20 @@ class VisibilityRouteAcquisitionGate:
 
     def _first_bearing(self, path):
         return route_initial_bearing(path, self.lookahead_m)
+
+    @staticmethod
+    def _candidate_signature(plan):
+        """Identify an exact candidate without any map/scenario identity."""
+
+        return (
+            str(plan.mode),
+            tuple(
+                (round(float(point[0]), 3), round(float(point[1]), 3))
+                for point in plan.path
+            ),
+            round(float(plan.path_cost or 0.0), 3),
+            round(float(plan.path_unknown_fraction), 4),
+        )
 
     def update(
         self,
@@ -322,11 +528,17 @@ class VisibilityRouteAcquisitionGate:
             )
         cost = float(plan.path_cost or 0.0)
         known_route = plan.mode == "KNOWN_VISIBILITY"
+        partial_route = plan.mode == "PARTIAL_ATTEMPTABLE"
+        candidate_signature = self._candidate_signature(plan)
         observer = None
         if observer_position is not None:
             candidate = np.asarray(observer_position, dtype=float)
             if candidate.shape == (2,) and np.all(np.isfinite(candidate)):
                 observer = candidate
+        if partial_route and self.accepted:
+            # A bounded frontier prefix cannot inherit full-goal acceptance
+            # from an older connected route.
+            self.reset()
         if self.accepted:
             consistent_with_accepted = bool(
                 self.last_bearing is not None
@@ -343,6 +555,7 @@ class VisibilityRouteAcquisitionGate:
                 self.last_cost = cost
                 if observer is not None:
                     self.last_observer_position = observer.copy()
+                self.last_candidate_signature = candidate_signature
                 return VisibilityRouteAcquisitionDecision(
                     True,
                     self.confirmations,
@@ -383,7 +596,15 @@ class VisibilityRouteAcquisitionGate:
             and float(np.linalg.norm(observer - self.last_observer_position))
             >= self.minimum_observer_displacement_m
         )
-        if self.last_revision == int(map_revision) and not observer_advanced:
+        # Only an exact duplicate at the same measured pose is not new route
+        # evidence.  A dense solve can upgrade a PARTIAL frontier to a complete
+        # KNOWN route on the same immutable map revision; treating those two
+        # candidates as identical was the P6 V4.3 long-detour handoff bug.
+        if (
+            self.last_revision == int(map_revision)
+            and not observer_advanced
+            and self.last_candidate_signature == candidate_signature
+        ):
             return VisibilityRouteAcquisitionDecision(
                 self.accepted,
                 self.confirmations,
@@ -409,6 +630,7 @@ class VisibilityRouteAcquisitionGate:
         self.last_revision = int(map_revision)
         self.last_bearing = float(bearing)
         self.last_cost = cost
+        self.last_candidate_signature = candidate_signature
         if observer is not None:
             self.last_observer_position = observer.copy()
         stable_s = float(stamp) - float(self.first_stable_stamp)
@@ -438,7 +660,8 @@ class VisibilityRouteAcquisitionGate:
             and stable_s >= self.minimum_stable_s
         )
         self.accepted = bool(
-            sufficiently_observed
+            not partial_route
+            and sufficiently_observed
             and self.confirmations >= required_confirmations
             and stable_s >= required_stable_s
         )
@@ -450,6 +673,8 @@ class VisibilityRouteAcquisitionGate:
                 if known_route
                 else "stable_attemptable_route"
             )
+        elif partial_route:
+            self.reason = "partial_reachable_frontier"
         elif self.motion_authorized and high_detour:
             self.reason = "stable_attemptable_navigation_high_detour"
         elif self.motion_authorized:
@@ -797,7 +1022,27 @@ class DynamicVisibilityPlanner:
             )
         return length, float(unknown) / samples
 
-    def _candidate_vertices(self, inflated, values, resolution, origin, start, goal):
+    def _candidate_vertices(
+        self,
+        inflated,
+        values,
+        resolution,
+        origin,
+        start,
+        goal,
+        *,
+        maximum_nodes=None,
+        coverage_order=False,
+    ):
+        """Return an ordered vertex pool and its uncropped unique size.
+
+        The ordinary graph retains the historical start/goal relevance order.
+        A dense recovery solve may additionally interleave spatial and contour
+        representatives.  This prevents a long but valid detour from losing all
+        of its remote corner vertices merely because a well explored map has
+        many locally relevant contours.
+        """
+
         contours, _ = cv2.findContours(
             inflated.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -811,7 +1056,7 @@ class DynamicVisibilityPlanner:
             (math.cos(angle), math.sin(angle))
             for angle in np.linspace(-math.pi, math.pi, 16, endpoint=False)
         ]
-        for contour in contours:
+        for contour_index, contour in enumerate(contours):
             if len(contour) < 3:
                 continue
             approximate = cv2.approxPolyDP(contour, epsilon, True)
@@ -842,7 +1087,7 @@ class DynamicVisibilityPlanner:
                         for old in chosen
                     ):
                         chosen.append(point)
-                        candidates.append((score, point))
+                        candidates.append((score, point, contour_index))
                     if len(chosen) >= 2:
                         break
 
@@ -855,19 +1100,270 @@ class DynamicVisibilityPlanner:
                 - 0.2 * item[0]
             )
         )
-        output = []
-        for _, point in candidates:
+        unique = []
+        for score, point, contour_index in candidates:
             if all(
-                math.hypot(point[0] - old[0], point[1] - old[1])
+                math.hypot(point[0] - old[1][0], point[1] - old[1][1])
                 >= self.node_separation_m
-                for old in output
+                for old in unique
             ):
-                output.append(point)
-            if len(output) >= self.maximum_nodes - 2:
-                break
-        return output
+                unique.append((score, point, contour_index))
 
-    def _search(
+        ordered = unique
+        if coverage_order and unique:
+            # Interleave four relevance-ranked vertices with one spatial-bin
+            # representative and one contour representative.  All queues are
+            # deterministic and every selected item still passed the same
+            # inflated-map clearance test above.
+            bin_size = max(1.0, 4.0 * self.node_separation_m)
+            spatial = []
+            seen_bins = set()
+            contour = []
+            seen_contours = set()
+            for item in unique:
+                point = item[1]
+                key = (
+                    int(math.floor(point[0] / bin_size)),
+                    int(math.floor(point[1] / bin_size)),
+                )
+                if key not in seen_bins:
+                    seen_bins.add(key)
+                    spatial.append(item)
+                if item[2] not in seen_contours:
+                    seen_contours.add(item[2])
+                    contour.append(item)
+            queues = (unique, spatial, contour)
+            pattern = (0, 0, 0, 0, 1, 2)
+            indices = [0, 0, 0]
+            used = set()
+            ordered = []
+            while len(ordered) < len(unique):
+                advanced = False
+                for queue_index in pattern:
+                    queue = queues[queue_index]
+                    while indices[queue_index] < len(queue):
+                        item = queue[indices[queue_index]]
+                        indices[queue_index] += 1
+                        key = (round(item[1][0], 6), round(item[1][1], 6))
+                        if key in used:
+                            continue
+                        used.add(key)
+                        ordered.append(item)
+                        advanced = True
+                        break
+                if not advanced:
+                    break
+
+        node_limit = self.maximum_nodes if maximum_nodes is None else int(maximum_nodes)
+        selected = max(0, node_limit - 2)
+        return [item[1] for item in ordered[:selected]], len(unique)
+
+    def _trajectory_vertices(
+        self,
+        trajectory_points,
+        inflated,
+        values,
+        resolution,
+        origin,
+        start,
+        goal,
+        *,
+        maximum_vertices,
+    ):
+        """Return safe persistent inter-navigation anchors for this snapshot.
+
+        Upstream FAR does not throw away the complete graph at every sensor
+        update.  In particular, positions actually traversed by the robot are
+        retained as trajectory/inter-nav vertices and can bridge two contour
+        subgraphs after a newly observed wall invalidates a speculative edge.
+
+        The 2-D port stores those positions in odometry and the ROS owner
+        transforms them with the *current* online ``map<-odom`` transform.
+        This method never retrieves a map-specific route: it merely admits
+        current-map-free points as visibility vertices and rechecks every edge
+        against the latest inflated occupancy mask.
+        """
+
+        maximum = max(0, int(maximum_vertices))
+        if maximum == 0:
+            return [], 0
+        valid = []
+        separation = max(1.0e-6, self.node_separation_m)
+        spatial_bins = {}
+        for point in trajectory_points:
+            try:
+                candidate = (float(point[0]), float(point[1]))
+            except (TypeError, ValueError, IndexError):
+                continue
+            if not all(math.isfinite(value) for value in candidate):
+                continue
+            row, column = self._world_to_grid(candidate, resolution, origin)
+            if not self._inside(values.shape, row, column):
+                continue
+            # A historical traversal is connectivity evidence, never an
+            # override for newly observed occupied space or footprint margin.
+            if values[row, column] < 0 or inflated[row, column]:
+                continue
+            if min(
+                math.hypot(candidate[0] - endpoint[0], candidate[1] - endpoint[1])
+                for endpoint in (start, goal)
+            ) < 0.5 * self.node_separation_m:
+                continue
+            bin_key = (
+                int(math.floor(candidate[0] / separation)),
+                int(math.floor(candidate[1] / separation)),
+            )
+            neighbours = [
+                old
+                for dx in (-1, 0, 1)
+                for dy in (-1, 0, 1)
+                for old in spatial_bins.get(
+                    (bin_key[0] + dx, bin_key[1] + dy), ()
+                )
+            ]
+            if any(
+                math.hypot(candidate[0] - old[0], candidate[1] - old[1])
+                < separation
+                for old in neighbours
+            ):
+                continue
+            valid.append(candidate)
+            spatial_bins.setdefault(bin_key, []).append(candidate)
+
+        total = len(valid)
+        if total <= maximum:
+            return valid, total
+
+        # Preserve spatial coverage across the entire online trajectory rather
+        # than keeping only its newest or goal-nearest end.  This mirrors the
+        # role of FAR's inter-nav chain without forcing any stale edge to stay
+        # connected; visibility and hard safety are still recomputed below.
+        indices = np.linspace(0, total - 1, maximum, dtype=np.int32)
+        selected = []
+        used = set()
+        for index in indices:
+            index = int(index)
+            if index in used:
+                continue
+            used.add(index)
+            selected.append(valid[index])
+        return selected, total
+
+    def _build_snapshot_nodes(
+        self,
+        inflated,
+        values,
+        resolution,
+        origin,
+        start,
+        goal,
+        *,
+        node_limit,
+        coverage_order,
+        trajectory_points=(),
+        maximum_trajectory_vertices=64,
+    ):
+        """Build one graph snapshot while reserving room for driven anchors."""
+
+        bridge_budget = min(
+            max(0, int(maximum_trajectory_vertices)),
+            max(0, int(node_limit) - 4),
+        )
+        trajectory, trajectory_total = self._trajectory_vertices(
+            trajectory_points,
+            inflated,
+            values,
+            resolution,
+            origin,
+            start,
+            goal,
+            maximum_vertices=bridge_budget,
+        )
+        polygon_limit = max(4, int(node_limit) - len(trajectory))
+        anchors, polygon_total = self._candidate_vertices(
+            inflated,
+            values,
+            resolution,
+            origin,
+            start,
+            goal,
+            maximum_nodes=polygon_limit,
+            coverage_order=bool(coverage_order),
+        )
+        # A driven anchor takes precedence over a nearby contour vertex.  Both
+        # would generate nearly identical quadratic edge work, while the
+        # trajectory vertex has stronger real-traversal evidence.
+        filtered_anchors = [
+            point
+            for point in anchors
+            if all(
+                math.hypot(point[0] - bridge[0], point[1] - bridge[1])
+                >= self.node_separation_m
+                for bridge in trajectory
+            )
+        ]
+        nodes = [
+            VisibilityNode(0, start[0], start[1], "START"),
+            VisibilityNode(1, goal[0], goal[1], "GOAL"),
+        ]
+        nodes.extend(
+            VisibilityNode(index + 2, point[0], point[1], "TRAJECTORY")
+            for index, point in enumerate(trajectory)
+        )
+        offset = len(nodes)
+        nodes.extend(
+            VisibilityNode(offset + index, point[0], point[1], "POLYGON_VERTEX")
+            for index, point in enumerate(filtered_anchors)
+        )
+        return (
+            nodes,
+            int(polygon_total + trajectory_total),
+            int(trajectory_total),
+            int(len(trajectory)),
+        )
+
+    @staticmethod
+    def _component_diagnostics(nodes, edges):
+        adjacency = {node.node_id: set() for node in nodes}
+        for edge in edges:
+            adjacency[edge.first].add(edge.second)
+            adjacency[edge.second].add(edge.first)
+        components = []
+        component_by_node = {}
+        for node in nodes:
+            if node.node_id in component_by_node:
+                continue
+            pending = [node.node_id]
+            component = set()
+            while pending:
+                current = pending.pop()
+                if current in component:
+                    continue
+                component.add(current)
+                pending.extend(adjacency[current] - component)
+            index = len(components)
+            for node_id in component:
+                component_by_node[node_id] = index
+            components.append(component)
+        start_component = components[component_by_node[0]]
+        goal_component = components[component_by_node[1]]
+        return {
+            "start_degree": len(adjacency[0]),
+            "goal_degree": len(adjacency[1]),
+            "connected_components": len(components),
+            "start_component_size": len(start_component),
+            "goal_component_size": len(goal_component),
+        }
+
+    def _endpoint_clearance(self, point, occupied, inflated, resolution, origin):
+        row, column = self._world_to_grid(point, resolution, origin)
+        if not self._inside(occupied.shape, row, column):
+            return None, False
+        raw_free = (~occupied.astype(bool)).astype(np.uint8)
+        clearance = cv2.distanceTransform(raw_free, cv2.DIST_L2, 5)
+        return float(clearance[row, column]) * resolution, bool(inflated[row, column])
+
+    def _shortest_path_tree(
         self,
         nodes,
         edges,
@@ -927,24 +1423,153 @@ class DynamicVisibilityPlanner:
             cost, node_id = heapq.heappop(queue)
             if cost > distances.get(node_id, math.inf):
                 continue
-            if node_id == 1:
-                break
             for neighbour, edge_cost in adjacency.get(node_id, ()):
                 candidate = cost + edge_cost
                 if candidate + 1.0e-9 < distances.get(neighbour, math.inf):
                     distances[neighbour] = candidate
                     previous[neighbour] = node_id
                     heapq.heappush(queue, (candidate, neighbour))
-        if 1 not in distances:
-            return None, None
-        ids = [1]
+        return distances, previous
+
+    @staticmethod
+    def _reconstruct_path(previous, target_id):
+        ids = [int(target_id)]
         while ids[-1] != 0:
             parent = previous.get(ids[-1])
             if parent is None:
-                return None, None
+                return None
             ids.append(parent)
         ids.reverse()
+        return ids
+
+    def _search(
+        self,
+        nodes,
+        edges,
+        *,
+        known_only,
+        unknown_cost_weight,
+        start_yaw=None,
+        directed_failed_branches=(),
+        failure_buffer_m=0.45,
+    ):
+        distances, previous = self._shortest_path_tree(
+            nodes,
+            edges,
+            known_only=known_only,
+            unknown_cost_weight=unknown_cost_weight,
+            start_yaw=start_yaw,
+            directed_failed_branches=directed_failed_branches,
+            failure_buffer_m=failure_buffer_m,
+        )
+        if 1 not in distances:
+            return None, None
+        ids = self._reconstruct_path(previous, 1)
+        if ids is None:
+            return None, None
         return ids, float(distances[1])
+
+    def _partial_attemptable_path(
+        self,
+        nodes,
+        edges,
+        values,
+        inflated,
+        resolution,
+        origin,
+        goal,
+        *,
+        start_yaw=None,
+        directed_failed_branches=(),
+        failure_buffer_m=0.45,
+        maximum_path_m=3.0,
+    ):
+        """Choose a safe, bounded route inside START's reachable component.
+
+        This is not an arbitrary Euclidean fallback.  Every returned segment
+        belongs to the current visibility graph, avoids directed failed
+        branches, and its complete bounded prefix is observed and clear on the
+        inflated occupancy grid.  Goal progress is preferred, while a modest
+        information-gain term permits the first leg of a necessary detour.
+        """
+
+        distances, previous = self._shortest_path_tree(
+            nodes,
+            edges,
+            known_only=False,
+            unknown_cost_weight=self.unknown_cost_weight,
+            start_yaw=start_yaw,
+            directed_failed_branches=directed_failed_branches,
+            failure_buffer_m=failure_buffer_m,
+        )
+        if len(distances) <= 1:
+            return None
+        by_id = {node.node_id: node for node in nodes}
+        start = np.asarray((nodes[0].x, nodes[0].y), dtype=float)
+        goal_xy = np.asarray(goal, dtype=float)
+        initial_goal_distance = float(np.linalg.norm(goal_xy - start))
+        raw_free = (np.asarray(values) < self.occupied_threshold).astype(np.uint8)
+        clearance = cv2.distanceTransform(raw_free, cv2.DIST_L2, 5)
+        information_radius = max(2, int(math.ceil(0.75 / float(resolution))))
+        best = None
+        for node_id, route_cost in distances.items():
+            if node_id in (0, 1):
+                continue
+            ids = self._reconstruct_path(previous, node_id)
+            if ids is None or len(ids) < 2:
+                continue
+            path = tuple((by_id[item].x, by_id[item].y) for item in ids)
+            full_length = sum(
+                math.hypot(second[0] - first[0], second[1] - first[1])
+                for first, second in zip(path[:-1], path[1:])
+            )
+            if full_length < 0.45:
+                continue
+            bounded_path = polyline_prefix(path, min(maximum_path_m, full_length))
+            if len(bounded_path) < 2 or not self.path_is_traversable(
+                bounded_path,
+                values,
+                resolution,
+                origin,
+                maximum_unknown_fraction=0.02,
+            ):
+                continue
+            endpoint = np.asarray(bounded_path[-1], dtype=float)
+            endpoint_goal_distance = float(np.linalg.norm(goal_xy - endpoint))
+            progress = initial_goal_distance - endpoint_goal_distance
+            row, column = self._world_to_grid(endpoint, resolution, origin)
+            if not self._inside(values.shape, row, column):
+                continue
+            row0 = max(0, row - information_radius)
+            row1 = min(values.shape[0], row + information_radius + 1)
+            column0 = max(0, column - information_radius)
+            column1 = min(values.shape[1], column + information_radius + 1)
+            neighbourhood = values[row0:row1, column0:column1]
+            unknown_fraction = float(np.mean(neighbourhood < 0))
+            clearance_m = float(clearance[row, column]) * float(resolution)
+            # The graph may need to move briefly away from the goal to reach
+            # the visible side of an occluding wall.  Bound that regression,
+            # then use frontier gain and clearance to break ties rather than
+            # falling back to a raw goal-bearing vector.
+            if progress < -2.0 and unknown_fraction < 0.05:
+                continue
+            score = (
+                2.0 * progress
+                + 1.25 * unknown_fraction
+                + 0.30 * min(clearance_m, 1.0)
+                + 0.08 * min(full_length, maximum_path_m)
+                - 0.04 * float(route_cost)
+            )
+            candidate = (
+                score,
+                progress,
+                unknown_fraction,
+                bounded_path,
+                float(route_cost),
+            )
+            if best is None or candidate[0] > best[0]:
+                best = candidate
+        return best
 
     @staticmethod
     def _project_to_polyline(point, polyline):
@@ -1035,8 +1660,13 @@ class DynamicVisibilityPlanner:
         *,
         blocked_polylines: Iterable[Sequence[Sequence[float]]] = (),
         directed_failed_branches: Iterable[Sequence[Sequence[float]]] = (),
+        trajectory_points: Iterable[Sequence[float]] = (),
+        maximum_trajectory_vertices: int = 64,
         failure_buffer_m: float = 0.45,
         start_yaw: Optional[float] = None,
+        _maximum_nodes: Optional[int] = None,
+        _coverage_order: bool = False,
+        _progressive_stages: int = 1,
     ) -> VisibilityPlan:
         values = np.asarray(values, dtype=np.int16)
         if values.ndim != 2 or not values.size:
@@ -1070,16 +1700,27 @@ class DynamicVisibilityPlanner:
                     thickness=failure_thickness,
                 )
         inflated = self._inflated_occupancy(occupied * 100, resolution)
-        anchors = self._candidate_vertices(
-            inflated, values, resolution, origin, start, goal
+        node_limit = (
+            self.maximum_nodes
+            if _maximum_nodes is None
+            else max(4, int(_maximum_nodes))
         )
-        nodes = [
-            VisibilityNode(0, start[0], start[1], "START"),
-            VisibilityNode(1, goal[0], goal[1], "GOAL"),
-        ]
-        nodes.extend(
-            VisibilityNode(index + 2, point[0], point[1], "POLYGON_VERTEX")
-            for index, point in enumerate(anchors)
+        (
+            nodes,
+            candidate_vertices_total,
+            trajectory_vertices_total,
+            trajectory_vertices_selected,
+        ) = self._build_snapshot_nodes(
+            inflated,
+            values,
+            resolution,
+            origin,
+            start,
+            goal,
+            node_limit=node_limit,
+            coverage_order=bool(_coverage_order),
+            trajectory_points=trajectory_points,
+            maximum_trajectory_vertices=maximum_trajectory_vertices,
         )
 
         edges = []
@@ -1135,7 +1776,115 @@ class DynamicVisibilityPlanner:
             )
             mode = "ATTEMPTABLE_VISIBILITY"
         known_edges = sum(edge.known for edge in edges)
+        graph_diagnostics = self._component_diagnostics(nodes, edges)
+        start_clearance, start_inside_inflation = self._endpoint_clearance(
+            start, occupied, inflated, resolution, origin
+        )
+        goal_clearance, goal_inside_inflation = self._endpoint_clearance(
+            goal, occupied, inflated, resolution, origin
+        )
+        selected_vertices = max(0, len(nodes) - 2)
+        node_limit_hit = candidate_vertices_total > selected_vertices
+        common_diagnostics = dict(
+            candidate_vertices_total=int(candidate_vertices_total),
+            candidate_vertices_selected=int(selected_vertices),
+            node_limit_hit=bool(node_limit_hit),
+            planning_node_limit=int(node_limit),
+            start_degree=int(graph_diagnostics["start_degree"]),
+            goal_degree=int(graph_diagnostics["goal_degree"]),
+            connected_components=int(graph_diagnostics["connected_components"]),
+            start_component_size=int(graph_diagnostics["start_component_size"]),
+            goal_component_size=int(graph_diagnostics["goal_component_size"]),
+            start_clearance_m=start_clearance,
+            goal_clearance_m=goal_clearance,
+            start_inside_inflation=bool(start_inside_inflation),
+            goal_inside_inflation=bool(goal_inside_inflation),
+            progressive_stages=max(1, int(_progressive_stages)),
+            trajectory_vertices_total=int(trajectory_vertices_total),
+            trajectory_vertices_selected=int(trajectory_vertices_selected),
+        )
         if ids is None:
+            if start_inside_inflation:
+                disconnect_class = "START_IN_INFLATION"
+            elif goal_inside_inflation:
+                disconnect_class = "GOAL_IN_INFLATION"
+            elif node_limit_hit:
+                disconnect_class = "NODE_LIMIT_COMPONENT_DISCONNECTED"
+            elif graph_diagnostics["start_degree"] == 0:
+                disconnect_class = "START_ISOLATED"
+            elif graph_diagnostics["goal_degree"] == 0:
+                disconnect_class = "GOAL_ISOLATED"
+            else:
+                disconnect_class = "COMPONENT_DISCONNECTED"
+            partial = None
+            if not start_inside_inflation and not goal_inside_inflation:
+                partial = self._partial_attemptable_path(
+                    nodes,
+                    edges,
+                    values,
+                    inflated,
+                    resolution,
+                    origin,
+                    goal,
+                    start_yaw=start_yaw,
+                    directed_failed_branches=directed_failed_branches,
+                    failure_buffer_m=failure_buffer_m,
+                )
+                # An uncapped graph over a fully observed closed obstacle has
+                # no attemptable frontier.  Do not turn ordinary goal progress
+                # toward that wall into an endless pseudo route.  A node-capped
+                # graph may still expose a known prefix while its background
+                # expansion searches the remaining current-map vertices.
+                if (
+                    partial is not None
+                    and not node_limit_hit
+                    and float(partial[2]) < 0.01
+                ):
+                    partial = None
+            if partial is not None:
+                _, progress, frontier_unknown, path, partial_cost = partial
+                path_length = float(sum(
+                    math.hypot(
+                        second[0] - first[0], second[1] - first[1]
+                    )
+                    for first, second in zip(path[:-1], path[1:])
+                ))
+                path_profiles = [
+                    self._segment_profile(
+                        first,
+                        second,
+                        values,
+                        inflated,
+                        resolution,
+                        origin,
+                    )
+                    for first, second in zip(path[:-1], path[1:])
+                ]
+                path_unknown_fraction = float(
+                    sum(
+                        profile[0] * profile[1]
+                        for profile in path_profiles
+                        if profile is not None
+                    )
+                    / max(1.0e-9, path_length)
+                )
+                return VisibilityPlan(
+                    status="PASS",
+                    mode="PARTIAL_ATTEMPTABLE",
+                    path=tuple(path),
+                    nodes=tuple(nodes),
+                    edges=tuple(edges),
+                    path_cost=float(partial_cost),
+                    known_edges=int(known_edges),
+                    attemptable_edges=int(len(edges) - known_edges),
+                    reason="partial_reachable_frontier",
+                    path_length=path_length,
+                    path_unknown_fraction=path_unknown_fraction,
+                    disconnect_class=disconnect_class,
+                    partial_goal_progress_m=float(progress),
+                    partial_frontier_unknown_fraction=float(frontier_unknown),
+                    **common_diagnostics,
+                )
             return VisibilityPlan(
                 status="NO_ROUTE",
                 mode="NONE",
@@ -1148,6 +1897,8 @@ class DynamicVisibilityPlanner:
                 reason="visibility_graph_disconnected",
                 path_length=None,
                 path_unknown_fraction=1.0,
+                disconnect_class=disconnect_class,
+                **common_diagnostics,
             )
         by_id = {node.node_id: node for node in nodes}
         path = tuple((by_id[node_id].x, by_id[node_id].y) for node_id in ids)
@@ -1175,4 +1926,629 @@ class DynamicVisibilityPlanner:
             reason="known_route" if mode == "KNOWN_VISIBILITY" else "attempt_unknown_route",
             path_length=path_length,
             path_unknown_fraction=path_unknown_fraction,
+            disconnect_class="NONE",
+            **common_diagnostics,
         )
+
+    def _plan_progressive_legacy(
+        self,
+        values,
+        resolution,
+        origin,
+        start_xy,
+        goal_xy,
+        *,
+        initial_maximum_nodes=192,
+        maximum_nodes=320,
+        node_step=32,
+        time_budget_s=2.5,
+        blocked_polylines: Iterable[Sequence[Sequence[float]]] = (),
+        directed_failed_branches: Iterable[Sequence[Sequence[float]]] = (),
+        failure_buffer_m: float = 0.45,
+        start_yaw: Optional[float] = None,
+    ) -> VisibilityPlan:
+        """Run a bounded coverage-preserving dense retry.
+
+        This method is intended for a background worker after the ordinary
+        relevance-ranked graph reports both ``NO_ROUTE`` and ``node_limit_hit``.
+        It never stores a map identifier or a route for a future run.  Stages
+        expand only the current occupancy snapshot and stop as soon as one
+        connected route is found or the wall-clock budget is exhausted.
+        """
+
+        values = np.asarray(values, dtype=np.int16)
+        resolution = float(resolution)
+        origin = (float(origin[0]), float(origin[1]))
+        start = (float(start_xy[0]), float(start_xy[1]))
+        goal = (float(goal_xy[0]), float(goal_xy[1]))
+        if values.ndim != 2 or not values.size or resolution <= 0.0:
+            raise ValueError("progressive visibility planning needs a valid grid")
+        if not all(math.isfinite(value) for value in start + goal):
+            raise ValueError("progressive visibility endpoints must be finite")
+        initial = max(4, int(initial_maximum_nodes))
+        maximum = max(initial, int(maximum_nodes))
+        step = max(1, int(node_step))
+        budget = max(0.05, float(time_budget_s))
+        started = time.perf_counter()
+
+        occupied = (values >= self.occupied_threshold).astype(np.uint8)
+        failure_thickness = max(
+            1, int(math.ceil(2.0 * float(failure_buffer_m) / resolution))
+        )
+        for polyline in blocked_polylines:
+            points = []
+            for point in polyline:
+                row, column = self._world_to_grid(point, resolution, origin)
+                points.append((column, row))
+            if len(points) >= 2:
+                cv2.polylines(
+                    occupied,
+                    [np.asarray(points, dtype=np.int32)],
+                    False,
+                    1,
+                    thickness=failure_thickness,
+                )
+        inflated = self._inflated_occupancy(occupied * 100, resolution)
+        anchors, candidate_vertices_total = self._candidate_vertices(
+            inflated,
+            values,
+            resolution,
+            origin,
+            start,
+            goal,
+            maximum_nodes=maximum,
+            coverage_order=True,
+        )
+        all_nodes = [
+            VisibilityNode(0, start[0], start[1], "START"),
+            VisibilityNode(1, goal[0], goal[1], "GOAL"),
+        ]
+        all_nodes.extend(
+            VisibilityNode(index + 2, point[0], point[1], "POLYGON_VERTEX")
+            for index, point in enumerate(anchors)
+        )
+        available_nodes = len(all_nodes)
+        limits = list(range(initial, maximum + 1, step))
+        if not limits or limits[-1] != maximum:
+            limits.append(maximum)
+        limits = sorted({min(available_nodes, limit) for limit in limits})
+        if available_nodes not in limits:
+            limits.append(available_nodes)
+            limits.sort()
+
+        start_clearance, start_inside_inflation = self._endpoint_clearance(
+            start, occupied, inflated, resolution, origin
+        )
+        goal_clearance, goal_inside_inflation = self._endpoint_clearance(
+            goal, occupied, inflated, resolution, origin
+        )
+        edges = []
+        previous_node_count = 1
+        result = None
+        for stages, node_count in enumerate(limits, start=1):
+            # Edges whose second endpoint was already in the previous stage are
+            # retained.  Only pairs touching a newly admitted vertex are
+            # profiled, avoiding three complete O(N^2) graph rebuilds.
+            for second_index in range(max(1, previous_node_count), node_count):
+                second = all_nodes[second_index]
+                for first_index in range(second_index):
+                    first = all_nodes[first_index]
+                    length = math.hypot(second.x - first.x, second.y - first.y)
+                    if (
+                        length > self.maximum_edge_length_m
+                        and first.node_id not in (0, 1)
+                        and second.node_id not in (0, 1)
+                    ):
+                        continue
+                    profile = self._segment_profile(
+                        (first.x, first.y),
+                        (second.x, second.y),
+                        values,
+                        inflated,
+                        resolution,
+                        origin,
+                    )
+                    if profile is None:
+                        continue
+                    edge_length, unknown_fraction = profile
+                    edges.append(
+                        VisibilityEdge(
+                            first.node_id,
+                            second.node_id,
+                            edge_length,
+                            unknown_fraction,
+                        )
+                    )
+            previous_node_count = node_count
+            nodes = all_nodes[:node_count]
+            known_ids, known_cost = self._search(
+                nodes,
+                edges,
+                known_only=True,
+                unknown_cost_weight=self.unknown_cost_weight,
+                start_yaw=start_yaw,
+                directed_failed_branches=directed_failed_branches,
+                failure_buffer_m=failure_buffer_m,
+            )
+            if known_ids is not None:
+                ids, cost, mode = known_ids, known_cost, "KNOWN_VISIBILITY"
+            else:
+                ids, cost = self._search(
+                    nodes,
+                    edges,
+                    known_only=False,
+                    unknown_cost_weight=self.unknown_cost_weight,
+                    start_yaw=start_yaw,
+                    directed_failed_branches=directed_failed_branches,
+                    failure_buffer_m=failure_buffer_m,
+                )
+                mode = "ATTEMPTABLE_VISIBILITY"
+            known_edges = sum(edge.known for edge in edges)
+            graph = self._component_diagnostics(nodes, edges)
+            selected = max(0, node_count - 2)
+            node_limit_hit = candidate_vertices_total > selected
+            common = dict(
+                candidate_vertices_total=int(candidate_vertices_total),
+                candidate_vertices_selected=int(selected),
+                node_limit_hit=bool(node_limit_hit),
+                planning_node_limit=int(node_count),
+                start_degree=int(graph["start_degree"]),
+                goal_degree=int(graph["goal_degree"]),
+                connected_components=int(graph["connected_components"]),
+                start_component_size=int(graph["start_component_size"]),
+                goal_component_size=int(graph["goal_component_size"]),
+                start_clearance_m=start_clearance,
+                goal_clearance_m=goal_clearance,
+                start_inside_inflation=bool(start_inside_inflation),
+                goal_inside_inflation=bool(goal_inside_inflation),
+                progressive_stages=int(stages),
+            )
+            if ids is None:
+                if start_inside_inflation:
+                    disconnect_class = "START_IN_INFLATION"
+                elif goal_inside_inflation:
+                    disconnect_class = "GOAL_IN_INFLATION"
+                elif node_limit_hit:
+                    disconnect_class = "NODE_LIMIT_COMPONENT_DISCONNECTED"
+                elif graph["start_degree"] == 0:
+                    disconnect_class = "START_ISOLATED"
+                elif graph["goal_degree"] == 0:
+                    disconnect_class = "GOAL_ISOLATED"
+                else:
+                    disconnect_class = "COMPONENT_DISCONNECTED"
+                result = VisibilityPlan(
+                    status="NO_ROUTE",
+                    mode="NONE",
+                    path=(),
+                    nodes=tuple(nodes),
+                    edges=tuple(edges),
+                    path_cost=None,
+                    known_edges=int(known_edges),
+                    attemptable_edges=int(len(edges) - known_edges),
+                    reason="visibility_graph_disconnected",
+                    disconnect_class=disconnect_class,
+                    **common,
+                )
+            else:
+                by_id = {node.node_id: node for node in nodes}
+                path = tuple(
+                    (by_id[node_id].x, by_id[node_id].y) for node_id in ids
+                )
+                edge_by_pair = {
+                    tuple(sorted((edge.first, edge.second))): edge
+                    for edge in edges
+                }
+                path_edges = [
+                    edge_by_pair[tuple(sorted((first, second)))]
+                    for first, second in zip(ids[:-1], ids[1:])
+                ]
+                path_length = float(sum(edge.length for edge in path_edges))
+                unknown_fraction = float(
+                    sum(edge.length * edge.unknown_fraction for edge in path_edges)
+                    / max(1.0e-9, path_length)
+                )
+                return VisibilityPlan(
+                    status="PASS",
+                    mode=mode,
+                    path=path,
+                    nodes=tuple(nodes),
+                    edges=tuple(edges),
+                    path_cost=cost,
+                    known_edges=int(known_edges),
+                    attemptable_edges=int(len(edges) - known_edges),
+                    reason=(
+                        "known_route"
+                        if mode == "KNOWN_VISIBILITY"
+                        else "attempt_unknown_route"
+                    ),
+                    path_length=path_length,
+                    path_unknown_fraction=unknown_fraction,
+                    disconnect_class="NONE",
+                    **common,
+                )
+            if not node_limit_hit or time.perf_counter() - started >= budget:
+                return result
+        return result
+
+    def plan_progressive(
+        self,
+        values,
+        resolution,
+        origin,
+        start_xy,
+        goal_xy,
+        *,
+        initial_maximum_nodes=192,
+        maximum_nodes=320,
+        node_step=32,
+        time_budget_s=2.5,
+        blocked_polylines: Iterable[Sequence[Sequence[float]]] = (),
+        directed_failed_branches: Iterable[Sequence[Sequence[float]]] = (),
+        trajectory_points: Iterable[Sequence[float]] = (),
+        maximum_trajectory_vertices: int = 64,
+        failure_buffer_m: float = 0.45,
+        start_yaw: Optional[float] = None,
+        session: Optional[ProgressiveVisibilitySession] = None,
+        return_session: bool = False,
+    ):
+        """Run or resume a dense solve for one transient online request.
+
+        A completed node stage, its vertices and its visibility edges survive
+        the wall-clock yield.  The next invocation therefore advances to the
+        next node limit instead of repeating the expensive first stage.
+        """
+
+        values = np.asarray(values, dtype=np.int16)
+        resolution = float(resolution)
+        origin = (float(origin[0]), float(origin[1]))
+        start = (float(start_xy[0]), float(start_xy[1]))
+        goal = (float(goal_xy[0]), float(goal_xy[1]))
+        if values.ndim != 2 or not values.size or resolution <= 0.0:
+            raise ValueError("progressive visibility planning needs a valid grid")
+        if not all(math.isfinite(value) for value in start + goal):
+            raise ValueError("progressive visibility endpoints must be finite")
+        initial = max(4, int(initial_maximum_nodes))
+        maximum = max(initial, int(maximum_nodes))
+        step = max(1, int(node_step))
+        budget = max(0.05, float(time_budget_s))
+        started = time.perf_counter()
+        branch_signature = tuple(
+            tuple((float(point[0]), float(point[1])) for point in branch)
+            for branch in directed_failed_branches
+        )
+        blocked_signature = tuple(
+            tuple((float(point[0]), float(point[1])) for point in polyline)
+            for polyline in blocked_polylines
+        )
+        trajectory_signature = tuple(
+            (float(point[0]), float(point[1])) for point in trajectory_points
+        )
+        yaw_matches = bool(
+            session is None
+            or (session.start_yaw is None and start_yaw is None)
+            or (
+                session.start_yaw is not None
+                and start_yaw is not None
+                and abs(
+                    math.atan2(
+                        math.sin(float(session.start_yaw) - float(start_yaw)),
+                        math.cos(float(session.start_yaw) - float(start_yaw)),
+                    )
+                ) <= math.radians(3.0)
+            )
+        )
+        session_compatible = bool(
+            session is not None
+            and session.values.shape == values.shape
+            and session.resolution == resolution
+            and session.origin == origin
+            and math.hypot(
+                session.start[0] - start[0], session.start[1] - start[1]
+            ) <= 0.05
+            and session.goal == goal
+            and yaw_matches
+            and session.blocked_polylines == blocked_signature
+            and session.directed_failed_branches == branch_signature
+            and session.trajectory_points == trajectory_signature
+            and session.failure_buffer_m == float(failure_buffer_m)
+            and np.array_equal(session.values, values)
+        )
+        if not session_compatible:
+            occupied = (values >= self.occupied_threshold).astype(np.uint8)
+            failure_thickness = max(
+                1, int(math.ceil(2.0 * float(failure_buffer_m) / resolution))
+            )
+            for polyline in blocked_polylines:
+                points = []
+                for point in polyline:
+                    row, column = self._world_to_grid(point, resolution, origin)
+                    points.append((column, row))
+                if len(points) >= 2:
+                    cv2.polylines(
+                        occupied,
+                        [np.asarray(points, dtype=np.int32)],
+                        False,
+                        1,
+                        thickness=failure_thickness,
+                    )
+            inflated = self._inflated_occupancy(occupied * 100, resolution)
+            (
+                all_nodes,
+                candidate_vertices_total,
+                trajectory_vertices_total,
+                trajectory_vertices_selected,
+            ) = self._build_snapshot_nodes(
+                inflated,
+                values,
+                resolution,
+                origin,
+                start,
+                goal,
+                node_limit=maximum,
+                coverage_order=True,
+                trajectory_points=trajectory_signature,
+                maximum_trajectory_vertices=maximum_trajectory_vertices,
+            )
+            available_nodes = len(all_nodes)
+            limits = list(range(initial, maximum + 1, step))
+            if not limits or limits[-1] != maximum:
+                limits.append(maximum)
+            limits = sorted({min(available_nodes, limit) for limit in limits})
+            if available_nodes not in limits:
+                limits.append(available_nodes)
+                limits.sort()
+            start_clearance, start_inside_inflation = self._endpoint_clearance(
+                start, occupied, inflated, resolution, origin
+            )
+            goal_clearance, goal_inside_inflation = self._endpoint_clearance(
+                goal, occupied, inflated, resolution, origin
+            )
+            session = ProgressiveVisibilitySession(
+                values=values.copy(),
+                resolution=resolution,
+                origin=origin,
+                start=start,
+                goal=goal,
+                start_yaw=None if start_yaw is None else float(start_yaw),
+                blocked_polylines=blocked_signature,
+                directed_failed_branches=branch_signature,
+                trajectory_points=trajectory_signature,
+                failure_buffer_m=float(failure_buffer_m),
+                occupied=occupied,
+                inflated=inflated,
+                all_nodes=tuple(all_nodes),
+                candidate_vertices_total=int(candidate_vertices_total),
+                limits=tuple(limits),
+                start_clearance_m=start_clearance,
+                goal_clearance_m=goal_clearance,
+                start_inside_inflation=bool(start_inside_inflation),
+                goal_inside_inflation=bool(goal_inside_inflation),
+                edges=[],
+                trajectory_vertices_total=int(trajectory_vertices_total),
+                trajectory_vertices_selected=int(
+                    trajectory_vertices_selected
+                ),
+            )
+        if session.complete and session.last_plan is not None:
+            output = session.last_plan
+            return (output, session) if return_session else output
+
+        result = session.last_plan
+        while session.next_stage_index < len(session.limits):
+            node_count = session.limits[session.next_stage_index]
+            for second_index in range(
+                max(1, session.previous_node_count), node_count
+            ):
+                second = session.all_nodes[second_index]
+                for first_index in range(second_index):
+                    first = session.all_nodes[first_index]
+                    length = math.hypot(second.x - first.x, second.y - first.y)
+                    if (
+                        length > self.maximum_edge_length_m
+                        and first.node_id not in (0, 1)
+                        and second.node_id not in (0, 1)
+                    ):
+                        continue
+                    profile = self._segment_profile(
+                        (first.x, first.y),
+                        (second.x, second.y),
+                        session.values,
+                        session.inflated,
+                        session.resolution,
+                        session.origin,
+                    )
+                    if profile is None:
+                        continue
+                    edge_length, unknown_fraction = profile
+                    session.edges.append(
+                        VisibilityEdge(
+                            first.node_id,
+                            second.node_id,
+                            edge_length,
+                            unknown_fraction,
+                        )
+                    )
+            session.previous_node_count = node_count
+            session.next_stage_index += 1
+            nodes = session.all_nodes[:node_count]
+            known_ids, known_cost = self._search(
+                nodes,
+                session.edges,
+                known_only=True,
+                unknown_cost_weight=self.unknown_cost_weight,
+                start_yaw=session.start_yaw,
+                directed_failed_branches=session.directed_failed_branches,
+                failure_buffer_m=session.failure_buffer_m,
+            )
+            if known_ids is not None:
+                ids, cost, mode = known_ids, known_cost, "KNOWN_VISIBILITY"
+            else:
+                ids, cost = self._search(
+                    nodes,
+                    session.edges,
+                    known_only=False,
+                    unknown_cost_weight=self.unknown_cost_weight,
+                    start_yaw=session.start_yaw,
+                    directed_failed_branches=session.directed_failed_branches,
+                    failure_buffer_m=session.failure_buffer_m,
+                )
+                mode = "ATTEMPTABLE_VISIBILITY"
+            known_edges = sum(edge.known for edge in session.edges)
+            graph = self._component_diagnostics(nodes, session.edges)
+            selected = max(0, node_count - 2)
+            node_limit_hit = session.candidate_vertices_total > selected
+            session.complete = bool(
+                session.next_stage_index >= len(session.limits)
+                or not node_limit_hit
+            )
+            common = dict(
+                candidate_vertices_total=int(session.candidate_vertices_total),
+                candidate_vertices_selected=int(selected),
+                node_limit_hit=bool(node_limit_hit),
+                planning_node_limit=int(node_count),
+                start_degree=int(graph["start_degree"]),
+                goal_degree=int(graph["goal_degree"]),
+                connected_components=int(graph["connected_components"]),
+                start_component_size=int(graph["start_component_size"]),
+                goal_component_size=int(graph["goal_component_size"]),
+                start_clearance_m=session.start_clearance_m,
+                goal_clearance_m=session.goal_clearance_m,
+                start_inside_inflation=bool(session.start_inside_inflation),
+                goal_inside_inflation=bool(session.goal_inside_inflation),
+                progressive_stages=int(session.next_stage_index),
+                progressive_complete=bool(session.complete),
+                trajectory_vertices_total=int(
+                    getattr(session, "trajectory_vertices_total", 0)
+                ),
+                trajectory_vertices_selected=int(
+                    getattr(session, "trajectory_vertices_selected", 0)
+                ),
+            )
+            if ids is None:
+                if session.start_inside_inflation:
+                    disconnect_class = "START_IN_INFLATION"
+                elif session.goal_inside_inflation:
+                    disconnect_class = "GOAL_IN_INFLATION"
+                elif node_limit_hit:
+                    disconnect_class = "NODE_LIMIT_COMPONENT_DISCONNECTED"
+                elif graph["start_degree"] == 0:
+                    disconnect_class = "START_ISOLATED"
+                elif graph["goal_degree"] == 0:
+                    disconnect_class = "GOAL_ISOLATED"
+                else:
+                    disconnect_class = "COMPONENT_DISCONNECTED"
+                partial = self._partial_attemptable_path(
+                    nodes,
+                    session.edges,
+                    session.values,
+                    session.inflated,
+                    session.resolution,
+                    session.origin,
+                    session.goal,
+                    start_yaw=session.start_yaw,
+                    directed_failed_branches=session.directed_failed_branches,
+                    failure_buffer_m=session.failure_buffer_m,
+                )
+                if partial is None:
+                    result = VisibilityPlan(
+                        status="NO_ROUTE",
+                        mode="NONE",
+                        path=(),
+                        nodes=tuple(nodes),
+                        edges=tuple(session.edges),
+                        path_cost=None,
+                        known_edges=int(known_edges),
+                        attemptable_edges=int(len(session.edges) - known_edges),
+                        reason="visibility_graph_disconnected",
+                        disconnect_class=disconnect_class,
+                        **common,
+                    )
+                else:
+                    _, progress, frontier_unknown, path, partial_cost = partial
+                    path_length = float(sum(
+                        math.hypot(
+                            second[0] - first[0], second[1] - first[1]
+                        )
+                        for first, second in zip(path[:-1], path[1:])
+                    ))
+                    path_profiles = [
+                        self._segment_profile(
+                            first,
+                            second,
+                            session.values,
+                            session.inflated,
+                            session.resolution,
+                            session.origin,
+                        )
+                        for first, second in zip(path[:-1], path[1:])
+                    ]
+                    path_unknown_fraction = float(
+                        sum(
+                            profile[0] * profile[1]
+                            for profile in path_profiles
+                            if profile is not None
+                        )
+                        / max(1.0e-9, path_length)
+                    )
+                    result = VisibilityPlan(
+                        status="PASS",
+                        mode="PARTIAL_ATTEMPTABLE",
+                        path=tuple(path),
+                        nodes=tuple(nodes),
+                        edges=tuple(session.edges),
+                        path_cost=float(partial_cost),
+                        known_edges=int(known_edges),
+                        attemptable_edges=int(len(session.edges) - known_edges),
+                        reason="partial_reachable_frontier",
+                        path_length=path_length,
+                        path_unknown_fraction=path_unknown_fraction,
+                        disconnect_class=disconnect_class,
+                        partial_goal_progress_m=float(progress),
+                        partial_frontier_unknown_fraction=float(frontier_unknown),
+                        **common,
+                    )
+            else:
+                by_id = {node.node_id: node for node in nodes}
+                path = tuple(
+                    (by_id[node_id].x, by_id[node_id].y) for node_id in ids
+                )
+                edge_by_pair = {
+                    tuple(sorted((edge.first, edge.second))): edge
+                    for edge in session.edges
+                }
+                path_edges = [
+                    edge_by_pair[tuple(sorted((first, second)))]
+                    for first, second in zip(ids[:-1], ids[1:])
+                ]
+                path_length = float(sum(edge.length for edge in path_edges))
+                unknown_fraction = float(
+                    sum(edge.length * edge.unknown_fraction for edge in path_edges)
+                    / max(1.0e-9, path_length)
+                )
+                session.complete = True
+                common["progressive_complete"] = True
+                result = VisibilityPlan(
+                    status="PASS",
+                    mode=mode,
+                    path=path,
+                    nodes=tuple(nodes),
+                    edges=tuple(session.edges),
+                    path_cost=cost,
+                    known_edges=int(known_edges),
+                    attemptable_edges=int(len(session.edges) - known_edges),
+                    reason=(
+                        "known_route"
+                        if mode == "KNOWN_VISIBILITY"
+                        else "attempt_unknown_route"
+                    ),
+                    path_length=path_length,
+                    path_unknown_fraction=unknown_fraction,
+                    disconnect_class="NONE",
+                    **common,
+                )
+            session.last_plan = result
+            if session.complete or time.perf_counter() - started >= budget:
+                break
+        if result is None:
+            raise RuntimeError("progressive visibility session produced no stage")
+        return (result, session) if return_session else result

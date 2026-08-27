@@ -100,6 +100,11 @@
     <param name="corner_corridor_minimum_scale" value="0.25"/>
     <param name="corner_soft_clearance_target" value="0.30"/>
     <param name="corner_soft_clearance_weight" value="3.0"/>
+    <!-- The route bend drives the long-horizon halo.  Candidate yaw change
+         keeps the same soft halo alive when FAR temporarily hands control to
+         a short local-exploration reference near a convex corner. -->
+    <param name="corner_soft_candidate_trigger" value="0.10"/>
+    <param name="corner_soft_candidate_full_strength" value="0.60"/>
     <param name="corner_soft_trigger" value="0.35"/>
     <param name="corner_soft_full_strength" value="1.20"/>
     <param name="corner_straight_speed" value="0.55"/>

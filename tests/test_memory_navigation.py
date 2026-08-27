@@ -196,6 +196,36 @@ def test_route_handoff_rejects_unattached_or_opposite_candidate():
     assert opposite.reason == "candidate_tangent_discontinuous"
 
 
+def test_route_handoff_rejects_a_delayed_fold_behind_the_incumbent():
+    cursor = MonotonicRouteProgress(curvature_window_m=1.5)
+    cursor.bind(
+        [(0.0, 0.0), (5.0, 0.0)],
+        (0.0, 0.0),
+        route_id="far-stable",
+        revision=1,
+        source="FAR",
+    )
+    cursor.observe((1.0, 0.0))
+    # It initially agrees with the incumbent, then folds behind within the
+    # local execution horizon.  Attachment-only comparison used to accept it.
+    candidate = [
+        (1.0, 0.0),
+        (1.35, 0.0),
+        (1.0, 0.35),
+        (0.0, 0.35),
+    ]
+    decision = cursor.preview_handoff(
+        candidate,
+        (1.0, 0.0),
+        maximum_entry_deviation_m=0.9,
+        maximum_direction_change_rad=math.radians(60.0),
+    )
+
+    assert not decision.accepted
+    assert decision.reason == "candidate_tangent_discontinuous"
+    assert decision.direction_change_rad > math.radians(60.0)
+
+
 def test_wheel_odometry_is_signed_and_obeys_ackermann_curvature():
     odometry = AckermannWheelOdometry(wheel_radius=0.1, wheelbase=0.5)
     odometry.update(0.0, 10.0, 10.0, 0.0)

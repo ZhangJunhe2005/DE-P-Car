@@ -38,9 +38,9 @@ def evaluate_static_margin_egress(
     """Certify motion that exits a small soft-margin overlap.
 
     This never relaxes the physical footprint and is intentionally opt-in.
-    It is used only while replaying a previously traversed breadcrumb in
-    reverse.  Normal navigation continues to require the complete footprint,
-    including its safety margin, to be positive at every trajectory row.
+    It is used only by an explicitly requested, bounded recovery primitive.
+    Normal navigation continues to require the complete footprint, including
+    its safety margin, to be positive at every trajectory row.
     """
 
     if min(maximum_overlap_m, minimum_improvement_m, worsening_tolerance_m) < 0.0:

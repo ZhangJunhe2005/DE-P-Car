@@ -64,6 +64,7 @@ V42_GUARDED_RUNTIME_FILES = (
     "dep_car/src/dep_car/runtime/hybrid_execution.py",
     "dep_car/src/dep_car/runtime/hybrid_sequence.py",
     "dep_car/src/dep_car/runtime/far_visibility.py",
+    "dep_car/src/dep_car/runtime/navigation_memory.py",
     "dep_car/src/dep_car/runtime/p6_contract.py",
     "dep_car/src/dep_car/runtime/p6_policy.py",
     "dep_car/src/dep_car/runtime/preprocessing.py",
@@ -83,6 +84,8 @@ V42_GUARDED_RUNTIME_FILES = (
     "dep_car/config/p6_memory_navigation_v42_guarded.yaml",
 )
 V43_SHADOW_RUNTIME_FILES = (
+    "dep_car/src/dep_car/core/planner.py",
+    "dep_car/src/dep_car/core/safety.py",
     "dep_car/src/dep_car/model/dep_car_net.py",
     "dep_car/src/dep_car/model/dep_car_net_v2.py",
     "dep_car/src/dep_car/model/dep_car_net_v3.py",
@@ -92,9 +95,11 @@ V43_SHADOW_RUNTIME_FILES = (
     "dep_car/src/dep_car/runtime/hybrid_execution.py",
     "dep_car/src/dep_car/runtime/hybrid_sequence.py",
     "dep_car/src/dep_car/runtime/far_visibility.py",
+    "dep_car/src/dep_car/runtime/navigation_memory.py",
     "dep_car/src/dep_car/runtime/p6_contract.py",
     "dep_car/src/dep_car/runtime/p6_policy.py",
     "dep_car/src/dep_car/runtime/preprocessing.py",
+    "dep_car/src/dep_car/runtime/route_guidance.py",
     "dep_car/src/dep_car/runtime/safety.py",
     "ros/dep_car_msgs/msg/PolicyCandidate.msg",
     "ros/dep_car_msgs/msg/PolicyCandidateArray.msg",

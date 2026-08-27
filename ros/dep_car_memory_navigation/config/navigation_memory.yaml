@@ -29,6 +29,26 @@ visibility_node_separation_m: 0.28
 visibility_maximum_nodes: 160
 visibility_maximum_edge_length_m: 12.0
 visibility_unknown_cost_weight: 1.25
+# Match upstream FAR's persistent trajectory/inter-navigation vertices.  The
+# source is online wheel/IMU odometry topology, rigidly reprojected through the
+# current SLAM transform; it is not a saved map route.  Every vertex and edge
+# is revalidated on the newest inflated occupancy snapshot.
+visibility_trajectory_bridge_enabled: true
+visibility_trajectory_bridge_maximum_nodes: 64
+# A node-capped disconnected ordinary graph starts one process-local,
+# background expansion.  It operates only on the current online occupancy
+# snapshot; no map UUID, scenario ID or cross-run route cache is involved.
+visibility_dense_replan_enabled: true
+visibility_dense_replan_initial_nodes: 192
+visibility_dense_replan_maximum_nodes: 320
+visibility_dense_replan_node_step: 32
+visibility_dense_replan_time_budget_s: 2.5
+visibility_dense_replan_retry_period_s: 1.5
+# A background solve owns an immutable online-map snapshot.  A result from an
+# older revision is consumed only after its complete path passes the newest
+# occupancy check and the measured vehicle is still close to the solve start.
+# This is a freshness guard, not a map-ID or scenario cache.
+visibility_dense_replan_maximum_start_drift_m: 0.45
 # The graph is geometric, but its first edge must be reasonable for an
 # Ackermann vehicle.  These are soft metric costs, not hard route constraints;
 # a rearward route remains available when topology genuinely requires it.
@@ -83,11 +103,18 @@ explored_topology_motion_authority: false
 # The finite window is long enough for two certified replans, then expires.
 visibility_no_route_static_evidence_timeout_s: 8.00
 visibility_maximum_deviation_m: 0.90
-# Every route, including a fully known one, must agree over either distinct
-# SLAM content revisions or sensor poses separated by the measured displacement
-# below before it gains motion authority.  An unchanged map at an unchanged
-# pose is not independent evidence.  While FAR settles, DE-P performs rolling
-# LiDAR-safe local exploration; there is no stationary mapping wait.
+# A bounded PARTIAL route may move only when it makes measurable goal progress
+# or reaches an information frontier with limited temporary regression.  An
+# explicit dead-end egress transaction is the sole exception.  Once a complete
+# connected candidate exists, a PARTIAL route cannot preempt it.
+visibility_partial_minimum_goal_progress_m: 0.05
+visibility_partial_minimum_information_gain: 0.05
+visibility_partial_maximum_information_detour_m: 0.50
+# Attemptable routes must agree over distinct SLAM content/observer evidence.
+# A fully known route produced by the current dense solve is promoted in one
+# atomic transaction only after its live connector, complete geometry and
+# local execution prefix all pass the newest inflated-map check.  It is never
+# retained across a real occupied crossing and is never persisted by map ID.
 visibility_route_minimum_confirmations: 2
 visibility_route_minimum_stable_s: 0.60
 visibility_route_minimum_observer_displacement_m: 0.25
@@ -107,10 +134,12 @@ visibility_route_maximum_attemptable_detour_ratio: 2.25
 visibility_route_maximum_high_detour_unknown_fraction: 0.20
 visibility_route_high_detour_extra_confirmations: 2
 visibility_route_high_detour_minimum_stable_s: 1.20
-# A new goal begins under local-planner authority so the first sparse FAR graph
-# cannot choose a remote branch.  FAR takes over after real wheel/odom motion
-# exposes another viewpoint.  If local geometry prevents that distance, only a
-# fully known and separately stable route may use the bounded fail-open time.
+# A fresh online-mapping session begins under local-planner authority so the
+# first sparse FAR graph cannot choose a remote branch.  Once real wheel/odom
+# motion establishes that session, later RViz goals can hand off immediately
+# to a stable FAR route instead of repeating a blind one-metre exploration.
+# If initial local geometry prevents that distance, only a fully known and
+# separately stable route may use the bounded fail-open time.
 visibility_initial_exploration_minimum_m: 1.00
 visibility_initial_exploration_maximum_duration_s: 6.00
 # NO_ROUTE is graph evidence, not collision evidence.  After the initial delay
@@ -147,6 +176,10 @@ dead_end_escape_lookahead_m: 0.90
 dead_end_escape_maximum_cross_track_m: 0.65
 dead_end_escape_divergence_confirmation_s: 1.00
 dead_end_escape_maximum_unknown_fraction: 0.08
+# A live SLAM-corrected connector keeps one older ingress anchor until the
+# vehicle physically captures it.  Updating the connector origin does not
+# create a new route revision on every control tick.
+dead_end_escape_live_target_capture_m: 0.30
 # After reaching a failed-branch entry, continue a short measured outward
 # motion and retain the directional taboo until FAR supplies a route that does
 # not re-enter the same suffix.  This prevents immediate local-goal fallback

@@ -2,7 +2,7 @@
 
 DE-P-Car 将 [DE-P](https://github.com/ZhangJunhe2005/DE-P) 的局部规划思想迁移到 ROS Noetic 下的地面阿克曼小车。工程使用缩放至原模型 `1/3` 的 [hifzhil/car-simulator](https://github.com/hifzhil/car-simulator) Urban Car、深度相机、360° VLP-16、在线 SLAM，以及参考 [FAR Planner](https://github.com/MichaelFYang/far_planner) 构建的动态可见图导航。
 
-当前开发主线是 **DEPCarNet V4.3 Fusion + P6 shadow**：网络同时生成 15 组最多 6 把的前进/倒车 Ackermann 机动序列，并在闭环 DAgger 状态上学习完整序列排序。运行时仍由确定性局部控制链驾驶，V4.3 只发布 shadow 对照结果；连续车身碰撞检查、动态 reachability veto 和停车换挡安全合同始终拥有最终否决权。
+当前开发主线是 **DEPCarNet V4.3 Fusion + P6 V4.3.1 shadow runtime**：网络同时生成 15 组最多 6 把的前进/倒车 Ackermann 机动序列，并在闭环 DAgger 状态上学习完整序列排序。P6 V4.3.1 为当前目标保留密集 FAR 求得的完整连通路线，防止它在接管窗口被短 `PARTIAL/NO_ROUTE` 覆盖；该事务不使用地图 ID，也不跨目标或进程复用。运行时仍由确定性局部控制链驾驶，V4.3 只发布 shadow 对照结果；连续车身碰撞检查、动态 reachability veto 和停车换挡安全合同始终拥有最终否决权。
 
 > 当前资格边界：V4.3 离线正式验收和 P6 实现审计均为 PASS，但 Gazebo 跨地图闭环资格仍在验证。模型没有 active、真实车辆或 production 权限。
 
@@ -15,7 +15,7 @@ DE-P-Car 将 [DE-P](https://github.com/ZhangJunhe2005/DE-P) 的局部规划思�
 | P4～P5 V2 | 完成 | 路线走廊编码、15 候选双向 rollout、Candidate/Score 两阶段训练与 P6 shadow 基线。 |
 | V3～V4.2 | 完成诊断 | 将挡位从外部状态机迁入模型，发展为统一的多把前进/倒车机动序列；保留完整失败报告和门禁链。 |
 | P5 V4.3 | 完成 | 80 个闭环 episode、9,305 个重观测样本；精确 signed Hybrid-A* 教师序列；24 epoch Fusion 训练；正式 acceptance PASS。 |
-| P6 V4.3 | 进行中 | 在线 SLAM、FAR-style 可见图、滚动路线事务、有向失败支路、实时重锚和 RViz 任意目标 shadow 入口已经实现。 |
+| P6 V4.3.1 | 进行中 | 在线 SLAM、FAR-style 可见图、目标连通路线事务、滚动路线游标、有向失败支路、实时重锚和 RViz 任意目标 shadow 入口已经实现。 |
 | P7/P8 | 未开始 | 动态场景独立测试、holdout 资格和真实部署签发尚未完成。 |
 
 V4.3 正式产物已随仓库提供：
@@ -323,10 +323,10 @@ PYTHONPATH=$PWD/dep_car/src \
 最近一次结果：
 
 ```text
-505 passed
+524 passed
 ```
 
-P6 V4.3 权限与入口审计：
+P6 V4.3.1 运行时权限与入口审计（入口文件名继续沿用 `p6_v43`）：
 
 ```bash
 bash scripts/run_p6_v43_shadow.sh --stage audit

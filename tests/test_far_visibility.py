@@ -1,15 +1,20 @@
 import numpy as np
+import dep_car.runtime.far_visibility as far_visibility
 
 from dep_car.runtime.far_visibility import (
     DynamicVisibilityPlanner,
+    goal_route_direction_continuity_hold,
+    goal_connected_incumbent_retention_reason,
     VisibilityEdge,
     VisibilityNode,
     VisibilityPlan,
     VisibilityRouteAcquisitionGate,
     measured_pose_revalidation_authorized,
+    partial_frontier_authority_reason,
     polyline_prefix,
     route_initial_bearing,
     transient_route_lease_authorized,
+    visibility_plan_is_goal_connected,
 )
 
 
@@ -64,6 +69,170 @@ def test_measured_pose_revalidation_uses_only_observed_safe_prefix():
     )
 
 
+def test_partial_frontier_never_claims_full_goal_acceptance():
+    gate = VisibilityRouteAcquisitionGate(
+        minimum_confirmations=1,
+        minimum_stable_s=0.01,
+    )
+    plan = VisibilityPlan(
+        status="PASS",
+        mode="PARTIAL_ATTEMPTABLE",
+        path=((0.0, 0.0), (1.0, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=1.0,
+        known_edges=1,
+        attemptable_edges=0,
+        reason="partial_reachable_frontier",
+        path_length=1.0,
+        path_unknown_fraction=0.0,
+    )
+
+    gate.update(plan, stamp=0.0, map_revision=1, observer_position=(0.0, 0.0))
+    decision = gate.update(
+        plan, stamp=0.1, map_revision=2, observer_position=(0.3, 0.0)
+    )
+
+    assert not decision.accepted
+    assert decision.reason == "partial_reachable_frontier"
+
+
+def test_same_revision_dense_connected_route_is_not_deduplicated_as_partial():
+    gate = VisibilityRouteAcquisitionGate(
+        minimum_confirmations=2,
+        minimum_stable_s=0.60,
+    )
+    partial = VisibilityPlan(
+        status="PASS",
+        mode="PARTIAL_ATTEMPTABLE",
+        path=((0.0, 0.0), (0.6, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=0.6,
+        known_edges=1,
+        attemptable_edges=0,
+        reason="partial_reachable_frontier",
+        path_length=0.6,
+        path_unknown_fraction=0.0,
+        partial_goal_progress_m=0.5,
+        partial_frontier_unknown_fraction=0.0,
+    )
+    connected = VisibilityPlan(
+        status="PASS",
+        mode="KNOWN_VISIBILITY",
+        path=((0.0, 0.0), (1.0, 0.0), (2.0, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=2.0,
+        known_edges=2,
+        attemptable_edges=0,
+        reason="known_route",
+        path_length=2.0,
+        path_unknown_fraction=0.0,
+    )
+
+    first = gate.update(
+        partial, stamp=0.0, map_revision=7, observer_position=(0.0, 0.0)
+    )
+    upgraded = gate.update(
+        connected, stamp=0.1, map_revision=7, observer_position=(0.0, 0.0)
+    )
+
+    assert first.reason == "partial_reachable_frontier"
+    assert upgraded.reason == "settling_known_visibility_route"
+    assert gate.last_candidate_signature[0] == "KNOWN_VISIBILITY"
+
+
+def test_partial_frontier_authority_rejects_known_cul_de_sac_regression():
+    plan = VisibilityPlan(
+        status="PASS",
+        mode="PARTIAL_ATTEMPTABLE",
+        path=((0.0, 0.0), (-0.7, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=0.7,
+        known_edges=1,
+        attemptable_edges=0,
+        reason="partial_reachable_frontier",
+        path_length=0.7,
+        path_unknown_fraction=0.0,
+        partial_goal_progress_m=-0.55,
+        partial_frontier_unknown_fraction=0.0,
+    )
+
+    assert partial_frontier_authority_reason(plan, path_clear=True) is None
+    assert partial_frontier_authority_reason(
+        plan,
+        path_clear=True,
+        connected_candidate_available=True,
+        explicit_egress=True,
+    ) == "explicit_egress_partial_frontier"
+
+
+def test_partial_frontier_requires_progress_or_bounded_information_gain():
+    positive = VisibilityPlan(
+        status="PASS",
+        mode="PARTIAL_ATTEMPTABLE",
+        path=((0.0, 0.0), (0.7, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=0.7,
+        known_edges=1,
+        attemptable_edges=0,
+        reason="partial_reachable_frontier",
+        path_length=0.7,
+        path_unknown_fraction=0.0,
+        partial_goal_progress_m=0.20,
+        partial_frontier_unknown_fraction=0.0,
+    )
+    frontier = VisibilityPlan(
+        **{
+            **positive.__dict__,
+            "partial_goal_progress_m": -0.20,
+            "partial_frontier_unknown_fraction": 0.10,
+        }
+    )
+
+    assert partial_frontier_authority_reason(
+        positive, path_clear=True
+    ) == "positive_progress_partial_frontier"
+    assert partial_frontier_authority_reason(
+        positive,
+        path_clear=True,
+        connected_candidate_available=True,
+    ) is None
+    assert partial_frontier_authority_reason(
+        frontier, path_clear=True
+    ) == "information_gain_partial_frontier"
+    assert not visibility_plan_is_goal_connected(positive)
+
+
+def test_complete_visibility_modes_are_goal_connected():
+    known = VisibilityPlan(
+        status="PASS",
+        mode="KNOWN_VISIBILITY",
+        path=((0.0, 0.0), (1.0, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=1.0,
+        known_edges=1,
+        attemptable_edges=0,
+        reason="known_route",
+        path_length=1.0,
+        path_unknown_fraction=0.0,
+    )
+    attemptable = VisibilityPlan(
+        **{
+            **known.__dict__,
+            "mode": "ATTEMPTABLE_VISIBILITY",
+            "path_unknown_fraction": 0.1,
+        }
+    )
+
+    assert visibility_plan_is_goal_connected(known)
+    assert visibility_plan_is_goal_connected(attemptable)
+
+
 def test_transient_route_lease_requires_same_goal_safe_prefix_and_finite_age():
     contract = dict(
         previous_route_motion_authorized=True,
@@ -89,6 +258,66 @@ def test_transient_route_lease_requires_same_goal_safe_prefix_and_finite_age():
     )
 
 
+def test_partial_frontier_cannot_preempt_a_valid_goal_connected_route():
+    contract = dict(
+        previous_route_motion_authorized=True,
+        same_goal=True,
+        previous_mode="ATTEMPTABLE_VISIBILITY",
+        previous_route_globally_traversable=True,
+        candidate_mode="PARTIAL_ATTEMPTABLE",
+        candidate_motion_authorized=True,
+        handoff_accepted=True,
+    )
+    assert goal_connected_incumbent_retention_reason(**contract) == (
+        "partial_candidate_cannot_preempt_goal_route"
+    )
+    assert goal_connected_incumbent_retention_reason(
+        **{**contract, "previous_route_globally_traversable": False}
+    ) is None
+    assert goal_connected_incumbent_retention_reason(
+        **{
+            **contract,
+            "candidate_mode": "ATTEMPTABLE_VISIBILITY",
+            "candidate_motion_authorized": True,
+            "handoff_accepted": True,
+        }
+    ) is None
+
+
+def test_partial_frontier_cannot_direction_veto_a_complete_detour():
+    partial = VisibilityPlan(
+        status="PASS",
+        mode="PARTIAL_ATTEMPTABLE",
+        path=((0.0, 0.0), (0.7, 0.0)),
+        nodes=(),
+        edges=(),
+        path_cost=0.7,
+        known_edges=1,
+        attemptable_edges=0,
+        reason="partial_reachable_frontier",
+        path_length=0.7,
+        path_unknown_fraction=0.0,
+    )
+    known = VisibilityPlan(
+        **{
+            **partial.__dict__,
+            "mode": "KNOWN_VISIBILITY",
+            "reason": "known_route",
+        }
+    )
+
+    assert not goal_route_direction_continuity_hold(
+        previous_plan=partial,
+        previous_route_safe=True,
+        lease_prefix_clear=True,
+        handoff_accepted=False,
+    )
+    assert goal_route_direction_continuity_hold(
+        previous_plan=known,
+        previous_route_safe=True,
+        lease_prefix_clear=False,
+        handoff_accepted=False,
+    )
 def test_known_visibility_route_goes_around_an_observed_wall():
     grid = np.zeros((220, 220), dtype=np.int16)
     resolution = 0.05
@@ -133,6 +362,241 @@ def test_observed_closed_box_disconnects_the_goal():
 
     assert result.status == "NO_ROUTE"
     assert result.path == ()
+
+
+def alternating_baffle_grid():
+    grid = np.zeros((220, 420), dtype=np.int16)
+    for index, column in enumerate(range(60, 380, 40)):
+        if index % 2 == 0:
+            grid[:165, column - 2 : column + 2] = 100
+        else:
+            grid[55:, column - 2 : column + 2] = 100
+    return grid
+
+
+def test_node_capped_disconnect_exposes_safe_prefix_while_dense_graph_expands():
+    grid = alternating_baffle_grid()
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=40, inflation_radius_m=0.20
+    )
+
+    result = planner.plan(
+        grid, 0.05, (0.0, 0.0), (1.0, 5.0), (19.5, 5.0)
+    )
+
+    assert result.status == "PASS"
+    assert result.mode == "PARTIAL_ATTEMPTABLE"
+    assert result.path[-1] != (19.5, 5.0)
+    assert result.node_limit_hit
+    assert result.candidate_vertices_total > result.candidate_vertices_selected
+    assert result.planning_node_limit == 40
+    assert result.start_degree > 0
+    assert result.goal_degree > 0
+    assert result.start_component_size != result.goal_component_size or (
+        result.connected_components > 1
+    )
+    assert result.disconnect_class == "NODE_LIMIT_COMPONENT_DISCONNECTED"
+
+
+def test_uncapped_component_disconnect_moves_to_observed_frontier():
+    grid = np.zeros((120, 120), dtype=np.int16)
+    resolution = 0.10
+    grid[:, 59:62] = 100
+    # The short prefix itself is observed; unknown cells around its endpoint
+    # make it a genuine attemptable viewpoint rather than a drive into a known
+    # closed wall.
+    grid[42:58, 52:57] = -1
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=20, inflation_radius_m=0.20
+    )
+    planner._candidate_vertices = lambda *args, **kwargs: (
+        [(3.0, 5.0), (4.8, 5.0)],
+        2,
+    )
+
+    result = planner.plan(
+        grid, resolution, (0.0, 0.0), (2.0, 5.0), (9.0, 5.0)
+    )
+
+    assert result.status == "PASS"
+    assert result.mode == "PARTIAL_ATTEMPTABLE"
+    assert not result.node_limit_hit
+    assert result.partial_frontier_unknown_fraction > 0.01
+    assert result.partial_goal_progress_m > 0.0
+    assert planner.path_is_traversable(
+        result.path,
+        grid,
+        resolution,
+        (0.0, 0.0),
+        maximum_unknown_fraction=0.02,
+    )
+
+
+def test_driven_trajectory_vertices_bridge_rebuilt_contour_components():
+    grid = np.zeros((120, 120), dtype=np.int16)
+    resolution = 0.10
+    grid[:72, 59:62] = 100
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=20, inflation_radius_m=0.20
+    )
+    # Isolate the upstream-inspired trajectory/inter-nav behavior from contour
+    # extraction: the only available detour anchors are positions already
+    # traversed by the online vehicle.
+    planner._candidate_vertices = lambda *args, **kwargs: ([], 0)
+
+    result = planner.plan(
+        grid,
+        resolution,
+        (0.0, 0.0),
+        (2.0, 5.0),
+        (8.0, 5.0),
+        trajectory_points=((2.0, 8.0), (5.0, 8.0), (8.0, 8.0)),
+        maximum_trajectory_vertices=8,
+    )
+
+    assert result.status == "PASS"
+    assert result.mode == "KNOWN_VISIBILITY"
+    assert result.trajectory_vertices_total == 3
+    assert result.trajectory_vertices_selected == 3
+    assert any(node.kind == "TRAJECTORY" for node in result.nodes)
+    assert max(point[1] for point in result.path) >= 8.0
+
+
+def test_progressive_dense_retry_finds_long_route_without_map_identity():
+    grid = alternating_baffle_grid()
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=40, inflation_radius_m=0.20
+    )
+
+    result = planner.plan_progressive(
+        grid,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        initial_maximum_nodes=40,
+        maximum_nodes=80,
+        node_step=8,
+        time_budget_s=3.0,
+    )
+
+    assert result.status == "PASS"
+    assert result.path_length > 3.0 * (19.5 - 1.0)
+    assert result.progressive_stages > 1
+    assert result.candidate_vertices_total == 48
+    assert not result.node_limit_hit
+
+
+def test_progressive_dense_retry_resumes_edges_and_exposes_safe_partial_prefix(
+    monkeypatch,
+):
+    grid = alternating_baffle_grid()
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=30, inflation_radius_m=0.20
+    )
+    clock = [0.0]
+
+    def advancing_clock():
+        clock[0] += 0.10
+        return clock[0]
+
+    monkeypatch.setattr(far_visibility.time, "perf_counter", advancing_clock)
+    first, session = planner.plan_progressive(
+        grid,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        initial_maximum_nodes=30,
+        maximum_nodes=80,
+        node_step=8,
+        time_budget_s=0.05,
+        return_session=True,
+    )
+
+    assert first.status == "PASS"
+    assert first.mode == "PARTIAL_ATTEMPTABLE"
+    assert first.progressive_stages == 1
+    assert not first.progressive_complete
+    assert first.partial_goal_progress_m is not None
+    assert first.path[-1] != (19.5, 5.0)
+    assert planner.path_is_traversable(
+        first.path,
+        grid,
+        0.05,
+        (0.0, 0.0),
+        maximum_unknown_fraction=0.02,
+    )
+    first_edges = len(session.edges)
+
+    second, resumed = planner.plan_progressive(
+        grid,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        initial_maximum_nodes=30,
+        maximum_nodes=80,
+        node_step=8,
+        time_budget_s=0.05,
+        session=session,
+        return_session=True,
+    )
+
+    assert resumed is session
+    assert second.progressive_stages == 2
+    assert second.planning_node_limit == 38
+    assert len(resumed.edges) > first_edges
+
+
+def test_completed_progressive_session_does_not_restart(monkeypatch):
+    grid = alternating_baffle_grid()
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=30, inflation_radius_m=0.20
+    )
+    clock = [0.0]
+
+    def advancing_clock():
+        clock[0] += 0.10
+        return clock[0]
+
+    monkeypatch.setattr(far_visibility.time, "perf_counter", advancing_clock)
+    result = None
+    session = None
+    while session is None or not session.complete:
+        result, session = planner.plan_progressive(
+            grid,
+            0.05,
+            (0.0, 0.0),
+            (1.0, 5.0),
+            (19.5, 5.0),
+            initial_maximum_nodes=30,
+            maximum_nodes=80,
+            node_step=8,
+            time_budget_s=0.05,
+            session=session,
+            return_session=True,
+        )
+    stages = result.progressive_stages
+    edge_count = len(session.edges)
+
+    repeated, same_session = planner.plan_progressive(
+        grid,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        initial_maximum_nodes=30,
+        maximum_nodes=80,
+        node_step=8,
+        time_budget_s=0.05,
+        session=session,
+        return_session=True,
+    )
+
+    assert same_session is session
+    assert repeated.progressive_stages == stages
+    assert len(session.edges) == edge_count
 
 
 def test_failed_branch_virtual_obstacle_changes_visibility_route():

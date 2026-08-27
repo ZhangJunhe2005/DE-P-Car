@@ -130,6 +130,7 @@ class LocalPlannerNode:
             "INVALID_STATUS",
             "MAPPING_WAIT",
             "FAR_MAPPING_WAIT",
+            "EGRESS_REANCHOR_WAIT",
             "SAFE_STOP",
             "MEMORY_HOLD",
         ))
@@ -325,6 +326,12 @@ class LocalPlannerNode:
         self.corner_soft_full_strength = float(
             rospy.get_param("~corner_soft_full_strength", 1.20)
         )
+        self.corner_soft_candidate_trigger = float(
+            rospy.get_param("~corner_soft_candidate_trigger", 0.10)
+        )
+        self.corner_soft_candidate_full_strength = float(
+            rospy.get_param("~corner_soft_candidate_full_strength", 0.60)
+        )
         self.corner_straight_speed = float(
             rospy.get_param("~corner_straight_speed", 0.55)
         )
@@ -347,6 +354,13 @@ class LocalPlannerNode:
             raise ValueError("corner_corridor_minimum_scale must be in [0,1]")
         if not 0.0 <= self.corner_soft_trigger < self.corner_soft_full_strength <= math.pi:
             raise ValueError("corner soft-clearance angle thresholds are invalid")
+        if not (
+            0.0
+            <= self.corner_soft_candidate_trigger
+            < self.corner_soft_candidate_full_strength
+            <= math.pi
+        ):
+            raise ValueError("candidate corner soft-clearance thresholds are invalid")
         self.policy_mode = str(rospy.get_param("~policy_mode", "disabled"))
         if self.policy_mode not in ("disabled", "shadow", "guarded", "active"):
             raise ValueError(
@@ -1631,17 +1645,20 @@ class LocalPlannerNode:
                     clearance_weight=self.route_clearance_weight,
                     corner_corridor_minimum_scale=self.corner_corridor_minimum_scale,
                 )
-            if not hybrid:
-                result = apply_corner_clearance_preference(
-                    result,
-                    reference_path,
-                    grid,
-                    soft_clearance_m=self.corner_soft_clearance_target,
-                    weight=self.corner_soft_clearance_weight,
-                    trigger_rad=self.corner_soft_trigger,
-                    full_strength_rad=self.corner_soft_full_strength,
-                    learned_score_base=self.learned_route_authority,
-                )
+            result = apply_corner_clearance_preference(
+                result,
+                reference_path,
+                grid,
+                soft_clearance_m=self.corner_soft_clearance_target,
+                weight=self.corner_soft_clearance_weight,
+                trigger_rad=self.corner_soft_trigger,
+                full_strength_rad=self.corner_soft_full_strength,
+                candidate_trigger_rad=self.corner_soft_candidate_trigger,
+                candidate_full_strength_rad=(
+                    self.corner_soft_candidate_full_strength
+                ),
+                learned_score_base=hybrid or self.learned_route_authority,
+            )
         except Exception as exc:
             return None, "policy_bank_rejected:" + type(exc).__name__ + ":" + str(exc)
         prefix = (
@@ -1716,7 +1733,22 @@ class LocalPlannerNode:
             weight=self.corner_soft_clearance_weight,
             trigger_rad=self.corner_soft_trigger,
             full_strength_rad=self.corner_soft_full_strength,
+            candidate_trigger_rad=self.corner_soft_candidate_trigger,
+            candidate_full_strength_rad=self.corner_soft_candidate_full_strength,
         )
+        if getattr(baseline, "corner_soft_applied", False):
+            rospy.loginfo_throttle(
+                2.0,
+                "Corner elastic boundary active source=%s route_soft=%.2f "
+                "candidate_soft=%.2f candidate_turn=%.3frad "
+                "selected_clearance=%.3fm selected_penalty=%.3f",
+                self.global_route_source,
+                float(getattr(baseline, "corner_soft_route_severity", 0.0)),
+                float(getattr(baseline, "corner_soft_candidate_severity", 0.0)),
+                float(getattr(baseline, "corner_soft_candidate_turn_angle", 0.0)),
+                float(baseline.corner_soft_selected_clearance),
+                float(baseline.corner_soft_selected_cost),
+            )
         if self.publish_dagger_teacher_banks:
             teacher_banks = {Gear.require_drive(requested_gear): baseline}
             opposite = (
@@ -1761,6 +1793,10 @@ class LocalPlannerNode:
                 weight=self.corner_soft_clearance_weight,
                 trigger_rad=self.corner_soft_trigger,
                 full_strength_rad=self.corner_soft_full_strength,
+                candidate_trigger_rad=self.corner_soft_candidate_trigger,
+                candidate_full_strength_rad=(
+                    self.corner_soft_candidate_full_strength
+                ),
             )
             teacher_banks[opposite] = opposite_bank
             self.publish_candidates(
@@ -2488,7 +2524,7 @@ class LocalPlannerNode:
         rospy.loginfo_throttle(
             2.0,
             "Local route guidance source=%s route_id=%s revision=%d command_index=%d "
-            "reference_index=%d turn=%.3frad corner_soft=%.2f corner_speed=%s "
+            "reference_index=%d turn=%.3frad route_corner_soft=%.2f corner_speed=%s "
             "terminal_direct_visible=%s",
             self.global_route_source,
             self.global_route_id or "none",
@@ -3097,10 +3133,14 @@ class LocalPlannerNode:
                     recovery_mode=True,
                     spatial_scales=self.maneuver_spatial_scales,
                     force_baseline=True,
-                    # This exception never bypasses hard safety.  It only
-                    # permits a primitive which starts inside conservative
-                    # inflation to monotonically reduce that overlap.
-                    allow_static_margin_egress=far_dead_end_egress,
+                    # This exception never bypasses physical hard safety.  It
+                    # only permits a recovery primitive which starts inside
+                    # at most 6 cm of the conservative safety margin, never
+                    # intersects the true body footprint and monotonically
+                    # reduces that overlap.  Limiting this to FAR dead-end
+                    # egress made an ordinary corner-cut unrecoverable even
+                    # when one short reverse/forward arc safely created room.
+                    allow_static_margin_egress=True,
                 )
                 if not shortened.executable:
                     continue

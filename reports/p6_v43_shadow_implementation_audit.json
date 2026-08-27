@@ -1,10 +1,18 @@
 {
   "active_control_authorized": false,
   "architecture_id": "dep_car_multimodal_v43_guarded_contextual_residual_closed_loop_hybrid_sequence_ackermann_15x6",
-  "authority_sha256": "996d9f79339757cb5af9425bad51eca45559f4ff3b860facd080bea0d1dfb10d",
+  "authority_sha256": "14c3fa22ed54390cc97809495b69b812f5560ddab95821253f0da326c6252d6d",
   "authority_status": "P6_SHADOW_AUTHORIZED",
   "checkpoint_contract_sha256": "6898eff068db8249d74973a125c8614b577cd460d1ca24ac0ec519919896dc1e",
   "checkpoint_sha256": "c89d5401774477caf11159495ee3d5e8eb3fbe6c95fe742ee0c8d528f0f535ac",
+  "connected_route_transaction": {
+    "complete_route_preempts_partial": true,
+    "cross_episode_route_cache": false,
+    "map_identity_input": false,
+    "negative_progress_partial_requires_egress": true,
+    "process_local_only": true,
+    "same_revision_quality_upgrade": true
+  },
   "deterministic_shadow_control": true,
   "entry_points": {
     "interactive": "scripts/run_p6_v43_shadow.sh --stage interactive",
@@ -109,6 +117,7 @@
     "/urban_model/urban_controllers",
     "/urban_robot_state_publisher"
   ],
-  "schema": "DEPCarP6V43ShadowImplementationAuditV1",
+  "runtime_revision": "P6_V4.3.1_CONNECTED_ROUTE_TRANSACTION",
+  "schema": "DEPCarP6V43ShadowImplementationAuditV2",
   "status": "PASS"
 }
