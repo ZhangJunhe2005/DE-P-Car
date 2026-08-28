@@ -242,6 +242,30 @@ class NavigationMemoryNode:
         self.last_significant_map_correction = None
         self.last_map_correction_replan_stamp = -math.inf
         self.last_map_pose = None
+        # RViz history is a display-only record sampled directly in the SLAM
+        # ``map`` frame.  Keep it separate from the odom-native breadcrumb and
+        # sparse-topology memories used internally by recovery/FAR.  Applying
+        # the latest map<-odom transform to old odom samples makes the whole
+        # driven trail drift whenever SLAM corrects yaw; storing the observed
+        # map pose once avoids that visual error without changing control.
+        self.map_history = []
+        self.map_history_spacing = float(
+            rospy.get_param("~map_history_spacing_m", 0.08)
+        )
+        self.map_history_heading_spacing = float(
+            rospy.get_param(
+                "~map_history_heading_spacing_rad", math.radians(5.0)
+            )
+        )
+        self.map_history_maximum_points = int(
+            rospy.get_param("~map_history_maximum_points", 12000)
+        )
+        if (
+            self.map_history_spacing <= 0.0
+            or self.map_history_heading_spacing <= 0.0
+            or self.map_history_maximum_points < 2
+        ):
+            raise ValueError("map history display parameters are invalid")
         self.last_odom_pose = None
         self.best_goal_distance = None
         self.last_goal_improvement_stamp = None
@@ -2403,85 +2427,66 @@ class NavigationMemoryNode:
             marker.color.a = 0.95
             return marker
 
-        if len(self.trail.points) >= 2:
-            map_observations = [
-                point
-                for point in self.trail.points
-                if point.map_x is not None and point.map_y is not None
+        if len(self.map_history) >= 2:
+            # One user-facing driven history, natively recorded in ``map``.
+            # It is deliberately not reconstructed from wheel/IMU odometry.
+            marker = Marker()
+            marker.header.stamp = stamp
+            marker.header.frame_id = "map"
+            marker.frame_locked = False
+            marker.ns = "map_driven_history"
+            marker.id = 1
+            marker.type = Marker.LINE_STRIP
+            marker.action = Marker.ADD
+            marker.pose.orientation.w = 1.0
+            marker.scale.x = 0.055
+            marker.color.a = 0.98
+            marker.color.r, marker.color.g, marker.color.b = 0.10, 0.45, 1.0
+            marker.points = [
+                self.marker_point(point[:2]) for point in self.map_history
             ]
-            if len(map_observations) >= 2:
-                # This is the user-facing driven history.  Every sample was
-                # stamped in the SLAM map frame when observed, so later
-                # map->odom corrections must not rigidly rotate the whole
-                # displayed trail away from already mapped walls.
-                marker = Marker()
-                marker.header.stamp = stamp
-                marker.header.frame_id = "map"
-                marker.frame_locked = False
-                marker.ns = "memory_breadcrumbs"
-                marker.id = 1
-                marker.type = Marker.LINE_STRIP
-                marker.action = Marker.ADD
-                marker.pose.orientation.w = 1.0
-                marker.scale.x = 0.055
-                marker.color.a = 0.98
-                marker.color.r, marker.color.g, marker.color.b = 0.1, 0.45, 1.0
-                marker.points = [
-                    self.marker_point((point.map_x, point.map_y))
-                    for point in map_observations
-                ]
-                markers.markers.append(marker)
+            markers.markers.append(marker)
 
-                # Retain the native odom replay stack as a subdued diagnostic
-                # channel.  It is the correct continuous control geometry and
-                # is expected to move under a real SLAM correction.
-                control = base_marker(
-                    12, "memory_breadcrumbs_odom_control", Marker.LINE_STRIP, 0.025
-                )
-                control.color.a = 0.35
-                control.color.r, control.color.g, control.color.b = 0.55, 0.65, 0.80
-                control.points = [
-                    self.marker_point((point.x, point.y))
-                    for point in self.trail.points
-                ]
-                markers.markers.append(control)
-            else:
-                marker = base_marker(
-                    1, "memory_breadcrumbs", Marker.LINE_STRIP, 0.045
-                )
-                marker.color.r, marker.color.g, marker.color.b = 0.1, 0.45, 1.0
-                marker.points = [
-                    self.marker_point((point.x, point.y))
-                    for point in self.trail.points
-                ]
-                markers.markers.append(marker)
+        map_breadcrumbs = [
+            point
+            for point in self.trail.points
+            if point.map_x is not None and point.map_y is not None
+        ]
+        if map_breadcrumbs:
+            points = Marker()
+            points.header.stamp = stamp
+            points.header.frame_id = "map"
+            points.frame_locked = False
+            points.ns = "map_breadcrumb_points"
+            points.id = 13
+            points.type = Marker.SPHERE_LIST
+            points.action = Marker.ADD
+            points.pose.orientation.w = 1.0
+            points.scale.x = points.scale.y = points.scale.z = 0.11
+            points.color.a = 0.98
+            points.color.r, points.color.g, points.color.b = 0.20, 0.80, 1.0
+            points.points = [
+                self.marker_point((point.map_x, point.map_y))
+                for point in map_breadcrumbs
+            ]
+            markers.markers.append(points)
 
-        open_edges = base_marker(2, "memory_topology", Marker.LINE_LIST, 0.055)
-        open_edges.color.r, open_edges.color.g, open_edges.color.b = 0.1, 0.9, 0.25
+        # Odom-native open topology remains available internally to FAR, but
+        # is no longer rendered as a green driven trail.  Only failed branches
+        # retain a diagnostic marker.
         failed_edges = base_marker(3, "memory_topology", Marker.LINE_LIST, 0.085)
         failed_edges.color.r, failed_edges.color.g, failed_edges.color.b = 1.0, 0.15, 0.05
         for edge in self.topology.edges.values():
             first, second = self.topology.nodes.get(edge.first), self.topology.nodes.get(edge.second)
             if first is None or second is None:
                 continue
-            target = open_edges if edge.state == TopologyEdgeState.OPEN else failed_edges
-            target.points.extend((
-                self.marker_point((first.x, first.y)),
-                self.marker_point((second.x, second.y)),
-            ))
-        if open_edges.points:
-            markers.markers.append(open_edges)
+            if edge.state != TopologyEdgeState.OPEN:
+                failed_edges.points.extend((
+                    self.marker_point((first.x, first.y)),
+                    self.marker_point((second.x, second.y)),
+                ))
         if failed_edges.points:
             markers.markers.append(failed_edges)
-
-        if self.topology.nodes:
-            nodes = base_marker(4, "memory_topology_nodes", Marker.SPHERE_LIST, 0.11)
-            nodes.color.r, nodes.color.g, nodes.color.b = 0.25, 1.0, 0.85
-            nodes.points = [
-                self.marker_point((node.x, node.y))
-                for node in self.topology.nodes.values()
-            ]
-            markers.markers.append(nodes)
 
         marker_id = 20
         for branch in self.topology.failed_branches:
@@ -2611,6 +2616,31 @@ class NavigationMemoryNode:
         self.last_progress_pose = xy
         self.last_progress_stamp = stamp
         return output
+
+    def record_map_history(self, map_pose):
+        """Append one display-only pose already expressed in ``map``."""
+
+        sample = (
+            float(map_pose[0]),
+            float(map_pose[1]),
+            wrap_angle(float(map_pose[2])),
+        )
+        if self.map_history:
+            previous = self.map_history[-1]
+            displaced = math.hypot(
+                sample[0] - previous[0], sample[1] - previous[1]
+            )
+            rotated = abs(wrap_angle(sample[2] - previous[2]))
+            if (
+                displaced < self.map_history_spacing
+                and rotated < self.map_history_heading_spacing
+            ):
+                return False
+        self.map_history.append(sample)
+        overflow = len(self.map_history) - self.map_history_maximum_points
+        if overflow > 0:
+            del self.map_history[:overflow]
+        return True
 
     def local_features(self, grid):
         values, resolution, origin = grid
@@ -5577,6 +5607,7 @@ class NavigationMemoryNode:
             self.publish_status("MAPPING_WAIT", "waiting for SLAM map->odom transform")
             return
         self.last_map_pose = map_pose
+        self.record_map_history(map_pose)
         if goal is None or self.recovery.state == MemoryNavigationState.IDLE:
             self.publish_status("IDLE", "online map active; use RViz 2D Nav Goal")
             return

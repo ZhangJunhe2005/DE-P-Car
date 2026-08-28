@@ -467,8 +467,10 @@ def test_m6_far_route_owns_recovery_and_memory_markers_use_one_rigid_tf():
     assert 'marker.header.frame_id = "odom"' in marker_source
     assert "marker.frame_locked = True" in marker_source
     assert 'marker.header.frame_id = "map"' in marker_source
-    assert "point.map_x" in marker_source
-    assert "memory_breadcrumbs_odom_control" in marker_source
+    assert 'marker.ns = "map_driven_history"' in marker_source
+    assert 'points.ns = "map_breadcrumb_points"' in marker_source
+    assert "memory_breadcrumbs_odom_control" not in marker_source
+    assert 'open_edges = base_marker' not in marker_source
     assert "lookup_transform" not in marker_source
 
 

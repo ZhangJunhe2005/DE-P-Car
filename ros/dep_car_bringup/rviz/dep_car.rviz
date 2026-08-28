@@ -188,12 +188,13 @@ Visualization Manager:
       Marker Topic: /dep_car/navigation_memory_markers
       Name: Navigation Memory
       Namespaces:
-        memory_breadcrumbs: true
+        map_breadcrumb_points: true
+        map_driven_history: true
         memory_failed_branches: true
         memory_recovery_target: true
         memory_selected_topology: true
-        memory_topology: true
-        memory_topology_nodes: true
+        memory_topology: false
+        memory_topology_nodes: false
       Queue Size: 10
       Value: true
     - Class: rviz/Marker

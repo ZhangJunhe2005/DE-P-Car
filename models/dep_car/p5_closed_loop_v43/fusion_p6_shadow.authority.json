@@ -20,7 +20,7 @@
   "route_confidence_safe_cruise": true,
   "runtime_executes_learned_sequence_prefix": false,
   "runtime_implementation": {
-    "aggregate_sha256": "31f0b4e845b56ec5c3809cdda679b46758405a67bfd0351736346edef3f68dd1",
+    "aggregate_sha256": "42b44ea096913d0ad89f3a060c0e9e871c0201bc6c8ed546ed264c55218e97bd",
     "files": {
       "dep_car/config/p6_memory_navigation_v43_shadow.yaml": "e285c9c146084d90ae2a3a08b719e3e84035b826b34ecdb354bac40b41062705",
       "dep_car/src/dep_car/core/planner.py": "c2b2296c1880efaef7b3a27135e0ea29ca3dcbf5a214e0337407c8dccf4c45cb",
@@ -45,8 +45,8 @@
       "ros/dep_car_local_planner/launch/local_planner.launch": "cba0f0cb4672eeb82d3033779a8d261972abaab9711a4c26a041578345d23965",
       "ros/dep_car_local_planner/scripts/local_planner_node.py": "35d8e3bdbe9cc0af9651fecaddefe214281dff0f522209ecb00aafb1b74e7fc5",
       "ros/dep_car_local_planner/scripts/policy_node.py": "789a3c0ce27ae12bb1ef1b6dd9d14999734548fe17ed619e95ec1d85df0be349",
-      "ros/dep_car_memory_navigation/config/navigation_memory.yaml": "34193e84d4c5428e55c4827e7b3de4b3ccc723107dd4a4efaee2af22e2128f30",
-      "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py": "86c0e47505b61a375ed29fd567bedafaeb6ea460a51f8f708901c4afff142e25",
+      "ros/dep_car_memory_navigation/config/navigation_memory.yaml": "42c956290a1a1be1df818b47391cac592d3ec5c2740e07dbeb924fd0430932e7",
+      "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py": "1433aebcd26741e947992ac62c9e4b57daf3132d72cebfa153aca3b129e011dc",
       "ros/dep_car_memory_navigation/scripts/replay_memory_goals.py": "0a4380419fafb62979b2ffa2ed4bc0772514f588b73ea3b467cce456ea0f5f01",
       "ros/dep_car_msgs/msg/LocalRouteCommand.msg": "5c475b4ef4fd23305c5ed16e92fb25d7be51b8056c071911e70a2edff148e806",
       "ros/dep_car_msgs/msg/PolicyCandidate.msg": "b39557abb850e30a24b96b6f9303581ecff3c7c97a617ffdfd713b59b7f2e7d1",

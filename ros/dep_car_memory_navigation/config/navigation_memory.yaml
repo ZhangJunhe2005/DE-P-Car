@@ -6,6 +6,11 @@ goal_topic: /move_base_simple/goal
 breadcrumb_spacing_m: 0.20
 breadcrumb_heading_spacing_rad: 0.174532925
 breadcrumb_maximum_length_m: 25.0
+# RViz-only driven history.  Samples are stored directly in the live SLAM map
+# frame and never feed control, FAR routing or breadcrumb recovery.
+map_history_spacing_m: 0.08
+map_history_heading_spacing_rad: 0.087266463
+map_history_maximum_points: 12000
 topology_node_spacing_m: 0.75
 topology_merge_radius_m: 0.40
 topology_maximum_nodes: 1200
