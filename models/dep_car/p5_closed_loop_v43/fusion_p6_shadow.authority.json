@@ -20,7 +20,7 @@
   "route_confidence_safe_cruise": true,
   "runtime_executes_learned_sequence_prefix": false,
   "runtime_implementation": {
-    "aggregate_sha256": "42b44ea096913d0ad89f3a060c0e9e871c0201bc6c8ed546ed264c55218e97bd",
+    "aggregate_sha256": "05067bb9b3bdd3ab4576f1217496543814616d4531801ef3146a8cc0d301e23d",
     "files": {
       "dep_car/config/p6_memory_navigation_v43_shadow.yaml": "e285c9c146084d90ae2a3a08b719e3e84035b826b34ecdb354bac40b41062705",
       "dep_car/src/dep_car/core/planner.py": "c2b2296c1880efaef7b3a27135e0ea29ca3dcbf5a214e0337407c8dccf4c45cb",
@@ -31,7 +31,7 @@
       "dep_car/src/dep_car/model/dep_car_net_v4.py": "691f6b3adf16a28c86202cf7a70508deb82700ede06fe0c0ac55fce5d0a6d2d2",
       "dep_car/src/dep_car/model/dep_car_net_v43.py": "7eec24432ebd5f5c1d49c890a48a288ad5605bbb43eea97b0c126ba1bf3e6d6c",
       "dep_car/src/dep_car/model/hybrid_sequence_rollout.py": "ff42cd5b98614e2acc4d34c4a45d33c70983639a4883b0437fa1066d1944b451",
-      "dep_car/src/dep_car/runtime/far_visibility.py": "2ef24ebb4000e02332de9fcf36fd4deac5ac62bc10425e5b1182d991044155b8",
+      "dep_car/src/dep_car/runtime/far_visibility.py": "f508c3c599005b18a0b3d6c65605cda14c28214bb68f23fe84888780cb6357c0",
       "dep_car/src/dep_car/runtime/hybrid_execution.py": "2aac405ace9be225e95492a4a12ab7aa8cd2f990f8b494c8f2994471ada6914c",
       "dep_car/src/dep_car/runtime/hybrid_sequence.py": "f4121d2c87a881c5f7dd13c559f2a87091ba7b35cec6e894457410c9b379277b",
       "dep_car/src/dep_car/runtime/navigation_memory.py": "cd4c0df43850f86255fb22050a07ba5a928ea4ffcfeed136b696fe8d0647034a",
@@ -45,8 +45,8 @@
       "ros/dep_car_local_planner/launch/local_planner.launch": "cba0f0cb4672eeb82d3033779a8d261972abaab9711a4c26a041578345d23965",
       "ros/dep_car_local_planner/scripts/local_planner_node.py": "35d8e3bdbe9cc0af9651fecaddefe214281dff0f522209ecb00aafb1b74e7fc5",
       "ros/dep_car_local_planner/scripts/policy_node.py": "789a3c0ce27ae12bb1ef1b6dd9d14999734548fe17ed619e95ec1d85df0be349",
-      "ros/dep_car_memory_navigation/config/navigation_memory.yaml": "42c956290a1a1be1df818b47391cac592d3ec5c2740e07dbeb924fd0430932e7",
-      "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py": "1433aebcd26741e947992ac62c9e4b57daf3132d72cebfa153aca3b129e011dc",
+      "ros/dep_car_memory_navigation/config/navigation_memory.yaml": "a8960cf5ee0166859948b40bb681530e29d0b1a3c01a367fb1169e4c1493338f",
+      "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py": "0e22ae1aa66168c7ee7ad1e2bf9cb187a9348055ac5b0f83d82cd7a60e1ef9d5",
       "ros/dep_car_memory_navigation/scripts/replay_memory_goals.py": "0a4380419fafb62979b2ffa2ed4bc0772514f588b73ea3b467cce456ea0f5f01",
       "ros/dep_car_msgs/msg/LocalRouteCommand.msg": "5c475b4ef4fd23305c5ed16e92fb25d7be51b8056c071911e70a2edff148e806",
       "ros/dep_car_msgs/msg/PolicyCandidate.msg": "b39557abb850e30a24b96b6f9303581ecff3c7c97a617ffdfd713b59b7f2e7d1",
@@ -55,7 +55,7 @@
       "ros/dep_car_msgs/msg/PolicyState.msg": "41533524fff234348ea915aebe75e0565e323a38c5c5d609847b91f61b880ce8",
       "scripts/run_memory_navigation.sh": "0f04482e628ad2517d787ab928133873fac616195a69d4774c10348d03e37509",
       "scripts/run_p6_v43_shadow.sh": "ce109638b12e4b6d3c5b29cbf7942a784d26760ddd7a28908dc9df0a4fae583a",
-      "tools/run_memory_navigation.py": "6b559ef790404e230e0a0f739abbddab93bf020da0dbe85cf3318c5f10660d10"
+      "tools/run_memory_navigation.py": "0977e0e7ab4691650a566c77e813005f54dcd61ee84569573ddec1843aba331e"
     },
     "schema": "DEPCarP6V43ShadowRuntimeV1"
   },

@@ -10,8 +10,11 @@ of DE-P and its hard safety layer.
 """
 
 from dataclasses import dataclass
+from collections import OrderedDict
+import hashlib
 import heapq
 import math
+import threading
 import time
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -37,6 +40,38 @@ class VisibilityEdge:
     @property
     def known(self) -> bool:
         return self.unknown_fraction <= 1.0e-6
+
+
+@dataclass
+class _CompiledVisibilityGeometry:
+    """Process-local geometry for one exact online occupancy snapshot."""
+
+    key: str
+    owner_token: object
+    planner_geometry_signature: Tuple[float, ...]
+    blocked_polylines_present: bool
+    failure_buffer_m: float
+    values: np.ndarray
+    occupied: np.ndarray
+    inflated: np.ndarray
+    resolution: float
+    origin: Tuple[float, float]
+    candidate_pool: Tuple[Tuple[float, Tuple[float, float], int], ...]
+    segment_profiles: Dict[
+        Tuple[Tuple[float, float], Tuple[float, float]],
+        Optional[Tuple[float, float]],
+    ]
+    segment_cache_hits: int = 0
+    segment_cache_misses: int = 0
+
+
+@dataclass(frozen=True)
+class CompiledVisibilitySnapshot:
+    """One in-memory online-map snapshot; never serialized or map-ID keyed."""
+
+    geometry: _CompiledVisibilityGeometry
+    cache_hit: bool
+    compile_time_ms: float
 
 
 @dataclass(frozen=True)
@@ -100,6 +135,7 @@ class ProgressiveVisibilitySession:
     directed_failed_branches: Tuple[Tuple[Tuple[float, float], ...], ...]
     trajectory_points: Tuple[Tuple[float, float], ...]
     failure_buffer_m: float
+    compiled_snapshot: CompiledVisibilitySnapshot
     occupied: np.ndarray
     inflated: np.ndarray
     all_nodes: Tuple[VisibilityNode, ...]
@@ -731,6 +767,7 @@ class DynamicVisibilityPlanner:
         start_heading_weight_m: float = 1.20,
         reverse_start_penalty_m: float = 2.00,
         occupied_threshold: int = 50,
+        graph_cache_capacity: int = 1,
     ):
         positive = (
             inflation_radius_m,
@@ -746,6 +783,8 @@ class DynamicVisibilityPlanner:
             raise ValueError("visibility planner requires at least four nodes")
         if min(float(start_heading_weight_m), float(reverse_start_penalty_m)) < 0.0:
             raise ValueError("visibility start-heading penalties cannot be negative")
+        if int(graph_cache_capacity) < 1:
+            raise ValueError("visibility graph cache capacity must be positive")
         self.inflation_radius_m = float(inflation_radius_m)
         self.contour_simplification_m = float(contour_simplification_m)
         self.vertex_offset_m = float(vertex_offset_m)
@@ -756,6 +795,82 @@ class DynamicVisibilityPlanner:
         self.start_heading_weight_m = float(start_heading_weight_m)
         self.reverse_start_penalty_m = float(reverse_start_penalty_m)
         self.occupied_threshold = int(occupied_threshold)
+        self.graph_cache_capacity = int(graph_cache_capacity)
+        # A live object token cannot be spuriously reused after another planner
+        # instance is destroyed, unlike ``id(self)``.  Compiled snapshots are
+        # deliberately process-local and may only be consumed by their owner.
+        self._compiled_snapshot_owner_token = object()
+        self._compiled_snapshots = OrderedDict()
+        self._compiled_snapshot_lock = threading.RLock()
+        self._compiled_snapshot_generations = 0
+        self._compiled_segment_hits_total = 0
+        self._compiled_segment_misses_total = 0
+
+    def _geometry_contract_signature(self):
+        return (
+            float(self.inflation_radius_m),
+            float(self.contour_simplification_m),
+            float(self.vertex_offset_m),
+            float(self.node_separation_m),
+            float(self.occupied_threshold),
+        )
+
+    @staticmethod
+    def _snapshot_digest(
+        values,
+        occupied,
+        resolution,
+        origin,
+        geometry_signature=(),
+        blocked_failure_buffer_m=None,
+    ):
+        digest = hashlib.blake2b(digest_size=16)
+        digest.update(np.asarray(values.shape, dtype=np.int64).tobytes())
+        digest.update(
+            np.asarray(
+                (float(resolution), float(origin[0]), float(origin[1])),
+                dtype=np.float64,
+            ).tobytes()
+        )
+        digest.update(np.ascontiguousarray(values).view(np.uint8))
+        digest.update(np.ascontiguousarray(occupied).view(np.uint8))
+        digest.update(
+            np.asarray(tuple(geometry_signature), dtype=np.float64).tobytes()
+        )
+        if blocked_failure_buffer_m is not None:
+            digest.update(
+                np.asarray(
+                    (float(blocked_failure_buffer_m),), dtype=np.float64
+                ).tobytes()
+            )
+        return digest.hexdigest()
+
+    def clear_graph_cache(self):
+        with self._compiled_snapshot_lock:
+            self._compiled_snapshots.clear()
+
+    def graph_cache_statistics(self):
+        with self._compiled_snapshot_lock:
+            snapshots = tuple(self._compiled_snapshots.values())
+            return {
+                "snapshots": len(snapshots),
+                "generations": int(self._compiled_snapshot_generations),
+                "segment_hits": sum(
+                    item.geometry.segment_cache_hits for item in snapshots
+                ),
+                "segment_misses": sum(
+                    item.geometry.segment_cache_misses for item in snapshots
+                ),
+                "segments": sum(
+                    len(item.geometry.segment_profiles) for item in snapshots
+                ),
+                "lifetime_segment_hits": int(
+                    self._compiled_segment_hits_total
+                ),
+                "lifetime_segment_misses": int(
+                    self._compiled_segment_misses_total
+                ),
+            }
 
     @staticmethod
     def _world_to_grid(point, resolution, origin):
@@ -817,6 +932,30 @@ class DynamicVisibilityPlanner:
         if not 0.0 <= maximum_unknown_fraction <= 1.0:
             raise ValueError("maximum unknown fraction must be between zero and one")
         inflated = self._inflated_occupancy(values, resolution)
+        # `_segment_profile` intentionally tolerates endpoint quantisation.
+        # A shared polyline waypoint is an endpoint of both adjacent segments,
+        # so without this explicit check an occupied cell exactly at that
+        # waypoint could be excluded twice.
+        if len(points) > 2:
+            internal_rows = np.floor(
+                (points[1:-1, 1] - float(origin[1])) / resolution
+            ).astype(np.int32)
+            internal_columns = np.floor(
+                (points[1:-1, 0] - float(origin[0])) / resolution
+            ).astype(np.int32)
+            internal_inside = (
+                (internal_rows >= 0)
+                & (internal_rows < inflated.shape[0])
+                & (internal_columns >= 0)
+                & (internal_columns < inflated.shape[1])
+            )
+            if np.any(
+                inflated[
+                    internal_rows[internal_inside],
+                    internal_columns[internal_inside],
+                ]
+            ):
+                return False
         profiles = [
             self._segment_profile(
                 first,
@@ -1022,26 +1161,8 @@ class DynamicVisibilityPlanner:
             )
         return length, float(unknown) / samples
 
-    def _candidate_vertices(
-        self,
-        inflated,
-        values,
-        resolution,
-        origin,
-        start,
-        goal,
-        *,
-        maximum_nodes=None,
-        coverage_order=False,
-    ):
-        """Return an ordered vertex pool and its uncropped unique size.
-
-        The ordinary graph retains the historical start/goal relevance order.
-        A dense recovery solve may additionally interleave spatial and contour
-        representatives.  This prevents a long but valid detour from losing all
-        of its remote corner vertices merely because a well explored map has
-        many locally relevant contours.
-        """
+    def _candidate_vertex_pool(self, inflated, values, resolution, origin):
+        """Extract endpoint-independent contour candidates once per map."""
 
         contours, _ = cv2.findContours(
             inflated.astype(np.uint8), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE
@@ -1090,6 +1211,189 @@ class DynamicVisibilityPlanner:
                         candidates.append((score, point, contour_index))
                     if len(chosen) >= 2:
                         break
+        return tuple(candidates)
+
+    def compile_snapshot(
+        self,
+        values,
+        resolution,
+        origin,
+        *,
+        blocked_polylines: Iterable[Sequence[Sequence[float]]] = (),
+        failure_buffer_m: float = 0.45,
+    ) -> CompiledVisibilitySnapshot:
+        """Compile immutable map geometry for repeated live endpoint queries.
+
+        The key contains the online UNKNOWN/FREE/OCCUPIED classes and metric
+        grid geometry, never a map/scenario identifier.  Probability changes
+        which do not alter those planning semantics reuse the snapshot. START,
+        GOAL, yaw, driven trajectory vertices and directed failed branches
+        remain query-time inputs.
+        """
+
+        started = time.perf_counter()
+        source = np.asarray(values, dtype=np.int16)
+        if source.ndim != 2 or not source.size:
+            raise ValueError("visibility compilation requires a non-empty 2-D grid")
+        resolution = float(resolution)
+        if resolution <= 0.0:
+            raise ValueError("visibility map resolution must be positive")
+        origin = (float(origin[0]), float(origin[1]))
+        if not all(math.isfinite(value) for value in origin):
+            raise ValueError("visibility map origin must be finite")
+        blocked_signature = tuple(
+            tuple((float(point[0]), float(point[1])) for point in polyline)
+            for polyline in blocked_polylines
+        )
+        # Visibility geometry depends only on UNKNOWN/FREE/OCCUPIED classes;
+        # small SLAM probability changes inside the same class must not throw
+        # away an otherwise identical contour/LOS snapshot.
+        values_copy = np.ascontiguousarray(
+            np.where(
+                source < 0,
+                -1,
+                np.where(source >= self.occupied_threshold, 100, 0),
+            ).astype(np.int16)
+        )
+        occupied = (values_copy >= self.occupied_threshold).astype(np.uint8)
+        failure_thickness = max(
+            1, int(math.ceil(2.0 * float(failure_buffer_m) / resolution))
+        )
+        for polyline in blocked_signature:
+            points = []
+            for point in polyline:
+                row, column = self._world_to_grid(point, resolution, origin)
+                points.append((column, row))
+            if len(points) >= 2:
+                cv2.polylines(
+                    occupied,
+                    [np.asarray(points, dtype=np.int32)],
+                    False,
+                    1,
+                    thickness=failure_thickness,
+                )
+        key = self._snapshot_digest(
+            values_copy,
+            occupied,
+            resolution,
+            origin,
+            geometry_signature=self._geometry_contract_signature(),
+            blocked_failure_buffer_m=(
+                float(failure_buffer_m) if blocked_signature else None
+            ),
+        )
+        with self._compiled_snapshot_lock:
+            existing = self._compiled_snapshots.get(key)
+            if existing is not None:
+                self._compiled_snapshots.move_to_end(key)
+                return CompiledVisibilitySnapshot(
+                    geometry=existing.geometry,
+                    cache_hit=True,
+                    compile_time_ms=1000.0 * (time.perf_counter() - started),
+                )
+
+        inflated = self._inflated_occupancy(occupied * 100, resolution)
+        candidate_pool = self._candidate_vertex_pool(
+            inflated, values_copy, resolution, origin
+        )
+        values_copy.setflags(write=False)
+        occupied.setflags(write=False)
+        inflated.setflags(write=False)
+        geometry = _CompiledVisibilityGeometry(
+            key=key,
+            owner_token=self._compiled_snapshot_owner_token,
+            planner_geometry_signature=self._geometry_contract_signature(),
+            blocked_polylines_present=bool(blocked_signature),
+            failure_buffer_m=float(failure_buffer_m),
+            values=values_copy,
+            occupied=occupied,
+            inflated=inflated,
+            resolution=resolution,
+            origin=origin,
+            candidate_pool=candidate_pool,
+            segment_profiles={},
+        )
+        snapshot = CompiledVisibilitySnapshot(
+            geometry=geometry,
+            cache_hit=False,
+            compile_time_ms=1000.0 * (time.perf_counter() - started),
+        )
+        with self._compiled_snapshot_lock:
+            raced = self._compiled_snapshots.get(key)
+            if raced is not None:
+                self._compiled_snapshots.move_to_end(key)
+                return CompiledVisibilitySnapshot(
+                    geometry=raced.geometry,
+                    cache_hit=True,
+                    compile_time_ms=1000.0 * (time.perf_counter() - started),
+                )
+            self._compiled_snapshot_generations += 1
+            self._compiled_snapshots[key] = snapshot
+            while len(self._compiled_snapshots) > self.graph_cache_capacity:
+                self._compiled_snapshots.popitem(last=False)
+        return snapshot
+
+    @staticmethod
+    def _segment_cache_key(first, second):
+        first = (float(first[0]), float(first[1]))
+        second = (float(second[0]), float(second[1]))
+        return (first, second) if first <= second else (second, first)
+
+    def _compiled_segment_profile(self, snapshot, first, second):
+        geometry = snapshot.geometry
+        key = self._segment_cache_key(first, second)
+        with self._compiled_snapshot_lock:
+            if key in geometry.segment_profiles:
+                geometry.segment_cache_hits += 1
+                self._compiled_segment_hits_total += 1
+                return geometry.segment_profiles[key]
+        profile = self._segment_profile(
+            first,
+            second,
+            geometry.values,
+            geometry.inflated,
+            geometry.resolution,
+            geometry.origin,
+        )
+        with self._compiled_snapshot_lock:
+            if key in geometry.segment_profiles:
+                geometry.segment_cache_hits += 1
+                self._compiled_segment_hits_total += 1
+                return geometry.segment_profiles[key]
+            geometry.segment_profiles[key] = profile
+            geometry.segment_cache_misses += 1
+            self._compiled_segment_misses_total += 1
+        return profile
+
+    def _candidate_vertices(
+        self,
+        inflated,
+        values,
+        resolution,
+        origin,
+        start,
+        goal,
+        *,
+        maximum_nodes=None,
+        coverage_order=False,
+        candidate_pool=None,
+    ):
+        """Return an ordered vertex pool and its uncropped unique size.
+
+        The ordinary graph retains the historical start/goal relevance order.
+        A dense recovery solve may additionally interleave spatial and contour
+        representatives.  This prevents a long but valid detour from losing all
+        of its remote corner vertices merely because a well explored map has
+        many locally relevant contours.
+        """
+
+        candidates = list(
+            self._candidate_vertex_pool(
+                inflated, values, resolution, origin
+            )
+            if candidate_pool is None
+            else candidate_pool
+        )
 
         # A relevance score keeps the quadratic visibility test bounded while
         # retaining corners likely to connect the current pose and goal.
@@ -1262,6 +1566,7 @@ class DynamicVisibilityPlanner:
         coverage_order,
         trajectory_points=(),
         maximum_trajectory_vertices=64,
+        candidate_pool=None,
     ):
         """Build one graph snapshot while reserving room for driven anchors."""
 
@@ -1289,6 +1594,7 @@ class DynamicVisibilityPlanner:
             goal,
             maximum_nodes=polygon_limit,
             coverage_order=bool(coverage_order),
+            candidate_pool=candidate_pool,
         )
         # A driven anchor takes precedence over a nearby contour vertex.  Both
         # would generate nearly identical quadratic edge work, while the
@@ -1668,13 +1974,73 @@ class DynamicVisibilityPlanner:
         _coverage_order: bool = False,
         _progressive_stages: int = 1,
     ) -> VisibilityPlan:
-        values = np.asarray(values, dtype=np.int16)
-        if values.ndim != 2 or not values.size:
-            raise ValueError("visibility planning requires a non-empty 2-D grid")
-        resolution = float(resolution)
-        if resolution <= 0.0:
-            raise ValueError("visibility map resolution must be positive")
-        origin = (float(origin[0]), float(origin[1]))
+        snapshot = self.compile_snapshot(
+            values,
+            resolution,
+            origin,
+            blocked_polylines=blocked_polylines,
+            failure_buffer_m=failure_buffer_m,
+        )
+        return self.plan_compiled(
+            snapshot,
+            start_xy,
+            goal_xy,
+            directed_failed_branches=directed_failed_branches,
+            trajectory_points=trajectory_points,
+            maximum_trajectory_vertices=maximum_trajectory_vertices,
+            failure_buffer_m=failure_buffer_m,
+            start_yaw=start_yaw,
+            _maximum_nodes=_maximum_nodes,
+            _coverage_order=_coverage_order,
+            _progressive_stages=_progressive_stages,
+        )
+
+    def plan_compiled(
+        self,
+        snapshot: CompiledVisibilitySnapshot,
+        start_xy,
+        goal_xy,
+        *,
+        directed_failed_branches: Iterable[Sequence[Sequence[float]]] = (),
+        trajectory_points: Iterable[Sequence[float]] = (),
+        maximum_trajectory_vertices: int = 64,
+        failure_buffer_m: float = 0.45,
+        start_yaw: Optional[float] = None,
+        _maximum_nodes: Optional[int] = None,
+        _coverage_order: bool = False,
+        _progressive_stages: int = 1,
+    ) -> VisibilityPlan:
+        """Attach live endpoints to one compiled online-map snapshot."""
+
+        if not isinstance(snapshot, CompiledVisibilitySnapshot):
+            raise TypeError("visibility search requires a compiled snapshot")
+        geometry = snapshot.geometry
+        if (
+            geometry.owner_token is not self._compiled_snapshot_owner_token
+            or geometry.planner_geometry_signature
+            != self._geometry_contract_signature()
+        ):
+            raise ValueError(
+                "compiled visibility snapshot belongs to a different "
+                "planner geometry contract"
+            )
+        if (
+            geometry.blocked_polylines_present
+            and not math.isclose(
+                float(geometry.failure_buffer_m),
+                float(failure_buffer_m),
+                rel_tol=0.0,
+                abs_tol=1.0e-12,
+            )
+        ):
+            raise ValueError(
+                "compiled blocked geometry and directed failure buffer differ"
+            )
+        values = geometry.values
+        occupied = geometry.occupied
+        inflated = geometry.inflated
+        resolution = geometry.resolution
+        origin = geometry.origin
         start = (float(start_xy[0]), float(start_xy[1]))
         goal = (float(goal_xy[0]), float(goal_xy[1]))
         if not all(math.isfinite(value) for value in start + goal):
@@ -1682,24 +2048,6 @@ class DynamicVisibilityPlanner:
         if start_yaw is not None and not math.isfinite(float(start_yaw)):
             raise ValueError("visibility start yaw must be finite")
 
-        occupied = (values >= self.occupied_threshold).astype(np.uint8)
-        failure_thickness = max(
-            1, int(math.ceil(2.0 * float(failure_buffer_m) / resolution))
-        )
-        for polyline in blocked_polylines:
-            points = []
-            for point in polyline:
-                row, column = self._world_to_grid(point, resolution, origin)
-                points.append((column, row))
-            if len(points) >= 2:
-                cv2.polylines(
-                    occupied,
-                    [np.asarray(points, dtype=np.int32)],
-                    False,
-                    1,
-                    thickness=failure_thickness,
-                )
-        inflated = self._inflated_occupancy(occupied * 100, resolution)
         node_limit = (
             self.maximum_nodes
             if _maximum_nodes is None
@@ -1721,6 +2069,7 @@ class DynamicVisibilityPlanner:
             coverage_order=bool(_coverage_order),
             trajectory_points=trajectory_points,
             maximum_trajectory_vertices=maximum_trajectory_vertices,
+            candidate_pool=geometry.candidate_pool,
         )
 
         edges = []
@@ -1733,14 +2082,24 @@ class DynamicVisibilityPlanner:
                     and second.node_id not in (0, 1)
                 ):
                     continue
-                profile = self._segment_profile(
-                    (first.x, first.y),
-                    (second.x, second.y),
-                    values,
-                    inflated,
-                    resolution,
-                    origin,
-                )
+                if (
+                    first.kind == "POLYGON_VERTEX"
+                    and second.kind == "POLYGON_VERTEX"
+                ):
+                    profile = self._compiled_segment_profile(
+                        snapshot,
+                        (first.x, first.y),
+                        (second.x, second.y),
+                    )
+                else:
+                    profile = self._segment_profile(
+                        (first.x, first.y),
+                        (second.x, second.y),
+                        values,
+                        inflated,
+                        resolution,
+                        origin,
+                    )
                 if profile is None:
                     continue
                 edge_length, unknown_fraction = profile
@@ -2223,6 +2582,18 @@ class DynamicVisibilityPlanner:
         trajectory_signature = tuple(
             (float(point[0]), float(point[1])) for point in trajectory_points
         )
+        # Compare the semantic occupancy snapshot rather than the raw SLAM
+        # probabilities.  ``compile_snapshot`` canonicalises every cell to
+        # UNKNOWN/FREE/OCCUPIED, so harmless changes such as free 35 -> 49 must
+        # not restart a partially completed dense graph transaction.
+        compiled_snapshot = self.compile_snapshot(
+            values,
+            resolution,
+            origin,
+            blocked_polylines=blocked_signature,
+            failure_buffer_m=failure_buffer_m,
+        )
+        compiled_geometry = compiled_snapshot.geometry
         yaw_matches = bool(
             session is None
             or (session.start_yaw is None and start_yaw is None)
@@ -2251,27 +2622,13 @@ class DynamicVisibilityPlanner:
             and session.directed_failed_branches == branch_signature
             and session.trajectory_points == trajectory_signature
             and session.failure_buffer_m == float(failure_buffer_m)
-            and np.array_equal(session.values, values)
+            and session.compiled_snapshot.geometry.owner_token
+            is self._compiled_snapshot_owner_token
+            and session.compiled_snapshot.geometry.key == compiled_geometry.key
         )
         if not session_compatible:
-            occupied = (values >= self.occupied_threshold).astype(np.uint8)
-            failure_thickness = max(
-                1, int(math.ceil(2.0 * float(failure_buffer_m) / resolution))
-            )
-            for polyline in blocked_polylines:
-                points = []
-                for point in polyline:
-                    row, column = self._world_to_grid(point, resolution, origin)
-                    points.append((column, row))
-                if len(points) >= 2:
-                    cv2.polylines(
-                        occupied,
-                        [np.asarray(points, dtype=np.int32)],
-                        False,
-                        1,
-                        thickness=failure_thickness,
-                    )
-            inflated = self._inflated_occupancy(occupied * 100, resolution)
+            occupied = compiled_geometry.occupied
+            inflated = compiled_geometry.inflated
             (
                 all_nodes,
                 candidate_vertices_total,
@@ -2288,6 +2645,7 @@ class DynamicVisibilityPlanner:
                 coverage_order=True,
                 trajectory_points=trajectory_signature,
                 maximum_trajectory_vertices=maximum_trajectory_vertices,
+                candidate_pool=compiled_geometry.candidate_pool,
             )
             available_nodes = len(all_nodes)
             limits = list(range(initial, maximum + 1, step))
@@ -2304,7 +2662,7 @@ class DynamicVisibilityPlanner:
                 goal, occupied, inflated, resolution, origin
             )
             session = ProgressiveVisibilitySession(
-                values=values.copy(),
+                values=compiled_geometry.values,
                 resolution=resolution,
                 origin=origin,
                 start=start,
@@ -2314,6 +2672,7 @@ class DynamicVisibilityPlanner:
                 directed_failed_branches=branch_signature,
                 trajectory_points=trajectory_signature,
                 failure_buffer_m=float(failure_buffer_m),
+                compiled_snapshot=compiled_snapshot,
                 occupied=occupied,
                 inflated=inflated,
                 all_nodes=tuple(all_nodes),
@@ -2349,14 +2708,24 @@ class DynamicVisibilityPlanner:
                         and second.node_id not in (0, 1)
                     ):
                         continue
-                    profile = self._segment_profile(
-                        (first.x, first.y),
-                        (second.x, second.y),
-                        session.values,
-                        session.inflated,
-                        session.resolution,
-                        session.origin,
-                    )
+                    if (
+                        first.kind == "POLYGON_VERTEX"
+                        and second.kind == "POLYGON_VERTEX"
+                    ):
+                        profile = self._compiled_segment_profile(
+                            session.compiled_snapshot,
+                            (first.x, first.y),
+                            (second.x, second.y),
+                        )
+                    else:
+                        profile = self._segment_profile(
+                            (first.x, first.y),
+                            (second.x, second.y),
+                            session.values,
+                            session.inflated,
+                            session.resolution,
+                            session.origin,
+                        )
                     if profile is None:
                         continue
                     edge_length, unknown_fraction = profile

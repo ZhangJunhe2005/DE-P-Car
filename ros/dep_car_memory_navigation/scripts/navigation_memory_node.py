@@ -6,6 +6,7 @@ import math
 import threading
 import time
 import zlib
+from collections import deque
 from dataclasses import replace
 
 import numpy as np
@@ -95,11 +96,31 @@ class NavigationMemoryNode:
         self.visibility_dense_replan_last_status = "IDLE"
         self.visibility_dense_replan_last_attempt_snapshot = -1
         self.visibility_dense_replan_last_completed_stamp = -math.inf
+        self.visibility_dense_replan_consumed_source_revision = -1
+        self.visibility_dense_replan_consumed_validated_revision = -1
         self.visibility_dense_replan_session = None
         self.visibility_dense_replan_session_snapshot_version = -1
         self.visibility_dense_replan_session_request_epoch = -1
         self.visibility_dense_replan_session_goal_key = None
         self.visibility_dense_replan_session_start_key = None
+        # One long-lived FAR backend owns ordinary and dense work for the same
+        # planner/control authority. Timer callbacks only replace a pending
+        # request and consume bounded results.
+        self.visibility_query_condition = threading.Condition()
+        self.visibility_query_request = None
+        self.visibility_dense_query_request = None
+        self.visibility_query_active = None
+        self.visibility_query_results = deque(maxlen=4)
+        self.visibility_query_sequence = 0
+        self.visibility_query_last_status = "IDLE"
+        self.visibility_query_last_duration_ms = None
+        self.visibility_query_last_compile_ms = None
+        self.visibility_query_last_queue_wait_ms = None
+        self.visibility_query_last_consumed_source_revision = -1
+        self.visibility_query_last_consumed_validated_revision = -1
+        self.visibility_query_stale_discards = 0
+        self.visibility_query_superseded_discards = 0
+        self.visibility_query_latest_replacements = 0
         self.goal = None
         self.local_state = None
         self.local_candidates = None
@@ -181,6 +202,11 @@ class NavigationMemoryNode:
         self.visibility_route_lease_active = False
         self.visibility_route_lease_reason = "inactive"
         self.visibility_route_lease_prefix_length_m = 0.0
+        # A newest-map obstacle may cut only the distant suffix of an otherwise
+        # usable route.  This flag distinguishes that finite safe prefix from a
+        # still goal-connected incumbent, so route-momentum code cannot expand
+        # the old cursor across the newly observed wall.
+        self.visibility_route_suffix_invalidated = False
         # Keep only a short-lived *direction* from the latest authorized FAR
         # corridor.  Unlike an odom-frame topology polyline, this map-frame
         # unit vector cannot accumulate into a second, stale driving route.
@@ -301,6 +327,12 @@ class NavigationMemoryNode:
             reverse_start_penalty_m=float(
                 rospy.get_param("~visibility_reverse_start_penalty_m", 2.00)
             ),
+            # Retain only the exact current online occupancy content.  This is
+            # a process-local acceleration snapshot, never a map/scenario
+            # identity cache and never persisted across launches.
+            graph_cache_capacity=int(
+                rospy.get_param("~visibility_graph_cache_capacity", 1)
+            ),
         )
         self.visibility_replan_period = float(
             rospy.get_param("~visibility_replan_period_s", 0.60)
@@ -332,6 +364,9 @@ class NavigationMemoryNode:
         self.visibility_dense_replan_time_budget = float(
             rospy.get_param("~visibility_dense_replan_time_budget_s", 2.5)
         )
+        self.visibility_dense_replan_worker_slice = float(
+            rospy.get_param("~visibility_dense_replan_worker_slice_s", 0.15)
+        )
         self.visibility_dense_replan_retry_period = float(
             rospy.get_param("~visibility_dense_replan_retry_period_s", 1.5)
         )
@@ -342,6 +377,10 @@ class NavigationMemoryNode:
         )
         if self.visibility_dense_replan_maximum_start_drift <= 0.0:
             raise ValueError("dense FAR maximum start drift must be positive")
+        if not 0.05 <= self.visibility_dense_replan_worker_slice <= 0.50:
+            raise ValueError(
+                "dense FAR worker slice must be between 0.05 and 0.50 seconds"
+            )
         if not (
             self.visibility.maximum_nodes
             < self.visibility_dense_replan_initial_nodes
@@ -830,6 +869,11 @@ class NavigationMemoryNode:
             self.on_replan_request,
             queue_size=5,
         )
+        threading.Thread(
+            target=self._visibility_query_worker_loop,
+            name="dep_car_far_cached_backend",
+            daemon=True,
+        ).start()
         rate = float(rospy.get_param("~control_rate", 5.0))
         self.timer = rospy.Timer(rospy.Duration(1.0 / rate), self.update)
         self.publish_status("MAPPING_WAIT", "waiting for wheel/IMU odometry, scan and SLAM TF")
@@ -1026,6 +1070,456 @@ class NavigationMemoryNode:
         with self.lock:
             return bool(self.visibility_dense_replan_pending)
 
+    def visibility_goal_transaction_is_current(self, request_epoch, goal_key):
+        """Fence route-state commits against concurrent RViz goal pre-emption."""
+
+        expected_goal = (
+            round(float(goal_key[0]), 3), round(float(goal_key[1]), 3)
+        )
+        with self.lock:
+            if self.goal is None:
+                return False
+            active_goal = (
+                round(float(self.goal.pose.position.x), 3),
+                round(float(self.goal.pose.position.y), 3),
+            )
+            return bool(
+                int(request_epoch) == self.visibility_planning_request_epoch
+                and active_goal == expected_goal
+            )
+
+    @staticmethod
+    def _visibility_query_equivalent(first, second):
+        if first is None or second is None:
+            return False
+        return bool(
+            first["kind"] == second["kind"]
+            and first["request_epoch"] == second["request_epoch"]
+            and first["revision"] == second["revision"]
+            and first["goal_key"] == second["goal_key"]
+            and first["directed_failed_branches"]
+            == second["directed_failed_branches"]
+            and first["trajectory_points"] == second["trajectory_points"]
+            and math.hypot(
+                first["start_xy"][0] - second["start_xy"][0],
+                first["start_xy"][1] - second["start_xy"][1],
+            ) <= 0.08
+            and abs(
+                wrap_angle(first["start_yaw"] - second["start_yaw"])
+            ) <= math.radians(3.0)
+        )
+
+    def queue_visibility_query(
+        self,
+        values,
+        resolution,
+        origin,
+        start_xy,
+        goal_xy,
+        start_yaw,
+        revision,
+        directed_failed_branches,
+        trajectory_points,
+        stamp,
+    ):
+        """Replace the sole pending ordinary FAR request with the latest."""
+
+        proposal = {
+            "kind": "ORDINARY",
+            "revision": int(revision),
+            "goal_key": (
+                round(float(goal_xy[0]), 3),
+                round(float(goal_xy[1]), 3),
+            ),
+            "start_xy": (float(start_xy[0]), float(start_xy[1])),
+            "start_yaw": float(start_yaw),
+            "goal_xy": (float(goal_xy[0]), float(goal_xy[1])),
+            # ``on_accumulated_map`` replaces this array on every content
+            # revision and never mutates it.  Retain that immutable reference
+            # here; compile_snapshot makes the worker-owned defensive copy.
+            # This avoids copying the whole SLAM grid in the ROS timer before
+            # we even know whether the request will be de-duplicated.
+            "values": np.asarray(values, dtype=np.int16),
+            "resolution": float(resolution),
+            "origin": (float(origin[0]), float(origin[1])),
+            "directed_failed_branches": tuple(
+                tuple((float(point[0]), float(point[1])) for point in branch)
+                for branch in directed_failed_branches
+            ),
+            "trajectory_points": tuple(
+                (float(point[0]), float(point[1]))
+                for point in trajectory_points
+            ),
+            "queued_wall_time": float(time.monotonic()),
+            "queued_stamp": float(stamp),
+        }
+        with self.lock:
+            if self.goal is None:
+                return False
+            active_goal_key = (
+                round(float(self.goal.pose.position.x), 3),
+                round(float(self.goal.pose.position.y), 3),
+            )
+            if active_goal_key != proposal["goal_key"]:
+                return False
+            proposal["request_epoch"] = int(
+                self.visibility_planning_request_epoch
+            )
+            # Lock order is always state lock -> worker condition.  This makes
+            # goal pre-emption and request publication one atomic transaction.
+            with self.visibility_query_condition:
+                if self._visibility_query_equivalent(
+                    self.visibility_query_request, proposal
+                ) or self._visibility_query_equivalent(
+                    self.visibility_query_active, proposal
+                ):
+                    return False
+                if self.visibility_query_request is not None:
+                    self.visibility_query_latest_replacements += 1
+                self.visibility_query_sequence += 1
+                proposal["sequence"] = int(self.visibility_query_sequence)
+                self.visibility_query_request = proposal
+                self.visibility_query_last_status = "QUEUED"
+                self.visibility_query_condition.notify_all()
+        return True
+
+    def _visibility_query_worker_loop(self):
+        """Run ordinary and dense FAR work on one long-lived backend.
+
+        This is scheduling inside one planner, not two navigation policies.
+        Ordinary latest-map requests have priority.  Dense expansion advances
+        in bounded resumable slices so a long detour search cannot black out a
+        newer ordinary replan.
+        """
+
+        while not rospy.is_shutdown():
+            with self.visibility_query_condition:
+                while (
+                    self.visibility_query_request is None
+                    and self.visibility_dense_query_request is None
+                    and not rospy.is_shutdown()
+                ):
+                    self.visibility_query_condition.wait(timeout=0.20)
+                if rospy.is_shutdown():
+                    return
+                if self.visibility_query_request is not None:
+                    request = self.visibility_query_request
+                    self.visibility_query_request = None
+                else:
+                    request = self.visibility_dense_query_request
+                    self.visibility_dense_query_request = None
+                self.visibility_query_active = request
+                self.visibility_query_last_status = (
+                    "COMPILING"
+                    if request["kind"] == "ORDINARY"
+                    else "DENSE_SEARCHING"
+                )
+            with self.lock:
+                request_is_current = bool(
+                    int(request["request_epoch"])
+                    == int(self.visibility_planning_request_epoch)
+                )
+                if not request_is_current:
+                    with self.visibility_query_condition:
+                        if self.visibility_query_active is request:
+                            self.visibility_query_active = None
+                        self.visibility_query_stale_discards += 1
+                        self.visibility_query_condition.notify_all()
+            if not request_is_current:
+                continue
+            started = time.perf_counter()
+            queue_wait_ms = 1000.0 * max(
+                0.0, started - float(request["queued_wall_time"])
+            )
+            plan = None
+            error = None
+            compile_ms = None
+            updated_session = None
+            try:
+                if request["kind"] == "ORDINARY":
+                    snapshot = self.visibility.compile_snapshot(
+                        request["values"],
+                        request["resolution"],
+                        request["origin"],
+                        failure_buffer_m=self.topology.failure_buffer_m,
+                    )
+                    compile_ms = float(snapshot.compile_time_ms)
+                    with self.visibility_query_condition:
+                        self.visibility_query_last_status = "SEARCHING"
+                    plan = self.visibility.plan_compiled(
+                        snapshot,
+                        request["start_xy"],
+                        request["goal_xy"],
+                        directed_failed_branches=request[
+                            "directed_failed_branches"
+                        ],
+                        trajectory_points=request["trajectory_points"],
+                        maximum_trajectory_vertices=(
+                            self.visibility_trajectory_bridge_maximum_nodes
+                        ),
+                        failure_buffer_m=self.topology.failure_buffer_m,
+                        start_yaw=request["start_yaw"],
+                    )
+                else:
+                    plan, updated_session = self.visibility.plan_progressive(
+                        request["values"],
+                        request["resolution"],
+                        request["origin"],
+                        request["start_xy"],
+                        request["goal_xy"],
+                        initial_maximum_nodes=(
+                            self.visibility_dense_replan_initial_nodes
+                        ),
+                        maximum_nodes=(
+                            self.visibility_dense_replan_maximum_nodes
+                        ),
+                        node_step=self.visibility_dense_replan_node_step,
+                        time_budget_s=min(
+                            self.visibility_dense_replan_time_budget,
+                            self.visibility_dense_replan_worker_slice,
+                        ),
+                        directed_failed_branches=request[
+                            "directed_failed_branches"
+                        ],
+                        trajectory_points=request["trajectory_points"],
+                        maximum_trajectory_vertices=(
+                            self.visibility_trajectory_bridge_maximum_nodes
+                        ),
+                        failure_buffer_m=self.topology.failure_buffer_m,
+                        start_yaw=request["start_yaw"],
+                        session=request["resume_session"],
+                        return_session=True,
+                    )
+            except Exception as exc:  # fail closed; active route is untouched
+                error = "%s: %s" % (type(exc).__name__, exc)
+            duration_ms = 1000.0 * (time.perf_counter() - started)
+            ordinary_document = None
+            with self.lock:
+                current_epoch = int(self.visibility_planning_request_epoch)
+                current_sequence = int(self.visibility_dense_replan_sequence)
+                valid_epoch = bool(
+                    int(request["request_epoch"]) == current_epoch
+                )
+                if request["kind"] == "ORDINARY":
+                    if valid_epoch:
+                        ordinary_document = {
+                            "request": request,
+                            "plan": plan,
+                            "error": error,
+                            "duration_ms": float(duration_ms),
+                            "compile_ms": compile_ms,
+                            "queue_wait_ms": float(queue_wait_ms),
+                        }
+                    else:
+                        self.visibility_query_stale_discards += 1
+                elif (
+                    valid_epoch
+                    and int(request["dense_sequence"]) == current_sequence
+                ):
+                    self.visibility_dense_replan_result = {
+                        "plan": plan,
+                        "error": error,
+                        "sequence": int(request["dense_sequence"]),
+                        "request_epoch": int(request["request_epoch"]),
+                        "snapshot_version": int(request["revision"]),
+                        "goal_key": request["goal_key"],
+                        "start_key": request["start_key"],
+                        "session": updated_session,
+                        "duration_ms": float(duration_ms),
+                    }
+                    self.visibility_dense_replan_last_duration_ms = float(
+                        duration_ms
+                    )
+                    self.visibility_dense_replan_last_error = error
+                    self.visibility_dense_replan_last_completed_stamp = float(
+                        rospy.Time.now().to_sec()
+                    )
+                    self.visibility_dense_replan_last_status = (
+                        "ERROR"
+                        if error is not None
+                        else "READY_%s" % plan.status
+                    )
+                with self.visibility_query_condition:
+                    if self.visibility_query_active is request:
+                        self.visibility_query_active = None
+                    if ordinary_document is not None:
+                        self.visibility_query_results.append(
+                            ordinary_document
+                        )
+                    self.visibility_query_last_duration_ms = float(duration_ms)
+                    self.visibility_query_last_compile_ms = compile_ms
+                    self.visibility_query_last_queue_wait_ms = float(
+                        queue_wait_ms
+                    )
+                    self.visibility_query_last_status = (
+                        "ERROR"
+                        if error is not None
+                        else "READY_ORDINARY"
+                        if request["kind"] == "ORDINARY"
+                        else "READY_DENSE"
+                    )
+                    self.visibility_query_condition.notify_all()
+            if error is not None:
+                rospy.logerr(
+                    "Cached FAR backend %s request failed: %s",
+                    request["kind"],
+                    error,
+                )
+
+    def take_visibility_query_result(
+        self,
+        goal_key,
+        current_xy,
+        current_revision,
+        values,
+        resolution,
+        origin,
+    ):
+        """Consume the newest safe result for the current goal transaction."""
+
+        with self.lock:
+            current_epoch = int(self.visibility_planning_request_epoch)
+        expected_goal = (
+            round(float(goal_key[0]), 3), round(float(goal_key[1]), 3)
+        )
+        with self.visibility_query_condition:
+            documents = list(self.visibility_query_results)
+            self.visibility_query_results.clear()
+            outstanding = tuple(
+                request
+                for request in (
+                    self.visibility_query_active,
+                    self.visibility_query_request,
+                )
+                if request is not None
+                and request["kind"] == "ORDINARY"
+                and request["request_epoch"] == current_epoch
+                and request["goal_key"] == expected_goal
+            )
+        matching = [
+            document
+            for document in documents
+            if document["request"]["request_epoch"] == current_epoch
+            and document["request"]["goal_key"] == expected_goal
+        ]
+        if not matching:
+            if documents:
+                self.visibility_query_stale_discards += len(documents)
+            return None
+        matching.sort(
+            key=lambda item: int(item["request"]["sequence"]), reverse=True
+        )
+        newest_outstanding_sequence = max(
+            (int(request["sequence"]) for request in outstanding),
+            default=-1,
+        )
+        selected = None
+        selected_source_revision = -1
+        newest_current_negative = None
+
+        # A newer pose request is useful replacement work, but it is not an
+        # authority boundary.  Prefer the newest completed PASS which remains
+        # safe after latest-grid route validation and can still be joined from
+        # the measured pose.  Otherwise a moving vehicle plus a changing SLAM
+        # map can keep one newer request outstanding forever and starve every
+        # usable answer produced by the worker.
+        for document in matching:
+            if document["error"] is not None:
+                continue
+            plan = document["plan"]
+            source_revision = int(document["request"]["revision"])
+            if source_revision > int(current_revision) or plan is None:
+                continue
+            start_drift = math.hypot(
+                float(current_xy[0]) - document["request"]["start_xy"][0],
+                float(current_xy[1]) - document["request"]["start_xy"][1],
+            )
+            if start_drift > self.visibility_dense_replan_maximum_start_drift:
+                continue
+            connector_clear = bool(
+                start_drift <= 0.05
+                or self.visibility.path_is_traversable(
+                    (
+                        (float(current_xy[0]), float(current_xy[1])),
+                        document["request"]["start_xy"],
+                    ),
+                    values,
+                    resolution,
+                    origin,
+                    maximum_unknown_fraction=0.02,
+                )
+            )
+            if not connector_clear:
+                continue
+            if plan.status == "PASS" and len(plan.path) >= 2:
+                maximum_unknown_fraction = (
+                    0.02
+                    if plan.mode in (
+                        "KNOWN_VISIBILITY",
+                        "PARTIAL_ATTEMPTABLE",
+                    )
+                    else 1.0
+                )
+                if self.visibility.path_is_traversable(
+                    plan.path,
+                    values,
+                    resolution,
+                    origin,
+                    maximum_unknown_fraction=maximum_unknown_fraction,
+                ):
+                    selected = document
+                    selected_source_revision = source_revision
+                    break
+            elif (
+                source_revision == int(current_revision)
+                and newest_current_negative is None
+            ):
+                # A negative result has no geometry which can be certified on a
+                # newer map.  Retain only the newest exact-revision fallback and
+                # use it only when no safe PASS survived the scan below.
+                newest_current_negative = document
+
+        if selected is None and newest_current_negative is not None:
+            negative_sequence = int(
+                newest_current_negative["request"]["sequence"]
+            )
+            if newest_outstanding_sequence <= negative_sequence:
+                selected = newest_current_negative
+                selected_source_revision = int(current_revision)
+            else:
+                self.visibility_query_superseded_discards += 1
+        if selected is None:
+            self.visibility_query_stale_discards += len(documents)
+            return None
+
+        document = selected
+        plan = document["plan"]
+        source_revision = int(selected_source_revision)
+        self.visibility_query_stale_discards += max(0, len(documents) - 1)
+        with self.lock:
+            active_goal_key = (
+                None
+                if self.goal is None
+                else (
+                    round(float(self.goal.pose.position.x), 3),
+                    round(float(self.goal.pose.position.y), 3),
+                )
+            )
+            if (
+                current_epoch != self.visibility_planning_request_epoch
+                or active_goal_key != expected_goal
+            ):
+                self.visibility_query_stale_discards += 1
+                return None
+            self.visibility_query_last_consumed_source_revision = int(
+                source_revision
+            )
+            self.visibility_query_last_consumed_validated_revision = int(
+                current_revision
+            )
+        self.visibility_last_plan_duration_ms = float(document["duration_ms"])
+        return plan
+
     def start_dense_visibility_replan(
         self,
         values,
@@ -1049,10 +1543,12 @@ class NavigationMemoryNode:
         if not self.visibility_dense_replan_enabled:
             return False
         goal_key = (round(float(goal_xy[0]), 3), round(float(goal_xy[1]), 3))
-        start_key = (
-            round(float(start_xy[0]), 3),
-            round(float(start_xy[1]), 3),
-            round(float(start_yaw), 3),
+        branch_snapshot = tuple(
+            tuple((float(point[0]), float(point[1])) for point in branch)
+            for branch in directed_failed_branches
+        )
+        trajectory_snapshot = tuple(
+            (float(point[0]), float(point[1])) for point in trajectory_points
         )
         with self.lock:
             if self.visibility_dense_replan_pending:
@@ -1071,13 +1567,15 @@ class NavigationMemoryNode:
                     - float(start_xy[0]),
                     self.visibility_dense_replan_session.start[1]
                     - float(start_xy[1]),
-                ) <= 0.05
+                ) <= self.visibility_dense_replan_maximum_start_drift
                 and abs(
                     wrap_angle(
                         float(self.visibility_dense_replan_session.start_yaw)
                         - float(start_yaw)
                     )
                 ) <= math.radians(3.0)
+                and self.visibility_dense_replan_session.directed_failed_branches
+                == branch_snapshot
             ):
                 resume_session = self.visibility_dense_replan_session
                 if resume_session.complete:
@@ -1108,85 +1606,61 @@ class NavigationMemoryNode:
             self.visibility_dense_replan_last_error = None
             self.visibility_dense_replan_last_status = "PENDING"
 
-        # The OccupancyGrid callback replaces its array rather than mutating it,
-        # but make this ownership explicit so the worker always sees one coherent
-        # online snapshot while SLAM continues publishing newer revisions.
-        snapshot_values = np.asarray(values, dtype=np.int16).copy()
-        branch_snapshot = tuple(
-            tuple((float(point[0]), float(point[1])) for point in branch)
-            for branch in directed_failed_branches
+        solve_start_xy = (
+            (float(start_xy[0]), float(start_xy[1]))
+            if resume_session is None
+            else tuple(resume_session.start)
         )
-        trajectory_snapshot = tuple(
-            (float(point[0]), float(point[1])) for point in trajectory_points
+        solve_start_yaw = (
+            float(start_yaw)
+            if resume_session is None
+            else float(resume_session.start_yaw)
         )
-
-        def worker():
-            started = time.perf_counter()
-            result = None
-            error = None
-            try:
-                result, updated_session = self.visibility.plan_progressive(
-                    snapshot_values,
-                    float(resolution),
-                    (float(origin[0]), float(origin[1])),
-                    (float(start_xy[0]), float(start_xy[1])),
-                    (float(goal_xy[0]), float(goal_xy[1])),
-                    initial_maximum_nodes=(
-                        self.visibility_dense_replan_initial_nodes
-                    ),
-                    maximum_nodes=self.visibility_dense_replan_maximum_nodes,
-                    node_step=self.visibility_dense_replan_node_step,
-                    time_budget_s=self.visibility_dense_replan_time_budget,
-                    directed_failed_branches=branch_snapshot,
-                    trajectory_points=trajectory_snapshot,
-                    maximum_trajectory_vertices=(
-                        self.visibility_trajectory_bridge_maximum_nodes
-                    ),
-                    failure_buffer_m=self.topology.failure_buffer_m,
-                    start_yaw=float(start_yaw),
-                    session=resume_session,
-                    return_session=True,
-                )
-            except Exception as exc:  # fail closed; ordinary FAR remains alive
-                error = "%s: %s" % (type(exc).__name__, exc)
-                updated_session = None
-            duration_ms = 1000.0 * (time.perf_counter() - started)
-            completed_stamp = rospy.Time.now().to_sec()
-            with self.lock:
-                if (
-                    sequence != self.visibility_dense_replan_sequence
-                    or request_epoch != self.visibility_planning_request_epoch
-                ):
-                    return
-                self.visibility_dense_replan_result = {
-                    "plan": result,
-                    "error": error,
-                    "sequence": int(sequence),
-                    "request_epoch": int(request_epoch),
-                    "snapshot_version": int(snapshot_version),
-                    "goal_key": goal_key,
-                    "start_key": start_key,
-                    "session": updated_session,
-                    "duration_ms": float(duration_ms),
-                }
-                self.visibility_dense_replan_last_duration_ms = float(duration_ms)
-                self.visibility_dense_replan_last_error = error
-                self.visibility_dense_replan_last_completed_stamp = float(
-                    completed_stamp
-                )
-                self.visibility_dense_replan_last_status = (
-                    "ERROR"
-                    if error is not None
-                    else "READY_%s" % result.status
-                )
-
-        threading.Thread(
-            target=worker,
-            name="dep_car_far_dense_%d" % sequence,
-            daemon=True,
-        ).start()
+        if resume_session is not None:
+            # New trajectory anchors are optional connectivity evidence; they
+            # must not invalidate an already progressing exact-map graph.
+            trajectory_snapshot = tuple(resume_session.trajectory_points)
+        start_key = (
+            round(float(solve_start_xy[0]), 3),
+            round(float(solve_start_xy[1]), 3),
+            round(float(solve_start_yaw), 3),
+        )
+        # The OccupancyGrid callback replaces rather than mutates this array;
+        # the planner compiler takes its own immutable copy in the sole worker.
+        dense_request = {
+            "kind": "DENSE",
+            "dense_sequence": int(sequence),
+            "request_epoch": int(request_epoch),
+            "revision": int(snapshot_version),
+            "goal_key": goal_key,
+            "start_key": start_key,
+            "start_xy": solve_start_xy,
+            "start_yaw": solve_start_yaw,
+            "goal_xy": (float(goal_xy[0]), float(goal_xy[1])),
+            "values": np.asarray(values, dtype=np.int16),
+            "resolution": float(resolution),
+            "origin": (float(origin[0]), float(origin[1])),
+            "directed_failed_branches": branch_snapshot,
+            "trajectory_points": trajectory_snapshot,
+            "resume_session": resume_session,
+            "queued_wall_time": float(time.monotonic()),
+        }
+        with self.lock:
+            # A goal may have pre-empted us while the immutable request payload
+            # was assembled.  Do not reinsert work from the old transaction.
+            if (
+                request_epoch != self.visibility_planning_request_epoch
+                or sequence != self.visibility_dense_replan_sequence
+            ):
+                if sequence == self.visibility_dense_replan_sequence:
+                    self.visibility_dense_replan_pending = False
+                return False
+            with self.visibility_query_condition:
+                self.visibility_dense_query_request = dense_request
+                self.visibility_query_last_status = "DENSE_QUEUED"
+                self.visibility_query_condition.notify_all()
         rospy.logwarn(
-            "Started background dense FAR expansion request_epoch=%d "
+            "Queued dense FAR expansion on single backend request_epoch=%d "
             "snapshot_version=%d nodes=%d..%d step=%d resumed=%s",
             request_epoch,
             int(snapshot_version),
@@ -1252,8 +1726,26 @@ class NavigationMemoryNode:
                 maximum_unknown_fraction=maximum_unknown_fraction,
             )
         )
+        current_connector_clear = bool(
+            start_drift <= 0.05
+            or (
+                plan is not None
+                and len(plan.path) >= 1
+                and self.visibility.path_is_traversable(
+                    (
+                        (float(current_xy[0]), float(current_xy[1])),
+                        plan.path[0],
+                    ),
+                    values,
+                    resolution,
+                    origin,
+                    maximum_unknown_fraction=0.02,
+                )
+            )
+        )
         result_fresh = bool(
             start_drift <= self.visibility_dense_replan_maximum_start_drift
+            and current_connector_clear
             and (same_snapshot or current_route_clear)
         )
         if same_snapshot and result_fresh:
@@ -1276,7 +1768,8 @@ class NavigationMemoryNode:
             "snapshot_version=%d current_snapshot_version=%d nodes=%d/%d "
             "cap_hit=%s stages=%d start_degree=%d goal_degree=%d "
             "disconnect=%s duration_ms=%.1f complete=%s same_snapshot=%s "
-            "start_drift=%.3f current_route_clear=%s consumed=%s",
+            "start_drift=%.3f connector_clear=%s current_route_clear=%s "
+            "consumed=%s",
             plan.status,
             int(document["snapshot_version"]),
             int(self.accumulated_map_revision),
@@ -1291,6 +1784,7 @@ class NavigationMemoryNode:
             bool(plan.progressive_complete),
             same_snapshot,
             float(start_drift),
+            current_connector_clear,
             current_route_clear,
             result_fresh,
         )
@@ -1299,6 +1793,12 @@ class NavigationMemoryNode:
                 "DISCARDED_STALE_SNAPSHOT"
             )
             return None
+        self.visibility_dense_replan_consumed_source_revision = int(
+            document["snapshot_version"]
+        )
+        self.visibility_dense_replan_consumed_validated_revision = int(
+            current_snapshot_version
+        )
         return plan
 
     def on_local_state(self, message):
@@ -1370,6 +1870,7 @@ class NavigationMemoryNode:
         self.visibility_route_lease_active = False
         self.visibility_route_lease_reason = "route_invalidated_" + reason
         self.visibility_route_lease_prefix_length_m = 0.0
+        self.visibility_route_suffix_invalidated = False
         self.visibility_planned_revision = -1
         self.visibility_planned_failed_branches = -1
         self.visibility_last_plan_stamp = -math.inf
@@ -1644,6 +2145,13 @@ class NavigationMemoryNode:
         with self.lock:
             preempted_state = self.recovery.state.value
             self.visibility_planning_request_epoch += 1
+            self.visibility_dense_replan_sequence += 1
+            with self.visibility_query_condition:
+                self.visibility_query_request = None
+                self.visibility_dense_query_request = None
+                self.visibility_query_results.clear()
+                self.visibility_query_last_status = "NEW_GOAL"
+                self.visibility_query_condition.notify_all()
             # Invalidate, rather than reuse, any background result belonging to
             # the previous RViz goal.  The worker is daemonized and may finish,
             # but its request epoch prevents it from publishing into this goal.
@@ -1653,12 +2161,16 @@ class NavigationMemoryNode:
             self.visibility_dense_replan_goal_key = None
             self.visibility_dense_replan_snapshot_version = -1
             self.visibility_dense_replan_last_status = "NEW_GOAL"
+            self.visibility_dense_replan_consumed_source_revision = -1
+            self.visibility_dense_replan_consumed_validated_revision = -1
             self.visibility_dense_replan_last_attempt_snapshot = -1
             self.visibility_dense_replan_session = None
             self.visibility_dense_replan_session_snapshot_version = -1
             self.visibility_dense_replan_session_request_epoch = -1
             self.visibility_dense_replan_session_goal_key = None
             self.visibility_dense_replan_session_start_key = None
+            self.visibility_query_last_consumed_source_revision = -1
+            self.visibility_query_last_consumed_validated_revision = -1
             reanchored_node = None
             current_odom_pose = None
             if self.odom is not None:
@@ -1738,6 +2250,7 @@ class NavigationMemoryNode:
             self.visibility_route_lease_active = False
             self.visibility_route_lease_reason = "new_goal"
             self.visibility_route_lease_prefix_length_m = 0.0
+            self.visibility_route_suffix_invalidated = False
             self.visibility_last_authorized_direction_map = None
             self.visibility_last_authorized_direction_stamp = -math.inf
             self.visibility_goal_key = None
@@ -2059,6 +2572,44 @@ class NavigationMemoryNode:
                 "cross_episode_route_cache": False,
                 "map_identity_input": False,
             },
+            "cached_far_backend": {
+                "single_planner_authority": True,
+                "status": self.visibility_query_last_status,
+                "last_duration_ms": self.visibility_query_last_duration_ms,
+                "last_compile_ms": self.visibility_query_last_compile_ms,
+                "last_queue_wait_ms": (
+                    self.visibility_query_last_queue_wait_ms
+                ),
+                "last_consumed_source_revision": int(
+                    self.visibility_query_last_consumed_source_revision
+                ),
+                "last_consumed_validated_revision": int(
+                    self.visibility_query_last_consumed_validated_revision
+                ),
+                "latest_request_replacements": int(
+                    self.visibility_query_latest_replacements
+                ),
+                "stale_results_discarded": int(
+                    self.visibility_query_stale_discards
+                ),
+                "superseded_results_discarded": int(
+                    self.visibility_query_superseded_discards
+                ),
+                "pending": self.visibility_query_request is not None,
+                "dense_pending": (
+                    self.visibility_dense_query_request is not None
+                ),
+                "active": self.visibility_query_active is not None,
+                "active_kind": (
+                    None
+                    if self.visibility_query_active is None
+                    else self.visibility_query_active["kind"]
+                ),
+                "geometry_cache": self.visibility.graph_cache_statistics(),
+                "cache_capacity": int(self.visibility.graph_cache_capacity),
+                "cross_episode_route_cache": False,
+                "map_identity_input": False,
+            },
             "dense_replan": {
                 "enabled": bool(self.visibility_dense_replan_enabled),
                 "pending": bool(self.visibility_dense_replan_pending),
@@ -2083,6 +2634,12 @@ class NavigationMemoryNode:
                     self.visibility_dense_replan_last_duration_ms
                 ),
                 "last_error": self.visibility_dense_replan_last_error,
+                "consumed_source_revision": int(
+                    self.visibility_dense_replan_consumed_source_revision
+                ),
+                "consumed_validated_revision": int(
+                    self.visibility_dense_replan_consumed_validated_revision
+                ),
                 "resume_available": bool(
                     self.visibility_dense_replan_session is not None
                     and not self.visibility_dense_replan_session.complete
@@ -3059,6 +3616,9 @@ class NavigationMemoryNode:
 
     def bind_visibility_route(self, path, current_xy, goal_key, source):
         self.visibility_route_revision += 1
+        # Binding always installs a newly validated candidate.  Any lease on a
+        # previously truncated suffix ends atomically with this replacement.
+        self.visibility_route_suffix_invalidated = False
         route_id = self.route_identity(source, path, goal_key)
         handoff = self.visibility_route_cursor.preview_handoff(
             path,
@@ -3349,11 +3909,16 @@ class NavigationMemoryNode:
             grid = self.accumulated_grid
             revision = self.accumulated_map_revision
             observation_revision = self.accumulated_map_observation_revision
+            expected_goal_epoch = int(self.visibility_planning_request_epoch)
         if grid is None:
             return None, []
         values, resolution, origin, _ = grid
         goal_xy = (float(goal.pose.position.x), float(goal.pose.position.y))
         goal_key = (round(goal_xy[0], 3), round(goal_xy[1], 3))
+        if not self.visibility_goal_transaction_is_current(
+            expected_goal_epoch, goal_key
+        ):
+            return None, []
         failed_count = len(self.topology.failed_branches)
         current_xy = map_pose[:2]
         dense_candidate_plan = self.take_dense_visibility_replan(
@@ -3364,14 +3929,51 @@ class NavigationMemoryNode:
             resolution,
             origin,
         )
+        ordinary_candidate_plan = self.take_visibility_query_result(
+            goal_key,
+            current_xy,
+            revision,
+            values,
+            resolution,
+            origin,
+        )
+        dense_source_revision = (
+            int(self.visibility_dense_replan_consumed_source_revision)
+            if dense_candidate_plan is not None
+            else int(revision)
+        )
+        ordinary_source_revision = (
+            int(self.visibility_query_last_consumed_source_revision)
+            if ordinary_candidate_plan is not None
+            else int(revision)
+        )
         dense_goal_connected = visibility_plan_is_goal_connected(
             dense_candidate_plan
         )
-        if dense_goal_connected:
+        ordinary_goal_connected = visibility_plan_is_goal_connected(
+            ordinary_candidate_plan
+        )
+        connected_result = (
+            dense_candidate_plan
+            if dense_goal_connected
+            else ordinary_candidate_plan
+            if ordinary_goal_connected
+            else None
+        )
+        connected_result_source_revision = (
+            dense_source_revision
+            if dense_goal_connected
+            else ordinary_source_revision
+        )
+        if not self.visibility_goal_transaction_is_current(
+            expected_goal_epoch, goal_key
+        ):
+            return None, []
+        if connected_result is not None:
             self.offer_connected_visibility_candidate(
-                dense_candidate_plan,
+                connected_result,
                 goal_key,
-                revision,
+                connected_result_source_revision,
                 stamp,
             )
         connected_candidate_plan = (
@@ -3386,9 +3988,14 @@ class NavigationMemoryNode:
         if self.visibility_route_acquisition_started_stamp is None:
             self.visibility_route_acquisition_started_stamp = float(stamp)
 
-        # Do not let online-map growth, a SLAM correction, or the intentional
-        # reverse offset of a parking-style turn replace the route halfway
-        # through that turn.  Local continuous hard safety remains live.
+        trimmed = (
+            self.visibility_cursor_path(current_xy)
+            if self.visibility_route_cursor.active
+            else self.trim_visibility_path(
+                current_xy, self.visibility_path_map
+            )
+        )
+        committed = []
         if (
             self.visibility_maneuver_transaction_active
             and self.visibility_plan is not None
@@ -3405,15 +4012,105 @@ class NavigationMemoryNode:
                 maximum_deviation=math.inf,
             )
             if committed:
-                return self.visibility_plan, committed
+                trimmed = committed
 
-        trimmed = (
-            self.visibility_cursor_path(current_xy)
-            if self.visibility_route_cursor.active
-            else self.trim_visibility_path(
-                current_xy, self.visibility_path_map
-            )
+        # Route safety reacts to every new occupancy *content* revision.  It
+        # is intentionally independent of the expensive-search throttle: a
+        # newly closed dead end must truncate an unsafe suffix within one 5 Hz
+        # control cycle, including during a committed multi-leg manoeuvre.
+        map_content_changed = bool(
+            revision != self.visibility_planned_revision
         )
+        map_route_invalidated = False
+        if (
+            map_content_changed
+            and self.visibility_plan is not None
+            and self.visibility_plan.status == "PASS"
+            and len(trimmed) >= 2
+            and self.visibility_route_validation_revision != revision
+        ):
+            safe_prefix = self.visibility.longest_traversable_prefix(
+                trimmed,
+                values,
+                resolution,
+                origin,
+            )
+            self.visibility_route_validation_passed = bool(
+                len(safe_prefix) == len(trimmed)
+            )
+            self.visibility_route_validation_revision = revision
+            self.visibility_route_validation_stamp = stamp
+            map_route_invalidated = not self.visibility_route_validation_passed
+            if map_route_invalidated:
+                trimmed = list(safe_prefix)
+                safe_prefix_length = self.polyline_length(trimmed)
+                # The old monotonic cursor still owns the complete route.  If
+                # it survives this branch, incumbent-retention can expand it
+                # again on the next candidate cycle and silently cross the wall
+                # which just invalidated it.  Drop that cursor atomically and
+                # expose only a bounded, newest-map-certified prefix while FAR
+                # computes a replacement in the background.
+                self.reset_visibility_cursor()
+                self.visibility_path_map = list(trimmed)
+                self.visibility_remaining_path_map = list(trimmed)
+                self.visibility_maneuver_path_map = list(trimmed)
+                self.visibility_route_suffix_invalidated = True
+                self.visibility_route_dropout_started_stamp = float(stamp)
+                self.visibility_route_lease_prefix_length_m = float(
+                    safe_prefix_length
+                )
+                self.visibility_route_lease_active = bool(
+                    len(trimmed) >= 2
+                    and safe_prefix_length
+                    >= self.visibility_route_continuity_minimum
+                )
+                self.visibility_route_lease_reason = (
+                    "latest_map_safe_prefix_only"
+                    if self.visibility_route_lease_active
+                    else "latest_map_route_blocked_no_safe_prefix"
+                )
+                self.visibility_active_route_accepted = False
+                self.visibility_active_route_motion_authorized = bool(
+                    self.visibility_route_lease_active
+                )
+                self.visibility_last_replan_reason = (
+                    "latest_map_invalidated_route_suffix"
+                )
+        elif (
+            map_content_changed
+            and self.visibility_route_validation_revision == revision
+        ):
+            map_route_invalidated = not bool(
+                self.visibility_route_validation_passed
+            )
+
+        if (
+            self.visibility_route_suffix_invalidated
+            and self.visibility_route_lease_active
+            and self.visibility_route_dropout_started_stamp is not None
+            and float(stamp) - self.visibility_route_dropout_started_stamp
+            > self.visibility_route_dropout_grace
+        ):
+            self.visibility_route_lease_active = False
+            self.visibility_active_route_motion_authorized = False
+            self.visibility_route_lease_reason = (
+                "latest_map_safe_prefix_lease_expired"
+            )
+            trimmed = []
+
+        # Freeze a safe committed route across its finite Ackermann manoeuvre,
+        # but never freeze a suffix which the newest map has invalidated.
+        if (
+            committed
+            and not map_route_invalidated
+            and not self.visibility_route_suffix_invalidated
+        ):
+            if self.visibility_goal_transaction_is_current(
+                expected_goal_epoch, goal_key
+            ):
+                return self.visibility_plan, committed
+            return None, []
+
         remaining_route_m = self.polyline_length(trimmed)
         plan_age = float(stamp) - float(self.visibility_last_plan_stamp)
         route_renewal_due = bool(
@@ -3423,26 +4120,10 @@ class NavigationMemoryNode:
             and remaining_route_m <= self.visibility_route_renewal_distance
             and plan_age >= self.visibility_route_renewal_period
         )
-        map_route_invalidated = False
         map_revision_due = bool(
-            revision != self.visibility_planned_revision
+            map_content_changed
             and plan_age >= self.visibility_replan_period
         )
-        if (
-            map_revision_due
-            and self.visibility_plan is not None
-            and self.visibility_plan.status == "PASS"
-            and len(trimmed) >= 2
-        ):
-            if self.visibility_route_validation_revision != revision:
-                self.visibility_route_validation_passed = bool(
-                    self.visibility.path_is_traversable(
-                        trimmed, values, resolution, origin
-                    )
-                )
-                self.visibility_route_validation_revision = revision
-                self.visibility_route_validation_stamp = stamp
-            map_route_invalidated = not self.visibility_route_validation_passed
         attemptable_refresh_due = bool(
             map_revision_due
             and self.visibility_plan is not None
@@ -3465,6 +4146,8 @@ class NavigationMemoryNode:
         replan = bool(
             dense_candidate_plan is not None
             or
+            ordinary_candidate_plan is not None
+            or
             connected_candidate_plan is not None
             or
             self.visibility_plan is None
@@ -3485,10 +4168,11 @@ class NavigationMemoryNode:
                 map_revision_due
                 and (
                     self.visibility_plan.status != "PASS"
-                    or map_route_invalidated
                     or attemptable_refresh_due
                 )
             )
+            or map_route_invalidated
+            or self.visibility_route_suffix_invalidated
             or route_renewal_due
             or acquisition_refresh_due
             # A lease is finite even if SLAM publishes byte-identical maps.
@@ -3497,17 +4181,6 @@ class NavigationMemoryNode:
             # turn the four-second bridge into permanent stale authority.
             or route_lease_refresh_due
         )
-        if (
-            replan
-            and dense_candidate_plan is None
-            and self.dense_visibility_replan_is_pending()
-        ):
-            # The dense worker owns the expensive graph expansion.  Keep the
-            # timer callback responsive and leave any separately certified
-            # active prefix untouched.  With no old route, topology_guidance
-            # issues at most the forward-only online-mapping probe below.
-            self.visibility_last_replan_reason = "dense_replan_pending"
-            return self.visibility_plan, trimmed
         if replan:
             previous_plan = self.visibility_plan
             previous_path = list(trimmed)
@@ -3533,6 +4206,7 @@ class NavigationMemoryNode:
             if dense_candidate_plan is not None:
                 plan = dense_candidate_plan
                 candidate_origin = "DENSE"
+                candidate_evidence_revision = dense_source_revision
                 self.visibility_last_plan_duration_ms = (
                     self.visibility_dense_replan_last_duration_ms
                 )
@@ -3558,26 +4232,10 @@ class NavigationMemoryNode:
                         trajectory_points,
                         stamp,
                     )
-            else:
-                planning_started = time.perf_counter()
-                plan = self.visibility.plan(
-                    values,
-                    resolution,
-                    origin,
-                    current_xy,
-                    goal_xy,
-                    directed_failed_branches=directed_failed_branches,
-                    trajectory_points=trajectory_points,
-                    maximum_trajectory_vertices=(
-                        self.visibility_trajectory_bridge_maximum_nodes
-                    ),
-                    failure_buffer_m=self.topology.failure_buffer_m,
-                    start_yaw=float(map_pose[2]),
-                )
-                candidate_origin = "SPARSE"
-                self.visibility_last_plan_duration_ms = 1000.0 * (
-                    time.perf_counter() - planning_started
-                )
+            elif ordinary_candidate_plan is not None:
+                plan = ordinary_candidate_plan
+                candidate_origin = "SPARSE_CACHED"
+                candidate_evidence_revision = ordinary_source_revision
                 if (
                     plan.status in ("NO_ROUTE", "PASS")
                     and plan.node_limit_hit
@@ -3600,8 +4258,44 @@ class NavigationMemoryNode:
                         trajectory_points,
                         stamp,
                     )
+            elif connected_candidate_plan is not None:
+                # A complete ordinary/dense answer may have arrived while a
+                # committed multi-leg manoeuvre was still running.  Its
+                # escrowed, latest-grid-revalidated transaction must be
+                # consumable immediately after that manoeuvre releases, even
+                # before another raw graph query finishes.
+                plan = connected_candidate_plan
+                candidate_origin = "CONNECTED_ESCROW"
+                candidate_evidence_revision = int(
+                    self.visibility_connected_candidate_revision
+                )
+            else:
+                if not self.visibility_goal_transaction_is_current(
+                    expected_goal_epoch, goal_key
+                ):
+                    return None, []
+                self.queue_visibility_query(
+                    values,
+                    resolution,
+                    origin,
+                    current_xy,
+                    goal_xy,
+                    float(map_pose[2]),
+                    revision,
+                    directed_failed_branches,
+                    trajectory_points,
+                    stamp,
+                )
+                self.visibility_last_replan_reason = "cached_backend_pending"
+                if self.visibility_goal_transaction_is_current(
+                    expected_goal_epoch, goal_key
+                ):
+                    return self.visibility_plan, trimmed
+                return None, []
             raw_candidate_plan = plan
-            connected_candidate_selected = False
+            connected_candidate_selected = bool(
+                candidate_origin == "CONNECTED_ESCROW"
+            )
             if connected_candidate_plan is not None and (
                 dense_goal_connected
                 or not visibility_plan_is_goal_connected(plan)
@@ -3613,11 +4307,18 @@ class NavigationMemoryNode:
                     self.visibility_connected_candidate_suppressed_weaker += 1
                 plan = connected_candidate_plan
                 connected_candidate_selected = True
+                candidate_evidence_revision = int(
+                    self.visibility_connected_candidate_revision
+                )
                 candidate_origin = (
                     "DENSE_CONNECTED"
                     if dense_goal_connected
                     else "CONNECTED_ESCROW"
                 )
+            if not self.visibility_goal_transaction_is_current(
+                expected_goal_epoch, goal_key
+            ):
+                return None, []
             self.visibility_last_candidate_plan = plan
             self.visibility_goal_key = goal_key
             self.visibility_planned_revision = revision
@@ -3629,7 +4330,7 @@ class NavigationMemoryNode:
                 # Stability requires new occupancy content.  Replaying the
                 # same cached grid cannot turn one speculative side choice
                 # into independent evidence.
-                map_revision=int(revision),
+                map_revision=int(candidate_evidence_revision),
                 # Once local exploration moves the sensor to a genuinely new
                 # measured pose, the rebuilt visibility route is new
                 # geometric evidence even when the OccupancyGrid bytes are
@@ -3812,6 +4513,7 @@ class NavigationMemoryNode:
             )
             previous_route_safe = bool(
                 previous_route_motion_authorized
+                and not self.visibility_route_suffix_invalidated
                 and previous_plan is not None
                 and previous_plan.status == "PASS"
                 and len(previous_path) >= 2
@@ -3823,7 +4525,7 @@ class NavigationMemoryNode:
             )
             previous_goal_connected = visibility_plan_is_goal_connected(
                 previous_plan
-            )
+            ) and not self.visibility_route_suffix_invalidated
             handoff = (
                 self.visibility_route_cursor.preview_handoff(
                     plan.path,
@@ -3973,7 +4675,9 @@ class NavigationMemoryNode:
                 self.visibility_plan = previous_plan
                 self.visibility_active_route_accepted = previous_route_accepted
                 self.visibility_active_route_motion_authorized = True
-                self.visibility_route_validation_passed = True
+                self.visibility_route_validation_passed = bool(
+                    not self.visibility_route_suffix_invalidated
+                )
                 self.visibility_route_acquisition_reason = (
                     incumbent_retention_reason
                     if incumbent_retention_reason is not None
@@ -3991,6 +4695,7 @@ class NavigationMemoryNode:
                 )
             else:
                 self.visibility_plan = plan
+                self.visibility_route_suffix_invalidated = False
                 self.visibility_active_route_accepted = bool(
                     acquisition.accepted
                     or connected_known_immediate_authorized
@@ -4164,6 +4869,7 @@ class NavigationMemoryNode:
             and len(trimmed) >= 2
             and not self.visibility_active_route_motion_authorized
             and self.visibility_route_acquisition.motion_authorized
+            and not self.visibility_route_suffix_invalidated
         ):
             # Route evidence is unchanged, but real local motion may just have
             # completed the bootstrap distance.  Promote the already-stable
@@ -4202,6 +4908,10 @@ class NavigationMemoryNode:
                 int(revision),
                 self.visibility_initial_exploration_distance_m,
             )
+        if not self.visibility_goal_transaction_is_current(
+            expected_goal_epoch, goal_key
+        ):
+            return None, []
         return self.visibility_plan, trimmed
 
     def topology_guidance(self, map_pose, odom_pose, goal, stamp):

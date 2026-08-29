@@ -88,7 +88,7 @@ def main():
             "visibility_dense_replan_session",
             "FAR_PARTIAL_ATTEMPTABLE",
             "visibility_trajectory_points_map",
-            "trajectory_points=trajectory_points",
+            'trajectory_points=request["trajectory_points"]',
             "goal_connected_incumbent_retention_reason",
             "DISCARDED_STALE_SNAPSHOT",
             "live_dead_end_egress_reanchor",

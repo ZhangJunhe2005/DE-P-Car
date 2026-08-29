@@ -1,7 +1,7 @@
 {
   "active_control_authorized": false,
   "architecture_id": "dep_car_multimodal_v43_guarded_contextual_residual_closed_loop_hybrid_sequence_ackermann_15x6",
-  "authority_sha256": "b8034a3f88de2b81df53f030297e05ff9a77154bb3a9eda7fbea8242cf72da5e",
+  "authority_sha256": "aa24e14db1684ce4a9d345e74ca9b57822903a5f5ce3aec326187b0790cd89fe",
   "authority_status": "P6_SHADOW_AUTHORIZED",
   "checkpoint_contract_sha256": "6898eff068db8249d74973a125c8614b577cd460d1ca24ac0ec519919896dc1e",
   "checkpoint_sha256": "c89d5401774477caf11159495ee3d5e8eb3fbe6c95fe742ee0c8d528f0f535ac",

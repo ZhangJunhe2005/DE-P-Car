@@ -839,7 +839,10 @@ def test_node_capped_far_uses_process_local_background_dense_expansion():
     assert "and plan.node_limit_hit" in memory
     assert "and not plan.start_inside_inflation" in memory
     assert "and not plan.goal_inside_inflation" in memory
-    assert "name=\"dep_car_far_dense_%d\"" in memory
+    assert 'name="dep_car_far_cached_backend"' in memory
+    assert 'name="dep_car_far_dense_%d"' not in memory
+    assert memory.count("threading.Thread(") == 1
+    assert "visibility_dense_replan_worker_slice_s: 0.15" in config
     assert "daemon=True" in memory
     assert "FAR_DENSE_REPLAN_PENDING" in memory
     assert "visibility_dense_replan_session" in memory
@@ -847,7 +850,7 @@ def test_node_capped_far_uses_process_local_background_dense_expansion():
     assert "partial_frontier_authority" in memory
     assert "information_gain_partial_frontier" in runtime
     assert "visibility_trajectory_points_map" in memory
-    assert "trajectory_points=trajectory_points" in memory
+    assert 'trajectory_points=request["trajectory_points"]' in memory
     assert "visibility_trajectory_bridge_enabled: true" in config
     assert "visibility_trajectory_bridge_maximum_nodes: 64" in config
     assert 'plan.mode == "PARTIAL_ATTEMPTABLE"' in memory
@@ -857,6 +860,82 @@ def test_node_capped_far_uses_process_local_background_dense_expansion():
     assert '"map_identity_input": False' in memory
     assert "planning_request_epoch" in memory
     assert "occupancy_snapshot_version" in memory
+
+
+def test_ordinary_far_replan_uses_one_latest_only_cached_backend():
+    memory = (
+        ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
+    ).read_text(encoding="utf-8")
+    config = (
+        ROOT / "ros/dep_car_memory_navigation/config/navigation_memory.yaml"
+    ).read_text(encoding="utf-8")
+    runtime = (
+        ROOT / "dep_car/src/dep_car/runtime/far_visibility.py"
+    ).read_text(encoding="utf-8")
+
+    update_body = memory.split("def update_visibility_plan", 1)[1].split(
+        "def far_recovery_prefix_authorized", 1
+    )[0]
+    assert "self.visibility.plan(" not in update_body
+    assert 'name="dep_car_far_cached_backend"' in memory
+    assert memory.count('name="dep_car_far_cached_backend"') == 1
+    assert "self.visibility_query_request = proposal" in memory
+    assert "self.visibility_query_latest_replacements += 1" in memory
+    assert 'first["directed_failed_branches"]' in memory
+    assert 'first["trajectory_points"] == second["trajectory_points"]' in memory
+    assert "newest_outstanding_sequence" in memory
+    assert "self.visibility_query_superseded_discards += 1" in memory
+    assert "SPARSE_CACHED" in update_body
+    assert "cached_backend_pending" in update_body
+    assert "latest-grid route validation" in memory
+    assert '"single_planner_authority": True' in memory
+    assert '"cross_episode_route_cache": False' in memory
+    assert '"map_identity_input": False' in memory
+    assert "visibility_graph_cache_capacity: 1" in config
+    assert "compile_snapshot" in runtime
+    assert "plan_compiled" in runtime
+    assert "never a map/scenario identifier" in runtime
+
+    safety_check = memory.index("map_content_changed = bool(")
+    maneuver_return = memory.index(
+        "and not self.visibility_route_suffix_invalidated\n        ):"
+    )
+    assert safety_check < maneuver_return
+    assert "latest_map_invalidated_route_suffix" in memory
+    assert "longest_traversable_prefix" in memory
+
+
+def test_far_async_handoff_cannot_starve_or_restore_an_invalidated_suffix():
+    memory = (
+        ROOT / "ros/dep_car_memory_navigation/scripts/navigation_memory_node.py"
+    ).read_text(encoding="utf-8")
+
+    result_body = memory.split(
+        "def take_visibility_query_result", 1
+    )[1].split("def start_dense_visibility_replan", 1)[0]
+    assert "matching.sort(" in result_body
+    assert "for document in matching:" in result_body
+    assert 'plan.status == "PASS"' in result_body
+    assert "newest_current_negative" in result_body
+    assert "newest_outstanding_sequence <= negative_sequence" in result_body
+    # A newer in-flight pose request must not directly reject a completed,
+    # latest-grid-certified PASS.
+    assert "newest_outstanding_sequence > int(document" not in result_body
+
+    update_body = memory.split("def update_visibility_plan", 1)[1].split(
+        "def topology_guidance", 1
+    )[0]
+    invalidation = update_body.index(
+        '"latest_map_invalidated_route_suffix"'
+    )
+    cursor_reset = update_body.rfind("self.reset_visibility_cursor()", 0, invalidation)
+    assert cursor_reset >= 0
+    assert "self.visibility_route_suffix_invalidated = True" in update_body
+    assert "and not self.visibility_route_suffix_invalidated" in update_body
+    assert "or self.visibility_route_suffix_invalidated" in update_body
+    assert '"latest_map_safe_prefix_lease_expired"' in update_body
+    assert "visibility_goal_transaction_is_current" in update_body
+    assert "expected_goal_epoch" in update_body
 
 
 def test_observed_occupied_rviz_goal_is_rejected_before_local_exploration():

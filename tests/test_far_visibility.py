@@ -1,5 +1,6 @@
 import numpy as np
 import dep_car.runtime.far_visibility as far_visibility
+import pytest
 
 from dep_car.runtime.far_visibility import (
     DynamicVisibilityPlanner,
@@ -372,6 +373,258 @@ def alternating_baffle_grid():
         else:
             grid[55:, column - 2 : column + 2] = 100
     return grid
+
+
+def test_compiled_online_snapshot_reuses_geometry_without_changing_plan():
+    grid = alternating_baffle_grid()
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=40,
+        inflation_radius_m=0.20,
+        graph_cache_capacity=1,
+    )
+    original_segment_profile = planner._segment_profile
+    profile_calls = []
+
+    def counted_segment_profile(*args, **kwargs):
+        profile_calls.append(1)
+        return original_segment_profile(*args, **kwargs)
+
+    planner._segment_profile = counted_segment_profile
+    first_snapshot = planner.compile_snapshot(grid, 0.05, (0.0, 0.0))
+    first = planner.plan_compiled(
+        first_snapshot, (1.0, 5.0), (19.5, 5.0)
+    )
+    first_call_count = len(profile_calls)
+    first_statistics = planner.graph_cache_statistics()
+
+    second_snapshot = planner.compile_snapshot(grid, 0.05, (0.0, 0.0))
+    second = planner.plan_compiled(
+        second_snapshot, (1.0, 5.0), (19.5, 5.0)
+    )
+    second_call_count = len(profile_calls) - first_call_count
+    second_statistics = planner.graph_cache_statistics()
+
+    assert not first_snapshot.cache_hit
+    assert second_snapshot.cache_hit
+    assert second_snapshot.geometry is first_snapshot.geometry
+    assert second == first
+    assert first_statistics["segment_misses"] > 0
+    assert second_statistics["segment_hits"] > first_statistics["segment_hits"]
+    assert second_call_count < first_call_count
+
+
+def test_compiled_snapshot_is_exact_content_keyed_and_current_only():
+    first_grid = np.zeros((40, 40), dtype=np.int16)
+    second_grid = first_grid.copy()
+    second_grid[10, 10] = -1
+    planner = DynamicVisibilityPlanner(graph_cache_capacity=1)
+
+    first = planner.compile_snapshot(first_grid, 0.10, (-1.0, -1.0))
+    second = planner.compile_snapshot(second_grid, 0.10, (-1.0, -1.0))
+    first_again = planner.compile_snapshot(first_grid, 0.10, (-1.0, -1.0))
+
+    assert not first.cache_hit
+    assert not second.cache_hit
+    assert second.geometry is not first.geometry
+    # Capacity one deliberately prevents an older online snapshot from being
+    # resurrected after the map content has moved on.
+    assert not first_again.cache_hit
+    assert planner.graph_cache_statistics()["snapshots"] == 1
+
+
+def test_compiled_snapshot_ignores_probability_noise_with_same_cell_classes():
+    first_grid = np.zeros((40, 40), dtype=np.int16)
+    second_grid = first_grid.copy()
+    second_grid[10, 10] = 35
+    planner = DynamicVisibilityPlanner(graph_cache_capacity=1)
+
+    first = planner.compile_snapshot(first_grid, 0.10, (0.0, 0.0))
+    second = planner.compile_snapshot(second_grid, 0.10, (0.0, 0.0))
+
+    assert not first.cache_hit
+    assert second.cache_hit
+    assert second.geometry is first.geometry
+
+
+def test_compiled_snapshot_copies_input_and_includes_virtual_obstacles_in_key():
+    grid = np.zeros((60, 60), dtype=np.int16)
+    planner = DynamicVisibilityPlanner(graph_cache_capacity=1)
+    plain = planner.compile_snapshot(grid, 0.10, (0.0, 0.0))
+    grid[5, 5] = 100
+
+    assert int(plain.geometry.values[5, 5]) == 0
+    assert not plain.geometry.values.flags.writeable
+
+    blocked = planner.compile_snapshot(
+        np.zeros_like(grid),
+        0.10,
+        (0.0, 0.0),
+        blocked_polylines=(((1.0, 1.0), (4.0, 1.0)),),
+        failure_buffer_m=0.20,
+    )
+    assert blocked.geometry.key != plain.geometry.key
+
+
+def test_compiled_snapshot_rejects_foreign_or_changed_planner_contract():
+    grid = np.zeros((50, 50), dtype=np.int16)
+    owner = DynamicVisibilityPlanner(inflation_radius_m=0.20)
+    same_contract_foreign = DynamicVisibilityPlanner(inflation_radius_m=0.20)
+    foreign = DynamicVisibilityPlanner(inflation_radius_m=0.30)
+    snapshot = owner.compile_snapshot(grid, 0.10, (0.0, 0.0))
+
+    with pytest.raises(ValueError, match="different planner geometry"):
+        same_contract_foreign.plan_compiled(
+            snapshot, (1.0, 1.0), (3.0, 3.0)
+        )
+
+    with pytest.raises(ValueError, match="different planner geometry"):
+        foreign.plan_compiled(snapshot, (1.0, 1.0), (3.0, 3.0))
+
+    owner.inflation_radius_m = 0.25
+    with pytest.raises(ValueError, match="different planner geometry"):
+        owner.plan_compiled(snapshot, (1.0, 1.0), (3.0, 3.0))
+
+
+def test_compiled_blocked_geometry_requires_matching_failure_buffer():
+    grid = np.zeros((60, 60), dtype=np.int16)
+    planner = DynamicVisibilityPlanner()
+    snapshot = planner.compile_snapshot(
+        grid,
+        0.10,
+        (0.0, 0.0),
+        blocked_polylines=(((2.0, 1.0), (2.0, 4.0)),),
+        failure_buffer_m=0.20,
+    )
+
+    with pytest.raises(ValueError, match="failure buffer differ"):
+        planner.plan_compiled(
+            snapshot,
+            (1.0, 2.5),
+            (4.0, 2.5),
+            failure_buffer_m=0.30,
+        )
+
+
+def test_dynamic_trajectory_edges_do_not_grow_static_segment_cache():
+    grid = np.zeros((80, 80), dtype=np.int16)
+    planner = DynamicVisibilityPlanner(maximum_nodes=30)
+    snapshot = planner.compile_snapshot(grid, 0.10, (0.0, 0.0))
+
+    for offset in np.linspace(0.0, 1.0, 20):
+        planner.plan_compiled(
+            snapshot,
+            (0.5, 0.5),
+            (7.0, 7.0),
+            trajectory_points=(
+                (1.0 + float(offset), 2.0),
+                (3.0 + float(offset), 4.0),
+                (5.0 + float(offset), 6.0),
+            ),
+        )
+
+    assert planner.graph_cache_statistics()["segments"] == 0
+
+
+def test_progressive_dense_search_reuses_current_compiled_geometry():
+    grid = alternating_baffle_grid()
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=40,
+        inflation_radius_m=0.20,
+        graph_cache_capacity=1,
+    )
+    planner.plan(grid, 0.05, (0.0, 0.0), (1.0, 5.0), (19.5, 5.0))
+    before = planner.graph_cache_statistics()
+
+    result, session = planner.plan_progressive(
+        grid,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        initial_maximum_nodes=40,
+        maximum_nodes=80,
+        node_step=8,
+        time_budget_s=0.10,
+        return_session=True,
+    )
+    after = planner.graph_cache_statistics()
+
+    assert result is not None
+    assert session.compiled_snapshot.cache_hit
+    assert before["generations"] == after["generations"] == 1
+    assert after["lifetime_segment_hits"] > before["lifetime_segment_hits"]
+
+
+def test_progressive_session_survives_free_probability_noise():
+    grid = alternating_baffle_grid()
+    grid[200, 10] = 35
+    grid[200, 20] = 49
+    planner = DynamicVisibilityPlanner(
+        maximum_nodes=40,
+        inflation_radius_m=0.20,
+        graph_cache_capacity=1,
+    )
+    arguments = dict(
+        initial_maximum_nodes=40,
+        maximum_nodes=160,
+        node_step=8,
+        time_budget_s=0.05,
+        return_session=True,
+    )
+
+    _, session = planner.plan_progressive(
+        grid,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        **arguments,
+    )
+    completed_stages = session.next_stage_index
+    probability_noise = grid.copy()
+    probability_noise[200, 10] = 49
+    probability_noise[200, 20] = 35
+    _, resumed = planner.plan_progressive(
+        probability_noise,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        session=session,
+        **arguments,
+    )
+
+    assert resumed is session
+    assert resumed.next_stage_index >= completed_stages
+    assert resumed.compiled_snapshot.geometry.values[200, 10] == 0
+    assert resumed.compiled_snapshot.geometry.values[200, 20] == 0
+
+    changed_class = probability_noise.copy()
+    changed_class[200, 10] = -1
+    _, rebuilt = planner.plan_progressive(
+        changed_class,
+        0.05,
+        (0.0, 0.0),
+        (1.0, 5.0),
+        (19.5, 5.0),
+        session=resumed,
+        **arguments,
+    )
+    assert rebuilt is not resumed
+
+
+def test_latest_route_validation_rejects_occupied_shared_waypoint():
+    grid = np.zeros((80, 80), dtype=np.int16)
+    planner = DynamicVisibilityPlanner(inflation_radius_m=0.10)
+    route = ((1.0, 2.0), (3.0, 2.0), (5.0, 2.0))
+    assert planner.path_is_traversable(route, grid, 0.05, (0.0, 0.0))
+
+    row = int(2.0 / 0.05)
+    column = int(3.0 / 0.05)
+    grid[row, column] = 100
+    assert not planner.path_is_traversable(
+        route, grid, 0.05, (0.0, 0.0)
+    )
 
 
 def test_node_capped_disconnect_exposes_safe_prefix_while_dense_graph_expands():

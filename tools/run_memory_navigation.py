@@ -911,7 +911,9 @@ def implementation_audit(config):
             and "observe_initial_local_exploration" in memory_source
             and "far_bootstrap_motion_authorized" in memory_source
             and "same cached grid cannot turn one speculative" in memory_source
-            and "and (not high_detour or sufficiently_observed)"
+            and "sufficiently_observed = bool(" in visibility_runtime_source
+            and "and sufficiently_observed" in visibility_runtime_source
+            and "self.confirmations >= required_confirmations"
             in visibility_runtime_source
             and "forward_exit_verified" in local_source
             and "last_completed_reason" in local_source

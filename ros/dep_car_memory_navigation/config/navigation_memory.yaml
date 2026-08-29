@@ -48,6 +48,7 @@ visibility_dense_replan_initial_nodes: 192
 visibility_dense_replan_maximum_nodes: 320
 visibility_dense_replan_node_step: 32
 visibility_dense_replan_time_budget_s: 2.5
+visibility_dense_replan_worker_slice_s: 0.15
 visibility_dense_replan_retry_period_s: 1.5
 # A background solve owns an immutable online-map snapshot.  A result from an
 # older revision is consumed only after its complete path passes the newest
@@ -59,6 +60,7 @@ visibility_dense_replan_maximum_start_drift_m: 0.45
 # a rearward route remains available when topology genuinely requires it.
 visibility_start_heading_weight_m: 1.20
 visibility_reverse_start_penalty_m: 2.00
+visibility_graph_cache_capacity: 1
 # A new SLAM revision first revalidates the committed route.  Attemptable
 # routes are refreshed as their unknown cells become observed, and a rolling
 # renewal starts before DE-P consumes the route suffix.  A safe accepted suffix
